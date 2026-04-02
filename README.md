@@ -57,6 +57,7 @@ backend/
   controllers/
     chatController.js        Per-turn chat orchestration
     personalityController.js Personality CRUD with mood init
+    memoryController.js      Memory fact CRUD (list / edit / delete)
     researchController.js    Research pipeline endpoint
     ttsController.js         TTS endpoint
   routes/
@@ -70,6 +71,7 @@ frontend/
       PersonalityForm.jsx    Character builder + research panel
       PersonalityList.jsx    Character selector cards
       ChatWindow.jsx         Chat UI with mood indicator
+      MemoryJournal.jsx      Memory fact viewer / editor
 
 concepts/layouts/            AI-generated design references (characters, UI, logo, ambient avatar)
 ```
@@ -151,6 +153,7 @@ Each personality is stored as a single SQLite row with the following fields:
 | `voiceProfile` | JSON object | TTS settings: provider, voice, pitch, rate, enabled, autoplay |
 | `moodBaseline` | JSON object | VAD vector `{valence, arousal, dominance}` — the character's emotional "home" |
 | `moodState` | JSON object | VAD vector — live affective state, updated each turn |
+| `moodSensitivity` | number | Emotional reactivity multiplier (0.1–3.0, default 1.0). At 1.0 the automatic trait+context stack is used; any other value overrides it directly. |
 
 The `coreValues` column name avoids a SQLite reserved word conflict; it is aliased to `values` in the JavaScript model layer.
 
@@ -199,6 +202,8 @@ The `personality_memory` table stores facts the character learns about the user 
 
 - **Importance ≥ 9 — Anchor facts.** Shown in `== IMMUTABLE IDENTITY ANCHORS ==`. Never deleted by the pruning pass. These represent things the character must never forget (core identity-defining revelations, deep relationship facts).
 - **Importance 1–8 — Standard context.** Shown in `== ESTABLISHED CONTEXT ==`. Limited to 50 per personality. When the cap is reached, only non-anchor facts compete for eviction (oldest, least important first).
+
+**Memory Journal** — the frontend exposes a dedicated Memory Journal tab where you can browse, edit, and delete every fact a character has stored. Each fact shows its type badge (color-coded), importance score, an anchor marker for importance ≥ 9 facts, and creation/update timestamps. Type filter pills let you isolate villain-specific memory types (`scheme`, `grudge`, `leverage`, etc.) from general ones. Editing opens an inline form to change content, type, and importance without leaving the page. Deleting removes the fact immediately and re-renders the list.
 
 ---
 
@@ -262,6 +267,7 @@ Each context also has a unique **drift note** used in reconditioning anchors. Fo
 2. **Sensitivity stack** — the raw impact is multiplied by the character's sensitivity, computed from two layers:
    - *Context base*: antagonist = 0.75×, default = 1.0×, morally complex = 1.2×, anti-hero = 1.1×, tragic villain = 1.4×
    - *Trait modifier*: trait text is regex-tested for sensitivity keywords — `sensitive/empathetic` = ×1.35, `stoic/cold/calculating` = ×0.55, `volatile/passionate` = ×1.45, `patient/measured` = ×0.7. Multipliers stack.
+   - *Override*: if `moodSensitivity` is set to any value other than 1.0 in the personality form, that value is used directly instead of the context+trait stack, providing explicit per-character control. The slider ranges from 0.1 (near-flat emotional response) to 3.0 (highly volatile).
 
 3. **Momentum blend** — the new target mood is blended with the current mood at a 0.75 coefficient, smoothing rapid swings.
 
@@ -336,17 +342,26 @@ Memory extraction (step 14) is deferred so the HTTP response returns without wai
 
 ## How It Works — Frontend
 
-**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the builder and chat tabs. When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
+**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the three tabs. When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
 
 **`PersonalityForm.jsx`** is the character builder. It manages a controlled form with fields for every personality property. The research panel lets users enter a subject query and source URLs; hitting Research calls the backend pipeline and auto-fills the form. Fields:
 - Basic: name, description, traits, quirks, mood
 - Narrative: creative context (select), behavior rules (textarea — one rule per line), goals (comma-separated), values (comma-separated)
+- Mood: sensitivity slider (0.1–3.0, step 0.05) — sets `moodSensitivity`; live value shown on the label
 - Voice: speech style, notable phrases, TTS provider/voice/pitch/rate/enabled/autoplay
 - Research: source query, source URL list, ranked source cards with per-source enable/disable
 
 **`PersonalityList.jsx`** renders a card per personality. Each card shows the live `moodLabel` (updated after each chat turn), a `creativeContext` badge when the context is non-default, and counts for traits, quirks, and sources.
 
 **`ChatWindow.jsx`** is the chat interface. The header shows a VAD-driven mood dot (colored by valence) next to the character name and the character's description below it. The message list renders user and assistant bubbles. The composer is a `<textarea>` that submits on Enter (Shift+Enter for newline). The voice panel exposes TTS settings and a button to generate/play the last assistant reply.
+
+**`MemoryJournal.jsx`** is the Memory Journal tab. It fetches all memory facts for the selected personality and renders them sorted by importance. Features:
+- Color-coded type badges distinguish `fact`, `preference`, `relationship`, `event` from villain types (`scheme`, `grudge`, `leverage`, `target_weakness`, `debt`)
+- Gold anchor badge on any fact with importance ≥ 9
+- Type filter pills to isolate a specific memory type
+- Inline edit form per row: change content, memoryType, and importance without navigating away
+- Delete button per row with instant list update
+- Refresh button to pull the latest state from the database
 
 ---
 
@@ -360,6 +375,9 @@ Memory extraction (step 14) is deferred so the HTTP response returns without wai
 | `PUT` | `/personality/:id` | Update a personality |
 | `DELETE` | `/personality/:id` | Delete a personality |
 | `GET` | `/personality/:id/messages` | Get chat history for a personality |
+| `GET` | `/personality/:id/memory` | Get all memory facts for a personality |
+| `PUT` | `/memory/:memoryId` | Edit a memory fact (content, memoryType, importance) |
+| `DELETE` | `/memory/:memoryId` | Delete a memory fact |
 | `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel}` |
 | `POST` | `/research` | Run the research pipeline for a query + URL list |
 | `POST` | `/tts` | Generate TTS audio for a text string |
