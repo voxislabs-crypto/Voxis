@@ -40,3 +40,9 @@ export function getChatMessages(personalityId, limit = 50) {
 
   return statement.all(personalityId, limit).reverse();
 }
+
+export function getChatMessageCount(personalityId) {
+  return db
+    .prepare(`SELECT COUNT(*) AS count FROM chat_messages WHERE personalityId = ?`)
+    .get(personalityId).count;
+}

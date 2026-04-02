@@ -6,18 +6,20 @@ import ChatWindow from "./components/ChatWindow.jsx";
 
 const appStyles = `
   :root {
-    color-scheme: light;
-    --bg: #f7efe2;
-    --bg-strong: #f2dfc4;
-    --panel: rgba(255, 250, 242, 0.85);
-    --panel-strong: rgba(255, 248, 235, 0.96);
-    --border: rgba(75, 48, 22, 0.14);
-    --text: #2f1c11;
-    --muted: #795540;
-    --accent: #bf5a2a;
-    --accent-deep: #7f2d12;
-    --accent-soft: #ffd39e;
-    --shadow: 0 30px 80px rgba(110, 63, 28, 0.18);
+    color-scheme: dark;
+    --bg: #060c18;
+    --bg-strong: #0a1220;
+    --panel: rgba(10, 18, 34, 0.80);
+    --panel-strong: rgba(12, 22, 42, 0.96);
+    --border: rgba(0, 180, 255, 0.14);
+    --text: #dde6f2;
+    --muted: #6d80a0;
+    --accent: #00c8ff;
+    --accent-deep: #0050e0;
+    --accent-soft: rgba(0, 200, 255, 0.10);
+    --accent-warm: #ff7a38;
+    --accent-magenta: #b83cf8;
+    --shadow: 0 24px 64px rgba(0, 40, 120, 0.40);
   }
 
   * {
@@ -31,9 +33,9 @@ const appStyles = `
     font-family: "Manrope", sans-serif;
     color: var(--text);
     background:
-      radial-gradient(circle at top left, rgba(255, 216, 169, 0.8), transparent 32%),
-      radial-gradient(circle at right 15%, rgba(191, 90, 42, 0.18), transparent 26%),
-      linear-gradient(145deg, #fbf5eb 0%, #f4e4c8 45%, #e9d2b2 100%);
+      radial-gradient(ellipse 60% 40% at 10% 5%, rgba(0, 80, 180, 0.16), transparent),
+      radial-gradient(ellipse 50% 35% at 88% 90%, rgba(140, 20, 210, 0.12), transparent),
+      linear-gradient(160deg, #040810 0%, #060c18 55%, #07091a 100%);
   }
 
   button,
@@ -60,35 +62,46 @@ const appStyles = `
     position: relative;
     overflow: hidden;
     margin-bottom: 20px;
-    padding: 28px;
-    border: 1px solid var(--border);
+    padding: 28px 32px;
+    border: 1px solid rgba(0, 180, 255, 0.22);
     border-radius: 28px;
-    background: linear-gradient(135deg, rgba(255, 248, 237, 0.9), rgba(255, 226, 188, 0.88));
-    box-shadow: var(--shadow);
+    background: linear-gradient(135deg, rgba(8, 18, 38, 0.92), rgba(6, 14, 30, 0.88));
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(0, 200, 255, 0.07);
+    backdrop-filter: blur(16px);
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(0, 180, 255, 0.06), rgba(160, 32, 240, 0.05), transparent 60%);
+    pointer-events: none;
   }
 
   .hero::after {
     content: "";
     position: absolute;
     inset: auto -80px -110px auto;
-    width: 240px;
-    height: 240px;
+    width: 280px;
+    height: 280px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(191, 90, 42, 0.2), transparent 70%);
+    background: radial-gradient(circle, rgba(0, 180, 255, 0.09), transparent 65%);
+    pointer-events: none;
   }
 
   .eyebrow {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 7px 14px;
     border-radius: 999px;
-    background: rgba(255, 245, 230, 0.86);
-    border: 1px solid rgba(127, 45, 18, 0.12);
-    color: var(--accent-deep);
-    font-size: 0.8rem;
+    background: rgba(0, 180, 255, 0.08);
+    border: 1px solid rgba(0, 180, 255, 0.24);
+    color: var(--accent);
+    font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
   }
 
@@ -103,11 +116,15 @@ const appStyles = `
 
   .hero h1 {
     margin: 16px 0 12px;
-    max-width: 10ch;
-    font-family: "Fraunces", serif;
-    font-size: clamp(3rem, 5vw, 5.2rem);
-    line-height: 0.92;
-    letter-spacing: -0.06em;
+    max-width: 12ch;
+    font-size: clamp(2.8rem, 5vw, 5rem);
+    font-weight: 800;
+    line-height: 0.94;
+    letter-spacing: -0.05em;
+    background: linear-gradient(135deg, #ffffff 30%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
   .hero p {
@@ -121,15 +138,15 @@ const appStyles = `
   .hero-callout {
     padding: 20px;
     border-radius: 22px;
-    background: rgba(255, 251, 245, 0.78);
-    border: 1px solid rgba(127, 45, 18, 0.1);
+    background: rgba(0, 180, 255, 0.05);
+    border: 1px solid rgba(0, 180, 255, 0.14);
   }
 
   .hero-callout strong {
     display: block;
     margin-bottom: 8px;
-    color: var(--accent-deep);
-    font-size: 0.9rem;
+    color: var(--accent);
+    font-size: 0.85rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
@@ -137,7 +154,7 @@ const appStyles = `
   .hero-callout span {
     display: block;
     line-height: 1.7;
-    color: var(--text);
+    color: var(--muted);
   }
 
   .workspace {
@@ -151,7 +168,7 @@ const appStyles = `
     border-radius: 26px;
     background: var(--panel);
     box-shadow: var(--shadow);
-    backdrop-filter: blur(12px);
+    backdrop-filter: blur(16px);
   }
 
   .sidebar {
@@ -164,27 +181,31 @@ const appStyles = `
 
   .tabs {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     padding: 20px 20px 0;
   }
 
   .tab {
-    padding: 12px 18px;
-    border: 1px solid rgba(127, 45, 18, 0.14);
+    padding: 11px 18px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
     border-radius: 999px;
-    background: rgba(255, 250, 242, 0.8);
+    background: rgba(0, 180, 255, 0.04);
     color: var(--muted);
     font-weight: 700;
-    transition: transform 180ms ease, background 180ms ease, color 180ms ease;
+    transition: transform 180ms ease, background 180ms ease, color 180ms ease, border-color 180ms ease;
   }
 
   .tab:hover {
     transform: translateY(-1px);
+    border-color: rgba(0, 180, 255, 0.28);
+    color: var(--text);
   }
 
   .tab.active {
     background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-    color: #fff7f0;
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(0, 160, 255, 0.30);
   }
 
   .main-content {
@@ -193,28 +214,32 @@ const appStyles = `
 
   .status {
     margin-top: 16px;
-    padding: 12px 14px;
+    padding: 12px 16px;
     border-radius: 16px;
     font-size: 0.95rem;
   }
 
   .status.error {
-    background: rgba(160, 27, 27, 0.08);
-    color: #8c1d18;
-    border: 1px solid rgba(140, 29, 24, 0.12);
+    background: rgba(240, 40, 40, 0.08);
+    color: #ff7272;
+    border: 1px solid rgba(240, 40, 40, 0.18);
   }
 
   .status.success {
-    background: rgba(25, 107, 59, 0.08);
-    color: #1f6b3b;
-    border: 1px solid rgba(31, 107, 59, 0.12);
+    background: rgba(0, 200, 120, 0.08);
+    color: #3ae0a0;
+    border: 1px solid rgba(0, 200, 120, 0.18);
   }
 
   .section-heading {
     margin: 0 0 8px;
-    font-family: "Fraunces", serif;
-    font-size: 1.9rem;
+    font-size: 1.8rem;
+    font-weight: 800;
     letter-spacing: -0.04em;
+    background: linear-gradient(135deg, #ffffff 40%, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
   .section-copy {
@@ -226,17 +251,17 @@ const appStyles = `
   .meta-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 20px;
   }
 
   .meta-pill {
-    padding: 10px 14px;
+    padding: 8px 14px;
     border-radius: 999px;
-    background: rgba(255, 248, 237, 0.92);
-    border: 1px solid rgba(127, 45, 18, 0.1);
-    color: var(--accent-deep);
-    font-size: 0.9rem;
+    background: rgba(0, 180, 255, 0.07);
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    color: var(--accent);
+    font-size: 0.88rem;
     font-weight: 700;
   }
 
@@ -452,6 +477,16 @@ export default function App() {
           { role: "assistant", content: data.reply },
         ],
       }));
+
+      if (data.moodState || data.moodLabel) {
+        setPersonalities((current) =>
+          current.map((p) =>
+            p.id === personalityId
+              ? { ...p, moodState: data.moodState, moodLabel: data.moodLabel }
+              : p
+          )
+        );
+      }
     } catch (error) {
       setChatLogs((current) => ({
         ...current,
@@ -543,7 +578,12 @@ export default function App() {
                   {selectedPersonality ? (
                     <div className="meta-row">
                       <span className="meta-pill">Active: {selectedPersonality.name}</span>
-                      <span className="meta-pill">Mood: {selectedPersonality.mood}</span>
+                      <span className="meta-pill">
+                        Mood: {selectedPersonality.moodLabel || selectedPersonality.mood}
+                      </span>
+                      {selectedPersonality.creativeContext && selectedPersonality.creativeContext !== "default" && (
+                        <span className="meta-pill">{selectedPersonality.creativeContext.replace(/_/g, " ")}</span>
+                      )}
                       <span className="meta-pill">
                         Traits: {selectedPersonality.traits.length}
                       </span>

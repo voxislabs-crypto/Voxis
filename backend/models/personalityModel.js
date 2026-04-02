@@ -41,6 +41,12 @@ function normalizeRow(row) {
     sourceUrls: parseJsonArray(row.sourceUrls),
     notablePhrases: parseJsonArray(row.notablePhrases),
     researchSources: parseResearchSources(row.researchSources),
+    behaviorRules: parseJsonArray(row.behaviorRules),
+    goals: parseJsonArray(row.goals),
+    values: parseJsonArray(row.coreValues),
+    creativeContext: row.creativeContext || "default",
+    moodBaseline: parseJsonObject(row.moodBaseline, {}),
+    moodState: parseJsonObject(row.moodState, {}),
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
@@ -68,7 +74,13 @@ export function createPersonality(personality) {
       speechStyle,
       notablePhrases,
       researchSources,
-      voiceProfile
+      voiceProfile,
+      behaviorRules,
+      goals,
+      coreValues,
+      creativeContext,
+      moodBaseline,
+      moodState
     )
     VALUES (
       @name,
@@ -83,7 +95,13 @@ export function createPersonality(personality) {
       @speechStyle,
       @notablePhrases,
       @researchSources,
-      @voiceProfile
+      @voiceProfile,
+      @behaviorRules,
+      @goals,
+      @coreValues,
+      @creativeContext,
+      @moodBaseline,
+      @moodState
     )
   `);
 
@@ -95,6 +113,12 @@ export function createPersonality(personality) {
     notablePhrases: JSON.stringify(personality.notablePhrases || []),
     researchSources: JSON.stringify(personality.researchSources || []),
     voiceProfile: JSON.stringify(personality.voiceProfile || {}),
+    behaviorRules: JSON.stringify(personality.behaviorRules || []),
+    goals: JSON.stringify(personality.goals || []),
+    coreValues: JSON.stringify(personality.values || []),
+    creativeContext: personality.creativeContext || "default",
+    moodBaseline: JSON.stringify(personality.moodBaseline || {}),
+    moodState: JSON.stringify(personality.moodState || {}),
   });
 
   return getPersonalityById(result.lastInsertRowid);
@@ -116,7 +140,13 @@ export function getAllPersonalities() {
       speechStyle,
       notablePhrases,
       researchSources,
-      voiceProfile
+      voiceProfile,
+      behaviorRules,
+      goals,
+      coreValues,
+      creativeContext,
+      moodBaseline,
+      moodState
     FROM personalities
     ORDER BY id DESC
   `);
@@ -140,7 +170,13 @@ export function getPersonalityById(id) {
       speechStyle,
       notablePhrases,
       researchSources,
-      voiceProfile
+      voiceProfile,
+      behaviorRules,
+      goals,
+      coreValues,
+      creativeContext,
+      moodBaseline,
+      moodState
     FROM personalities
     WHERE id = ?
   `);
@@ -157,5 +193,12 @@ export function updatePersonalityVoiceProfile(id, voiceProfile) {
 
   statement.run(JSON.stringify(voiceProfile), id);
   return getPersonalityById(id);
+}
+
+export function updateMoodState(id, moodState) {
+  db.prepare(`UPDATE personalities SET moodState = ? WHERE id = ?`).run(
+    JSON.stringify(moodState),
+    id,
+  );
 }
 

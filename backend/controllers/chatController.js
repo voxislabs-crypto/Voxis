@@ -1,6 +1,34 @@
-import { getPersonalityById } from "../models/personalityModel.js";
-import { createChatMessage, getChatMessages, getRecentChatMessages } from "../models/chatModel.js";
-import { generateChatCompletion } from "../services/llmService.js";
+import { getPersonalityById, updateMoodState } from "../models/personalityModel.js";
+import { createChatMessage, getChatMessages, getRecentChatMessages, getChatMessageCount } from "../models/chatModel.js";
+import { getPersonalityMemory, upsertMemoryFact, pruneMemory } from "../models/memoryModel.js";
+import {
+  generateChatCompletion,
+  buildPersonaSystemPrompt,
+  buildPersonaAnchor,
+  extractMemoryFacts,
+} from "../services/llmService.js";
+import {
+  stepMood,
+  moodFromLabel,
+  moodToPromptFragment,
+  moodToLabel,
+} from "../services/moodEngine.js";
+
+// Reconditioning cadence: antagonist/dark contexts drift faster, so we anchor more often.
+const RECONDITION_CADENCE = {
+  narrative_antagonist: 4,
+  anti_hero: 4,
+  tragic_villain: 5,
+  morally_complex: 6,
+  default: 6,
+};
+
+function getReconditionEvery(creativeContext) {
+  return RECONDITION_CADENCE[creativeContext] ?? RECONDITION_CADENCE.default;
+}
+
+// Maximum number of long-term memory facts to retain per personality.
+const MEMORY_MAX = 50;
 
 export async function chatHandler(req, res, next) {
   try {
@@ -21,28 +49,94 @@ export async function chatHandler(req, res, next) {
       return res.status(404).json({ error: "Personality not found." });
     }
 
-    const history = getRecentChatMessages(personalityId, 10).map((messageEntry) => ({
-      role: messageEntry.role,
-      content: messageEntry.content,
+    // ---------------------------------------------------------------------------
+    // Mood engine: advance the VAD state for this turn, persist before LLM call.
+    // Baselines fall back to moodFromLabel if the column was added after creation.
+    // ---------------------------------------------------------------------------
+    const moodBaseline =
+      "valence" in personality.moodBaseline
+        ? personality.moodBaseline
+        : moodFromLabel(personality.mood);
+
+    const currentMood =
+      "valence" in personality.moodState
+        ? personality.moodState
+        : { ...moodBaseline };
+
+    const newMood = stepMood({
+      currentMood,
+      baseline: moodBaseline,
+      message,
+      personality,
+    });
+
+    // Persist synchronously before the LLM call so mood influences this response.
+    updateMoodState(personalityId, newMood);
+
+    // Fetch long-term memory facts and build the dynamic, memory-enriched system prompt.
+    const memoryFacts = getPersonalityMemory(personalityId, 20);
+    const systemPrompt = buildPersonaSystemPrompt(personality, memoryFacts);
+
+    // Fetch recent conversation history.
+    const history = getRecentChatMessages(personalityId, 10).map((m) => ({
+      role: m.role,
+      content: m.content,
     }));
+
     const messages = [
-      {
-        role: "system",
-        content: personality.systemPrompt,
-      },
+      { role: "system", content: systemPrompt },
       ...history,
-      {
-        role: "user",
-        content: message,
-      },
     ];
+
+    // Periodic reconditioning: inject a compressed persona anchor every N turns to
+    // counter personality drift. Cadence is tighter for antagonist contexts.
+    const reconditionEvery = getReconditionEvery(personality.creativeContext);
+    const totalMessages = getChatMessageCount(personalityId);
+    if (totalMessages > 0 && totalMessages % reconditionEvery === 0) {
+      messages.push({ role: "system", content: buildPersonaAnchor(personality) });
+    }
+
+    // Mood fragment injected as a late system message for recency-bias advantage.
+    // Sits just before the user turn so it's the freshest contextual signal the
+    // model sees when generating the response.
+    const moodFragment = moodToPromptFragment(newMood, moodBaseline);
+    if (moodFragment) {
+      messages.push({ role: "system", content: moodFragment });
+    }
+
+    messages.push({ role: "user", content: message });
 
     const reply = await generateChatCompletion(messages);
 
     createChatMessage({ personalityId, role: "user", content: message });
     createChatMessage({ personalityId, role: "assistant", content: reply });
 
-    return res.json({ reply });
+    // Async memory extraction — fires after the response is returned so it never
+    // adds latency to the user-facing request. Failures are silently swallowed.
+    setImmediate(async () => {
+      try {
+        const newFacts = await extractMemoryFacts({
+          personality,
+          recentMessages: [
+            { role: "user", content: message },
+            { role: "assistant", content: reply },
+          ],
+          existingFacts: memoryFacts,
+        });
+
+        for (const fact of newFacts) {
+          upsertMemoryFact(personalityId, fact.content, fact.memoryType, fact.importance);
+        }
+
+        if (newFacts.length > 0) {
+          pruneMemory(personalityId, MEMORY_MAX);
+        }
+      } catch {
+        // Memory extraction failure is non-fatal.
+      }
+    });
+
+    return res.json({ reply, isAI: true, moodState: newMood, moodLabel: moodToLabel(newMood) });
   } catch (error) {
     return next(error);
   }

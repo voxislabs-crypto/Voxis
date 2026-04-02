@@ -14,31 +14,38 @@ const formStyles = `
   .field {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
   }
 
   .field label {
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 700;
-    color: #6a4332;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
 
   .field input,
   .field textarea {
     width: 100%;
-    padding: 14px 16px;
-    border: 1px solid rgba(75, 48, 22, 0.12);
-    border-radius: 18px;
-    background: rgba(255, 252, 246, 0.95);
-    color: #2f1c11;
+    padding: 13px 16px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 16px;
+    background: rgba(6, 14, 28, 0.88);
+    color: var(--text);
     transition: border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .field input::placeholder,
+  .field textarea::placeholder {
+    color: rgba(109, 128, 160, 0.50);
   }
 
   .field input:focus,
   .field textarea:focus {
     outline: none;
-    border-color: rgba(191, 90, 42, 0.55);
-    box-shadow: 0 0 0 4px rgba(191, 90, 42, 0.12);
+    border-color: rgba(0, 180, 255, 0.42);
+    box-shadow: 0 0 0 3px rgba(0, 180, 255, 0.08);
   }
 
   .field textarea {
@@ -51,8 +58,10 @@ const formStyles = `
   }
 
   .field small {
-    color: #795540;
+    color: var(--muted);
+    font-size: 0.8rem;
     line-height: 1.5;
+    opacity: 0.75;
   }
 
   .creator-actions {
@@ -60,43 +69,55 @@ const formStyles = `
     align-items: center;
     justify-content: space-between;
     gap: 14px;
-    margin-top: 18px;
+    margin-top: 20px;
     flex-wrap: wrap;
   }
 
   .creator-note {
     max-width: 50ch;
-    color: #795540;
+    color: var(--muted);
     line-height: 1.6;
-    font-size: 0.95rem;
+    font-size: 0.93rem;
   }
 
   .primary-button {
-    padding: 14px 22px;
+    padding: 13px 22px;
     border: 0;
     border-radius: 999px;
-    background: linear-gradient(135deg, #bf5a2a, #7f2d12);
-    color: #fff8f2;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fff;
     font-weight: 800;
     letter-spacing: 0.01em;
+    box-shadow: 0 4px 16px rgba(0, 160, 255, 0.28);
+    transition: opacity 180ms, transform 180ms;
+  }
+
+  .primary-button:hover:not(:disabled) {
+    transform: translateY(-1px);
   }
 
   .primary-button:disabled {
-    opacity: 0.72;
+    opacity: 0.60;
     cursor: wait;
   }
 
   .secondary-button {
-    padding: 14px 22px;
-    border: 1px solid rgba(127, 45, 18, 0.14);
+    padding: 13px 22px;
+    border: 1px solid rgba(0, 180, 255, 0.20);
     border-radius: 999px;
-    background: rgba(255, 250, 242, 0.92);
-    color: #7f2d12;
-    font-weight: 800;
+    background: rgba(0, 180, 255, 0.06);
+    color: var(--accent);
+    font-weight: 700;
+    transition: background 180ms, border-color 180ms;
+  }
+
+  .secondary-button:hover:not(:disabled) {
+    background: rgba(0, 180, 255, 0.12);
+    border-color: rgba(0, 180, 255, 0.32);
   }
 
   .secondary-button:disabled {
-    opacity: 0.72;
+    opacity: 0.60;
     cursor: wait;
   }
 
@@ -108,6 +129,7 @@ const formStyles = `
 
   .voice-slider {
     width: 100%;
+    accent-color: var(--accent);
   }
 
   .checkbox-row {
@@ -115,32 +137,37 @@ const formStyles = `
     align-items: center;
     gap: 10px;
     padding-top: 34px;
+    color: var(--muted);
+    font-size: 0.92rem;
   }
 
   .checkbox-row input {
     width: 18px;
     height: 18px;
+    accent-color: var(--accent);
   }
 
   .research-panel {
     margin-top: 18px;
     padding: 18px;
-    border: 1px solid rgba(127, 45, 18, 0.1);
-    border-radius: 22px;
-    background: rgba(255, 248, 237, 0.72);
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 20px;
+    background: rgba(0, 180, 255, 0.03);
   }
 
   .research-panel h3 {
     margin: 0 0 8px;
-    font-family: "Fraunces", serif;
-    font-size: 1.35rem;
+    font-size: 1.2rem;
+    font-weight: 800;
     letter-spacing: -0.03em;
+    color: var(--text);
   }
 
   .research-panel p {
     margin: 0 0 14px;
-    color: #795540;
+    color: var(--muted);
     line-height: 1.6;
+    font-size: 0.93rem;
   }
 
   .research-meta {
@@ -151,11 +178,12 @@ const formStyles = `
   }
 
   .research-meta span {
-    padding: 7px 10px;
+    padding: 5px 10px;
     border-radius: 999px;
-    background: rgba(255, 216, 169, 0.28);
-    color: #7f2d12;
-    font-size: 0.82rem;
+    background: rgba(0, 180, 255, 0.07);
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    color: var(--accent);
+    font-size: 0.8rem;
     font-weight: 700;
   }
 
@@ -165,21 +193,23 @@ const formStyles = `
   }
 
   .source-item {
-    padding: 12px 14px;
-    border-radius: 18px;
-    background: rgba(255, 252, 247, 0.88);
-    border: 1px solid rgba(127, 45, 18, 0.1);
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(6, 14, 28, 0.80);
+    border: 1px solid rgba(0, 180, 255, 0.10);
   }
 
   .source-item strong {
     display: block;
     margin-bottom: 5px;
+    color: var(--text);
+    font-size: 0.9rem;
   }
 
   .source-item span {
     display: block;
-    color: #795540;
-    font-size: 0.92rem;
+    color: var(--muted);
+    font-size: 0.88rem;
     line-height: 1.55;
   }
 
@@ -204,6 +234,10 @@ const initialForm = {
   traits: "",
   quirks: "",
   mood: "",
+  creativeContext: "default",
+  behaviorRules: "",
+  goals: "",
+  values: "",
   sourceQuery: "",
   sourceUrls: "",
   researchSummary: "",
@@ -267,6 +301,10 @@ export default function PersonalityForm({ onCreated, onError }) {
           researchSummary: form.researchSummary,
           speechStyle: form.speechStyle,
           notablePhrases: splitCommaSeparated(form.notablePhrases),
+          behaviorRules: splitLineSeparated(form.behaviorRules),
+          goals: splitCommaSeparated(form.goals),
+          values: splitCommaSeparated(form.values),
+          creativeContext: form.creativeContext,
           researchSources: researchSources.filter((source) => source.selected),
           voiceProfile: {
             enabled: form.voiceEnabled,
@@ -337,6 +375,9 @@ export default function PersonalityForm({ onCreated, onError }) {
         researchSummary: data.researchSummary || current.researchSummary,
         speechStyle: data.speechStyle || current.speechStyle,
         notablePhrases: (data.notablePhrases || []).join(", "),
+        behaviorRules: (data.behaviorRules || []).join("\n"),
+        goals: (data.goals || []).join(", "),
+        values: (data.values || []).join(", "),
         preferredVoice: current.preferredVoice || "alloy",
       }));
       onError({
@@ -389,6 +430,23 @@ export default function PersonalityForm({ onCreated, onError }) {
               value={form.mood}
               onChange={updateField}
             />
+          </div>
+
+          <div className="field">
+            <label htmlFor="creativeContext">Creative context</label>
+            <select
+              id="creativeContext"
+              name="creativeContext"
+              value={form.creativeContext}
+              onChange={updateField}
+              style={{ padding: "13px 16px", border: "1px solid rgba(0,180,255,0.14)", borderRadius: 16, background: "rgba(6,14,28,0.88)", color: "var(--text)" }}
+            >
+              <option value="default">Default</option>
+              <option value="narrative_antagonist">Narrative Antagonist</option>
+              <option value="anti_hero">Anti-Hero</option>
+              <option value="morally_complex">Morally Complex</option>
+              <option value="tragic_villain">Tragic Villain</option>
+            </select>
           </div>
 
           <div className="field">
@@ -484,6 +542,41 @@ export default function PersonalityForm({ onCreated, onError }) {
               name="notablePhrases"
               placeholder="four score, my friends, with great power"
               value={form.notablePhrases}
+              onChange={updateField}
+            />
+          </div>
+
+          <div className="field full">
+            <label htmlFor="behaviorRules">Behavior rules</label>
+            <textarea
+              className="compact"
+              id="behaviorRules"
+              name="behaviorRules"
+              placeholder={"uses irony in 30–50% of responses\nprefers indirect disagreement over blunt refusal\ndeflects personal questions with philosophical tangents"}
+              value={form.behaviorRules}
+              onChange={updateField}
+            />
+            <small>One operationalized rule per line. Describe observable behaviors, not adjectives.</small>
+          </div>
+
+          <div className="field">
+            <label htmlFor="goals">Goals</label>
+            <input
+              id="goals"
+              name="goals"
+              placeholder="make trustless transactions possible, remain unknown"
+              value={form.goals}
+              onChange={updateField}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="values">Values</label>
+            <input
+              id="values"
+              name="values"
+              placeholder="financial sovereignty, privacy, truth"
+              value={form.values}
               onChange={updateField}
             />
           </div>

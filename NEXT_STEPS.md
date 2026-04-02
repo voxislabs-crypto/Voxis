@@ -13,9 +13,16 @@ This checkpoint includes the first pass on the next feature wave after the core 
 ## Still To Finish
 
 - Validate the source-ranking UX more thoroughly in the browser.
-- Verify the editable-source-card save/load flow against more real-world research inputs.
 - Test server-side TTS end to end with real provider credentials in `backend/.env`.
-- Run one final pass on integrated flows and clean up any UI or response-shape rough edges.
+- Run one final browser pass on integrated flows and clean up any UI or response-shape rough edges.
+
+## Verified In This Session
+
+- Confirmed `/research-profile` returns ranked sources with default include selection.
+- Confirmed curated source edits persist through `POST /personality` and reload through `GET /personalities`.
+- Confirmed voice profile persistence through `PATCH /personality/:id/voice`.
+- Confirmed expected TTS failure mode without provider credentials: `500` with configuration error.
+- Confirmed frontend compiles successfully with `npm run build`.
 
 ## Notes
 

@@ -44,6 +44,12 @@ ensureColumn(
   "voiceProfile",
   `TEXT NOT NULL DEFAULT '{"enabled":true,"autoplay":false,"pitch":1,"rate":1,"preferredVoice":""}'`,
 );
+ensureColumn("personalities", "behaviorRules", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("personalities", "goals", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("personalities", "coreValues", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("personalities", "creativeContext", "TEXT NOT NULL DEFAULT 'default'");
+ensureColumn("personalities", "moodBaseline", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personalities", "moodState", "TEXT NOT NULL DEFAULT '{}'");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_messages (
@@ -59,6 +65,24 @@ db.exec(`
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_messages_personality_id
   ON chat_messages (personalityId, id DESC)
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS personality_memory (
+    id INTEGER PRIMARY KEY,
+    personalityId INTEGER NOT NULL,
+    memoryType TEXT NOT NULL DEFAULT 'note',
+    content TEXT NOT NULL,
+    importance INTEGER NOT NULL DEFAULT 5,
+    createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (personalityId) REFERENCES personalities(id)
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_personality_memory_personality_id
+  ON personality_memory (personalityId, importance DESC, id DESC)
 `);
 
 export default db;

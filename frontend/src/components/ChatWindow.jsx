@@ -8,39 +8,53 @@ const chatStyles = `
 
   .chat-placeholder,
   .chat-card {
-    border: 1px solid rgba(127, 45, 18, 0.1);
-    border-radius: 24px;
-    background: rgba(255, 252, 247, 0.9);
+    border: 1px solid rgba(0, 180, 255, 0.12);
+    border-radius: 22px;
+    background: rgba(6, 14, 28, 0.72);
     overflow: hidden;
   }
 
   .chat-placeholder {
     padding: 24px;
-    color: #795540;
+    color: var(--muted);
     line-height: 1.7;
   }
 
   .chat-header {
     padding: 18px 20px;
-    border-bottom: 1px solid rgba(127, 45, 18, 0.08);
-    background: rgba(255, 246, 231, 0.75);
+    border-bottom: 1px solid rgba(0, 180, 255, 0.08);
+    background: rgba(0, 180, 255, 0.04);
   }
 
   .chat-header h3 {
     margin: 0 0 6px;
-    font-size: 1.1rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mood-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
 
   .chat-header p {
     margin: 0;
-    color: #795540;
+    color: var(--muted);
+    font-size: 0.88rem;
     line-height: 1.6;
   }
 
   .message-list {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
     min-height: 380px;
     max-height: 520px;
     padding: 20px;
@@ -49,79 +63,94 @@ const chatStyles = `
 
   .message-bubble {
     max-width: min(85%, 720px);
-    padding: 14px 16px;
+    padding: 13px 16px;
     border-radius: 18px;
     line-height: 1.7;
     white-space: pre-wrap;
+    font-size: 0.95rem;
   }
 
   .message-bubble.user {
     align-self: flex-end;
-    background: linear-gradient(135deg, #bf5a2a, #7f2d12);
-    color: #fff9f5;
+    background: linear-gradient(135deg, rgba(0, 160, 255, 0.22), rgba(0, 80, 220, 0.20));
+    border: 1px solid rgba(0, 180, 255, 0.24);
+    color: var(--text);
     border-bottom-right-radius: 6px;
   }
 
   .message-bubble.assistant {
     align-self: flex-start;
-    background: rgba(245, 232, 212, 0.9);
-    color: #2f1c11;
+    background: rgba(16, 24, 44, 0.88);
+    border: 1px solid rgba(0, 180, 255, 0.08);
+    color: var(--text);
     border-bottom-left-radius: 6px;
   }
 
   .message-role {
     display: block;
     margin-bottom: 6px;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    opacity: 0.72;
+    opacity: 0.6;
+    color: var(--accent);
   }
 
   .empty-chat {
-    color: #795540;
+    color: var(--muted);
     line-height: 1.7;
+    font-size: 0.93rem;
   }
 
   .composer {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
-    padding: 18px 20px 20px;
-    border-top: 1px solid rgba(127, 45, 18, 0.08);
-    background: rgba(255, 250, 242, 0.82);
+    padding: 16px 20px 18px;
+    border-top: 1px solid rgba(0, 180, 255, 0.08);
+    background: rgba(0, 180, 255, 0.02);
   }
 
   .composer textarea {
     width: 100%;
-    min-height: 98px;
-    padding: 14px 16px;
-    border: 1px solid rgba(75, 48, 22, 0.12);
-    border-radius: 18px;
-    background: rgba(255, 252, 246, 0.98);
-    color: #2f1c11;
+    min-height: 88px;
+    padding: 13px 16px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 16px;
+    background: rgba(6, 14, 28, 0.90);
+    color: var(--text);
     resize: vertical;
+  }
+
+  .composer textarea::placeholder {
+    color: var(--muted);
   }
 
   .composer textarea:focus {
     outline: none;
-    border-color: rgba(191, 90, 42, 0.55);
-    box-shadow: 0 0 0 4px rgba(191, 90, 42, 0.12);
+    border-color: rgba(0, 180, 255, 0.42);
+    box-shadow: 0 0 0 3px rgba(0, 180, 255, 0.08);
   }
 
   .composer button {
     align-self: end;
-    padding: 14px 22px;
+    padding: 13px 22px;
     border: 0;
     border-radius: 999px;
-    background: #2f1c11;
-    color: #fff8f2;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fff;
     font-weight: 800;
+    box-shadow: 0 4px 16px rgba(0, 160, 255, 0.28);
+    transition: opacity 180ms, transform 180ms;
+  }
+
+  .composer button:hover:not(:disabled) {
+    transform: translateY(-1px);
   }
 
   .composer button:disabled {
-    opacity: 0.7;
+    opacity: 0.55;
     cursor: wait;
   }
 
@@ -130,8 +159,8 @@ const chatStyles = `
     padding: 0;
     border: 0;
     background: transparent;
-    color: #7f2d12;
-    font-weight: 800;
+    color: var(--accent);
+    font-weight: 700;
   }
 
   .voice-panel {
@@ -151,19 +180,19 @@ const chatStyles = `
   }
 
   .voice-field label {
-    color: #6a4332;
-    font-size: 0.88rem;
+    color: var(--muted);
+    font-size: 0.85rem;
     font-weight: 700;
   }
 
   .voice-field input,
   .voice-field select {
     width: 100%;
-    padding: 11px 13px;
-    border: 1px solid rgba(75, 48, 22, 0.12);
-    border-radius: 14px;
-    background: rgba(255, 252, 246, 0.98);
-    color: #2f1c11;
+    padding: 10px 13px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(6, 14, 28, 0.90);
+    color: var(--text);
   }
 
   .voice-actions {
@@ -174,18 +203,19 @@ const chatStyles = `
   }
 
   .voice-actions button {
-    padding: 11px 16px;
+    padding: 10px 16px;
     border: 0;
     border-radius: 999px;
-    background: rgba(47, 28, 17, 0.92);
-    color: #fff8f2;
-    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
   }
 
   .voice-actions button.secondary {
-    background: rgba(255, 250, 242, 0.9);
-    border: 1px solid rgba(127, 45, 18, 0.14);
-    color: #7f2d12;
+    background: rgba(0, 180, 255, 0.06);
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    color: var(--accent);
   }
 
   .audio-player {
@@ -198,7 +228,7 @@ const chatStyles = `
     align-items: center;
     gap: 8px;
     padding-top: 30px;
-    color: #795540;
+    color: var(--muted);
     font-size: 0.92rem;
   }
 
@@ -413,8 +443,24 @@ export default function ChatWindow({
       <div className="chat-shell">
         <div className="chat-card">
           <div className="chat-header">
-            <h3>{personality.name}</h3>
-            <p>{personality.systemPrompt}</p>
+            <h3>
+              {personality.moodState && (
+                <span
+                  className="mood-dot"
+                  title={personality.moodLabel || ""}
+                  style={{
+                    background:
+                      personality.moodState.valence > 0.2
+                        ? "#4ade80"
+                        : personality.moodState.valence < -0.2
+                        ? "#f87171"
+                        : "#fbbf24",
+                  }}
+                />
+              )}
+              {personality.name}
+            </h3>
+            <p>{personality.description}</p>
           </div>
 
           <div className="voice-panel">

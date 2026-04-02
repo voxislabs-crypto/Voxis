@@ -4,6 +4,7 @@ import {
   getPersonalityById,
   updatePersonalityVoiceProfile,
 } from "../models/personalityModel.js";
+import { moodFromLabel } from "../services/moodEngine.js";
 
 function sanitizeItems(items) {
   if (!Array.isArray(items)) {
@@ -80,6 +81,19 @@ function normalizeDescription(description) {
   return /[.!?]$/.test(description) ? description : `${description}.`;
 }
 
+const VALID_CREATIVE_CONTEXTS = new Set([
+  "default",
+  "narrative_antagonist",
+  "anti_hero",
+  "morally_complex",
+  "tragic_villain",
+]);
+
+function sanitizeCreativeContext(value) {
+  const str = String(value || "").trim();
+  return VALID_CREATIVE_CONTEXTS.has(str) ? str : "default";
+}
+
 export function generateSystemPrompt({
   name,
   description,
@@ -133,7 +147,13 @@ export function createPersonalityHandler(req, res, next) {
     const researchSummary = String(req.body.researchSummary || "").trim();
     const speechStyle = String(req.body.speechStyle || "").trim();
     const notablePhrases = sanitizeItems(req.body.notablePhrases);
+    const behaviorRules = sanitizeItems(req.body.behaviorRules);
+    const goals = sanitizeItems(req.body.goals);
+    const values = sanitizeItems(req.body.values);
+    const creativeContext = sanitizeCreativeContext(req.body.creativeContext);
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
+    const moodBaseline = moodFromLabel(mood);
+    const moodState = { ...moodBaseline };
 
     if (!name) {
       return res.status(400).json({ error: "Name is required." });
@@ -168,6 +188,12 @@ export function createPersonalityHandler(req, res, next) {
       notablePhrases,
       researchSources,
       voiceProfile,
+      behaviorRules,
+      goals,
+      values,
+      creativeContext,
+      moodBaseline,
+      moodState,
     });
 
     return res.status(201).json(personality);
