@@ -40,8 +40,40 @@ function sanitizeVoiceProfile(input) {
     autoplay: Boolean(voiceProfile.autoplay),
     pitch: Math.min(1.6, Math.max(0.5, Number(voiceProfile.pitch) || 1)),
     rate: Math.min(1.6, Math.max(0.6, Number(voiceProfile.rate) || 1)),
-    preferredVoice: String(voiceProfile.preferredVoice || "").trim(),
+    preferredVoice: String(
+      voiceProfile.preferredVoice || voiceProfile.providerVoice || "alloy",
+    ).trim(),
+    providerVoice: String(
+      voiceProfile.providerVoice || voiceProfile.preferredVoice || "alloy",
+    ).trim(),
+    providerModel: String(voiceProfile.providerModel || "gpt-4o-mini-tts").trim(),
   };
+}
+
+function sanitizeResearchSources(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      return {
+        id: String(item.id || `source-${index + 1}`).trim(),
+        title: String(item.title || "Untitled source").trim(),
+        url: String(item.url || "").trim(),
+        sourceType: String(item.sourceType || "web").trim(),
+        text: String(item.text || "").trim(),
+        score: Math.max(0, Math.min(100, Number(item.score) || 0)),
+        rank: Math.max(1, Number(item.rank) || index + 1),
+        transcriptAvailable: Boolean(item.transcriptAvailable),
+        reasons: sanitizeItems(item.reasons || []).slice(0, 5),
+      };
+    })
+    .filter((item) => item && item.url && item.text);
 }
 
 function normalizeDescription(description) {
@@ -94,7 +126,10 @@ export function createPersonalityHandler(req, res, next) {
     const traits = sanitizeItems(req.body.traits);
     const quirks = sanitizeItems(req.body.quirks);
     const sourceQuery = String(req.body.sourceQuery || name).trim();
-    const sourceUrls = sanitizeSourceUrls(req.body.sourceUrls);
+    const researchSources = sanitizeResearchSources(req.body.researchSources);
+    const sourceUrls = researchSources.length
+      ? researchSources.map((source) => source.url)
+      : sanitizeSourceUrls(req.body.sourceUrls);
     const researchSummary = String(req.body.researchSummary || "").trim();
     const speechStyle = String(req.body.speechStyle || "").trim();
     const notablePhrases = sanitizeItems(req.body.notablePhrases);
@@ -131,6 +166,7 @@ export function createPersonalityHandler(req, res, next) {
       researchSummary,
       speechStyle,
       notablePhrases,
+      researchSources,
       voiceProfile,
     });
 

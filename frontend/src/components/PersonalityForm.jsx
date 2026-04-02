@@ -213,7 +213,8 @@ const initialForm = {
   voiceAutoplay: false,
   voicePitch: 1,
   voiceRate: 1,
-  preferredVoice: "",
+  preferredVoice: "alloy",
+  providerModel: "gpt-4o-mini-tts",
 };
 
 function splitCommaSeparated(value) {
@@ -235,6 +236,7 @@ export default function PersonalityForm({ onCreated, onError }) {
   const [isSaving, setIsSaving] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [researchResult, setResearchResult] = useState(null);
+  const [researchSources, setResearchSources] = useState([]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -265,12 +267,15 @@ export default function PersonalityForm({ onCreated, onError }) {
           researchSummary: form.researchSummary,
           speechStyle: form.speechStyle,
           notablePhrases: splitCommaSeparated(form.notablePhrases),
+          researchSources: researchSources.filter((source) => source.selected),
           voiceProfile: {
             enabled: form.voiceEnabled,
             autoplay: form.voiceAutoplay,
             pitch: Number(form.voicePitch),
             rate: Number(form.voiceRate),
             preferredVoice: form.preferredVoice,
+            providerVoice: form.preferredVoice,
+            providerModel: form.providerModel,
           },
         }),
       });
@@ -285,6 +290,7 @@ export default function PersonalityForm({ onCreated, onError }) {
       onError({ type: "", message: "" });
       setForm(initialForm);
       setResearchResult(null);
+      setResearchSources([]);
     } catch (error) {
       onError({
         type: "error",
@@ -319,6 +325,7 @@ export default function PersonalityForm({ onCreated, onError }) {
       }
 
       setResearchResult(data);
+      setResearchSources(data.sources || []);
       setForm((current) => ({
         ...current,
         description: data.descriptionSuggestion || current.description,
@@ -330,6 +337,7 @@ export default function PersonalityForm({ onCreated, onError }) {
         researchSummary: data.researchSummary || current.researchSummary,
         speechStyle: data.speechStyle || current.speechStyle,
         notablePhrases: (data.notablePhrases || []).join(", "),
+        preferredVoice: current.preferredVoice || "alloy",
       }));
       onError({
         type: "success",
@@ -343,6 +351,16 @@ export default function PersonalityForm({ onCreated, onError }) {
     } finally {
       setIsResearching(false);
     }
+  }
+
+  function updateSource(sourceId, patch) {
+    setResearchSources((current) =>
+      current.map((source) => (source.id === sourceId ? { ...source, ...patch } : source)),
+    );
+  }
+
+  function removeSource(sourceId) {
+    setResearchSources((current) => current.filter((source) => source.id !== sourceId));
   }
 
   return (
@@ -410,7 +428,7 @@ export default function PersonalityForm({ onCreated, onError }) {
               value={form.sourceUrls}
               onChange={updateField}
             />
-            <small>One URL per line. Voxis can parse Wikipedia, blogs, and YouTube metadata.</small>
+            <small>One URL per line. Voxis can parse Wikipedia, blogs, and YouTube transcripts when captions are available.</small>
           </div>
 
           <div className="field">
@@ -478,8 +496,19 @@ export default function PersonalityForm({ onCreated, onError }) {
                 <input
                   id="preferredVoice"
                   name="preferredVoice"
-                  placeholder="Google US English"
+                  placeholder="alloy"
                   value={form.preferredVoice}
+                  onChange={updateField}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="providerModel">TTS model</label>
+                <input
+                  id="providerModel"
+                  name="providerModel"
+                  placeholder="gpt-4o-mini-tts"
+                  value={form.providerModel}
                   onChange={updateField}
                 />
               </div>
@@ -526,7 +555,7 @@ export default function PersonalityForm({ onCreated, onError }) {
                     }))
                   }
                 />
-                Voice playback enabled
+                Server-side voice playback enabled
               </label>
 
               <label className="checkbox-row">
@@ -540,7 +569,7 @@ export default function PersonalityForm({ onCreated, onError }) {
                     }))
                   }
                 />
-                Auto-play replies
+                Auto-play generated replies
               </label>
             </div>
           </div>
@@ -556,10 +585,51 @@ export default function PersonalityForm({ onCreated, onError }) {
               <span>{(researchResult.sources || []).length} source captures</span>
             </div>
             <div className="source-list">
-              {(researchResult.sources || []).map((source) => (
-                <div key={source.url} className="source-item">
-                  <strong>{source.title}</strong>
-                  <span>{source.text}</span>
+              {researchSources.map((source) => (
+                <div key={source.id} className="source-item">
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700, color: "#6a4332" }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(source.selected)}
+                        onChange={(event) => updateSource(source.id, { selected: event.target.checked })}
+                      />
+                      Include in save
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ padding: "8px 12px" }}
+                      onClick={() => removeSource(source.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="research-meta">
+                    <span>Rank #{source.rank}</span>
+                    <span>Score {source.score}</span>
+                    <span>{source.sourceType}</span>
+                    {source.transcriptAvailable ? <span>Transcript</span> : null}
+                  </div>
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label htmlFor={`source-title-${source.id}`}>Title</label>
+                    <input
+                      id={`source-title-${source.id}`}
+                      value={source.title}
+                      onChange={(event) => updateSource(source.id, { title: event.target.value })}
+                    />
+                  </div>
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label htmlFor={`source-text-${source.id}`}>Excerpt</label>
+                    <textarea
+                      className="compact"
+                      id={`source-text-${source.id}`}
+                      value={source.text}
+                      onChange={(event) => updateSource(source.id, { text: event.target.value })}
+                    />
+                  </div>
+                  <strong>{source.url}</strong>
+                  <span>{(source.reasons || []).join(" • ")}</span>
                 </div>
               ))}
             </div>

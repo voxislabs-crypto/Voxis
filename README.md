@@ -5,12 +5,13 @@ Voxis is a full-stack prototype for building and chatting with LLM personalities
 ## What It Does
 
 - Create a personality with a name, description, traits, quirks, and mood.
-- Pull web research into the character form from Wikipedia and user-provided source URLs.
+- Pull research into the character form from Wikipedia, blogs, and YouTube URLs.
+- Rank fetched sources, expose them as editable source cards, and let you prune weak research before saving.
 - Generate a system prompt automatically from that data.
 - Save personalities in SQLite.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request.
 - Select a personality and chat with it through any OpenAI-compatible API.
-- Play responses with browser speech synthesis using per-character voice settings.
+- Generate server-side voice output through an OpenAI-compatible TTS endpoint using per-character voice settings.
 
 ## Project Layout
 
@@ -39,6 +40,13 @@ Voxis is a full-stack prototype for building and chatting with LLM personalities
 	- `LLM_BASE_URL` plus any key required by your OpenAI-compatible provider.
 
 Research enrichment works without an LLM for basic scraping and source digestion. If an LLM is configured, Voxis also synthesizes the scraped source notes into a cleaner structured profile.
+
+YouTube transcript ingestion is best-effort. If a transcript cannot be retrieved, Voxis still keeps the video metadata as a lower-ranked research source instead of failing the request.
+
+For server-side voice generation, also provide either:
+
+- `TTS_API_KEY` for OpenAI-compatible speech generation, or
+- `TTS_BASE_URL` plus any key required by your TTS provider.
 
 ## Run Everything
 

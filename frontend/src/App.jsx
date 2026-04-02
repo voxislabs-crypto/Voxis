@@ -548,7 +548,7 @@ export default function App() {
                         Traits: {selectedPersonality.traits.length}
                       </span>
                       <span className="meta-pill">
-                        Sources: {selectedPersonality.sourceUrls.length}
+                        Sources: {selectedPersonality.researchSources?.length || selectedPersonality.sourceUrls.length}
                       </span>
                     </div>
                   ) : null}

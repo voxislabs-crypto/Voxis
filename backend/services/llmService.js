@@ -88,7 +88,7 @@ export async function synthesizeResearchProfile({
     "Source notes:",
     ...sourceNotes.map(
       (source, index) =>
-        `${index + 1}. ${source.title} (${source.url})\n${source.text}`,
+        `${index + 1}. ${source.title} (${source.url}) [score=${source.score}]\n${source.text}`,
     ),
     "Return a JSON object with these keys only:",
     "descriptionSuggestion, traits, quirks, mood, speechStyle, notablePhrases, researchSummary",

@@ -188,6 +188,11 @@ const chatStyles = `
     color: #7f2d12;
   }
 
+  .audio-player {
+    width: 100%;
+    margin-top: 12px;
+  }
+
   .voice-checkbox {
     display: flex;
     align-items: center;
@@ -235,11 +240,14 @@ export default function ChatWindow({
     autoplay: false,
     pitch: 1,
     rate: 1,
-    preferredVoice: "",
+    preferredVoice: "alloy",
+    providerVoice: "alloy",
+    providerModel: "gpt-4o-mini-tts",
   });
-  const [voices, setVoices] = useState([]);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
-  const lastSpokenRef = useRef("");
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioUrl, setAudioUrl] = useState("");
+  const lastGeneratedRef = useRef("");
 
   const latestAssistantMessage = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant") || null,
@@ -256,26 +264,21 @@ export default function ChatWindow({
       autoplay: Boolean(personality.voiceProfile?.autoplay),
       pitch: Number(personality.voiceProfile?.pitch) || 1,
       rate: Number(personality.voiceProfile?.rate) || 1,
-      preferredVoice: personality.voiceProfile?.preferredVoice || "",
+      preferredVoice:
+        personality.voiceProfile?.preferredVoice || personality.voiceProfile?.providerVoice || "alloy",
+      providerVoice:
+        personality.voiceProfile?.providerVoice || personality.voiceProfile?.preferredVoice || "alloy",
+      providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
     });
   }, [personality]);
 
   useEffect(() => {
-    if (!("speechSynthesis" in window)) {
-      return undefined;
-    }
-
-    const loadVoices = () => {
-      setVoices(window.speechSynthesis.getVoices());
-    };
-
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
     return () => {
-      window.speechSynthesis.onvoiceschanged = null;
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
     };
-  }, []);
+  }, [audioUrl]);
 
   useEffect(() => {
     if (!voiceProfile.enabled || !voiceProfile.autoplay || !latestAssistantMessage) {
@@ -283,12 +286,12 @@ export default function ChatWindow({
     }
 
     const stamp = `${personality?.id || "none"}:${latestAssistantMessage.content}`;
-    if (lastSpokenRef.current === stamp) {
+    if (lastGeneratedRef.current === stamp) {
       return;
     }
 
-    speak(latestAssistantMessage.content);
-    lastSpokenRef.current = stamp;
+    void generateAudio(latestAssistantMessage.content);
+    lastGeneratedRef.current = stamp;
   }, [latestAssistantMessage, personality?.id, voiceProfile]);
 
   function updateVoiceField(name, value) {
@@ -299,30 +302,63 @@ export default function ChatWindow({
   }
 
   function stopSpeaking() {
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+    const audioElement = document.getElementById("voxis-audio-player");
+    if (audioElement instanceof HTMLAudioElement) {
+      audioElement.pause();
+      audioElement.currentTime = 0;
     }
   }
 
-  function speak(text) {
-    if (!("speechSynthesis" in window) || !voiceProfile.enabled || !text.trim()) {
+  async function generateAudio(text) {
+    if (!voiceProfile.enabled || !text.trim() || !personality) {
       return;
     }
 
-    stopSpeaking();
+    setIsGeneratingAudio(true);
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.pitch = Number(voiceProfile.pitch) || 1;
-    utterance.rate = Number(voiceProfile.rate) || 1;
+    try {
+      const response = await fetch(`/personality/${personality.id}/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          voiceProfile,
+        }),
+      });
 
-    if (voiceProfile.preferredVoice) {
-      const matchedVoice = voices.find((voice) => voice.name === voiceProfile.preferredVoice);
-      if (matchedVoice) {
-        utterance.voice = matchedVoice;
+      if (!response.ok) {
+        let errorMessage = "Failed to generate speech.";
+
+        try {
+          const errorPayload = await response.json();
+          errorMessage = errorPayload.error || errorMessage;
+        } catch {
+          errorMessage = await response.text();
+        }
+
+        throw new Error(errorMessage);
       }
-    }
 
-    window.speechSynthesis.speak(utterance);
+      const blob = await response.blob();
+      const nextAudioUrl = URL.createObjectURL(blob);
+
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+
+      setAudioUrl(nextAudioUrl);
+
+      requestAnimationFrame(() => {
+        const audioElement = document.getElementById("voxis-audio-player");
+        if (audioElement instanceof HTMLAudioElement) {
+          void audioElement.play().catch(() => {});
+        }
+      });
+    } finally {
+      setIsGeneratingAudio(false);
+    }
   }
 
   async function handleSaveVoiceProfile() {
@@ -335,6 +371,8 @@ export default function ChatWindow({
         pitch: Number(voiceProfile.pitch),
         rate: Number(voiceProfile.rate),
         preferredVoice: voiceProfile.preferredVoice,
+        providerVoice: voiceProfile.providerVoice || voiceProfile.preferredVoice,
+        providerModel: voiceProfile.providerModel,
       });
     } finally {
       setIsSavingVoice(false);
@@ -382,19 +420,26 @@ export default function ChatWindow({
           <div className="voice-panel">
             <div className="voice-grid">
               <div className="voice-field">
-                <label htmlFor="voice-select">Browser voice</label>
-                <select
+                <label htmlFor="voice-select">TTS voice</label>
+                <input
                   id="voice-select"
-                  value={voiceProfile.preferredVoice}
-                  onChange={(event) => updateVoiceField("preferredVoice", event.target.value)}
-                >
-                  <option value="">Default browser voice</option>
-                  {voices.map((voice) => (
-                    <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                </select>
+                  value={voiceProfile.providerVoice || voiceProfile.preferredVoice}
+                  onChange={(event) => {
+                    updateVoiceField("providerVoice", event.target.value);
+                    updateVoiceField("preferredVoice", event.target.value);
+                  }}
+                  placeholder="alloy"
+                />
+              </div>
+
+              <div className="voice-field">
+                <label htmlFor="voice-model">TTS model</label>
+                <input
+                  id="voice-model"
+                  value={voiceProfile.providerModel}
+                  onChange={(event) => updateVoiceField("providerModel", event.target.value)}
+                  placeholder="gpt-4o-mini-tts"
+                />
               </div>
 
               <div className="voice-field">
@@ -447,8 +492,12 @@ export default function ChatWindow({
             </div>
 
             <div className="voice-actions">
-              <button type="button" onClick={() => speak(latestAssistantMessage?.content || "")}>
-                Speak Latest Reply
+              <button
+                type="button"
+                onClick={() => void generateAudio(latestAssistantMessage?.content || "")}
+                disabled={isGeneratingAudio || !latestAssistantMessage}
+              >
+                {isGeneratingAudio ? "Generating Audio..." : "Generate Latest Audio"}
               </button>
               <button type="button" className="secondary" onClick={stopSpeaking}>
                 Stop Audio
@@ -457,6 +506,8 @@ export default function ChatWindow({
                 {isSavingVoice ? "Saving Voice..." : "Save Voice Profile"}
               </button>
             </div>
+
+            {audioUrl ? <audio id="voxis-audio-player" className="audio-player" controls src={audioUrl} /> : null}
           </div>
 
           <div className="message-list">

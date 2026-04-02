@@ -18,6 +18,17 @@ function parseJsonObject(value, fallback = {}) {
   }
 }
 
+function parseResearchSources(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => item && typeof item === "object")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeRow(row) {
   if (!row) {
     return null;
@@ -29,12 +40,15 @@ function normalizeRow(row) {
     quirks: parseJsonArray(row.quirks),
     sourceUrls: parseJsonArray(row.sourceUrls),
     notablePhrases: parseJsonArray(row.notablePhrases),
+    researchSources: parseResearchSources(row.researchSources),
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
       pitch: 1,
       rate: 1,
-      preferredVoice: "",
+      preferredVoice: "alloy",
+      providerVoice: "alloy",
+      providerModel: "gpt-4o-mini-tts",
     }),
   };
 }
@@ -53,6 +67,7 @@ export function createPersonality(personality) {
       researchSummary,
       speechStyle,
       notablePhrases,
+      researchSources,
       voiceProfile
     )
     VALUES (
@@ -67,6 +82,7 @@ export function createPersonality(personality) {
       @researchSummary,
       @speechStyle,
       @notablePhrases,
+      @researchSources,
       @voiceProfile
     )
   `);
@@ -77,6 +93,7 @@ export function createPersonality(personality) {
     quirks: JSON.stringify(personality.quirks),
     sourceUrls: JSON.stringify(personality.sourceUrls || []),
     notablePhrases: JSON.stringify(personality.notablePhrases || []),
+    researchSources: JSON.stringify(personality.researchSources || []),
     voiceProfile: JSON.stringify(personality.voiceProfile || {}),
   });
 
@@ -98,6 +115,7 @@ export function getAllPersonalities() {
       researchSummary,
       speechStyle,
       notablePhrases,
+      researchSources,
       voiceProfile
     FROM personalities
     ORDER BY id DESC
@@ -121,6 +139,7 @@ export function getPersonalityById(id) {
       researchSummary,
       speechStyle,
       notablePhrases,
+      researchSources,
       voiceProfile
     FROM personalities
     WHERE id = ?

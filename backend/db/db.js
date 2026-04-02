@@ -38,6 +38,7 @@ ensureColumn("personalities", "sourceUrls", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "researchSummary", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personalities", "speechStyle", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personalities", "notablePhrases", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("personalities", "researchSources", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn(
   "personalities",
   "voiceProfile",

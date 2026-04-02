@@ -3,6 +3,8 @@ import { Readability } from "@mozilla/readability";
 
 import { isLlmConfigured, synthesizeResearchProfile } from "./llmService.js";
 
+let youtubeTranscriptFetcherPromise;
+
 const DEFAULT_TIMEOUT_MS = Number(process.env.RESEARCH_TIMEOUT_MS || 12000);
 const TRAIT_LEXICON = [
   "brave",
@@ -49,6 +51,46 @@ function dedupe(items) {
   return [...new Set(items.filter(Boolean))];
 }
 
+function normalizeSourceUrl(url) {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    parsed.hash = "";
+    if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
+      parsed.port = "";
+    }
+
+    if (parsed.hostname === "en.wikipedia.org") {
+      parsed.search = "";
+    }
+
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return String(url || "").trim().replace(/\/$/, "");
+  }
+}
+
+function createSourceId(url, index) {
+  return `${index + 1}-${Buffer.from(url).toString("base64url").slice(0, 12)}`;
+}
+
+async function getYouTubeTranscriptFetcher() {
+  if (!youtubeTranscriptFetcherPromise) {
+    youtubeTranscriptFetcherPromise = import("youtube-transcript/dist/youtube-transcript.esm.js")
+      .then((module) => {
+        return (
+          module.fetchTranscript ||
+          module.YoutubeTranscript?.fetchTranscript?.bind(module.YoutubeTranscript) ||
+          module.default?.fetchTranscript ||
+          module.default?.YoutubeTranscript?.fetchTranscript?.bind(module.default.YoutubeTranscript) ||
+          null
+        );
+      })
+      .catch(() => null);
+  }
+
+  return youtubeTranscriptFetcherPromise;
+}
+
 function truncate(text, maxLength = 900) {
   if (text.length <= maxLength) {
     return text;
@@ -59,6 +101,23 @@ function truncate(text, maxLength = 900) {
 
 function normalizeWhitespace(text) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function tokenize(text) {
+  return normalizeWhitespace(String(text || ""))
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2);
+}
+
+function getQueryOverlapScore(queryTokens, text) {
+  if (!queryTokens.length || !text) {
+    return 0;
+  }
+
+  const textTokens = new Set(tokenize(text));
+  const matches = queryTokens.filter((token) => textTokens.has(token)).length;
+  return matches / queryTokens.length;
 }
 
 function extractQuotedPhrases(text) {
@@ -155,16 +214,35 @@ async function fetchYouTubeMetadata(url) {
     }
 
     const data = await oembedResponse.json();
+    let transcriptText = "";
+
+    try {
+      const fetchTranscript = await getYouTubeTranscriptFetcher();
+      const transcript = fetchTranscript ? await fetchTranscript(url) : [];
+      transcriptText = normalizeWhitespace(
+        transcript
+          .map((entry) => entry.text)
+          .join(" "),
+      );
+    } catch {
+      transcriptText = "";
+    }
+
+    const transcriptSnippet = transcriptText
+      ? truncate(transcriptText, 1500)
+      : "Transcript unavailable. Only metadata was captured for this video.";
+
     return {
       url,
       title: data.title || "YouTube video",
       text: truncate(
         normalizeWhitespace(
-          `${data.title || ""}. Creator: ${data.author_name || "unknown"}. This is a video source, so treat it as reference context for tone and subject matter.`,
+          `${data.title || ""}. Creator: ${data.author_name || "unknown"}. ${transcriptSnippet}`,
         ),
-        320,
+        1600,
       ),
       sourceType: "youtube",
+      transcriptAvailable: Boolean(transcriptText),
     };
   } catch {
     return null;
@@ -201,6 +279,7 @@ async function fetchReadablePage(url) {
       title: truncate(title, 140),
       text: truncate(text, 1200),
       sourceType: /wikipedia\.org/.test(url) ? "wikipedia" : "web",
+      transcriptAvailable: false,
     };
   } catch {
     return null;
@@ -245,13 +324,78 @@ function buildFallbackProfile({ name, description, sourceQuery, sourceUrls, sour
   };
 }
 
+function rankSources(sourceNotes, query) {
+  const queryTokens = tokenize(query);
+  const uniqueSources = [];
+  const seenUrls = new Set();
+
+  for (const source of sourceNotes) {
+    const normalizedUrl = normalizeSourceUrl(source.url);
+    if (!normalizedUrl || seenUrls.has(normalizedUrl)) {
+      continue;
+    }
+
+    seenUrls.add(normalizedUrl);
+    uniqueSources.push({
+      ...source,
+      url: normalizedUrl,
+    });
+  }
+
+  return uniqueSources
+    .map((source) => {
+      const typeWeight = {
+        wikipedia: 0.92,
+        youtube: source.transcriptAvailable ? 0.88 : 0.62,
+        web: 0.74,
+      }[source.sourceType] || 0.68;
+
+      const titleOverlap = getQueryOverlapScore(queryTokens, source.title);
+      const bodyOverlap = getQueryOverlapScore(queryTokens, source.text);
+      const transcriptBonus = source.transcriptAvailable ? 0.1 : 0;
+      const score = Math.round(
+        Math.min(
+          100,
+          (typeWeight * 0.45 + titleOverlap * 0.25 + bodyOverlap * 0.2 + transcriptBonus) * 100,
+        ),
+      );
+
+      const reasons = [];
+      if (source.sourceType === "wikipedia") {
+        reasons.push("High-trust reference source");
+      }
+      if (source.sourceType === "youtube" && source.transcriptAvailable) {
+        reasons.push("Transcript captured from video dialogue");
+      }
+      if (titleOverlap >= 0.3) {
+        reasons.push("Strong query match in title");
+      }
+      if (bodyOverlap >= 0.35) {
+        reasons.push("Body text overlaps with the research query");
+      }
+
+      return {
+        ...source,
+        score,
+        reasons: reasons.length ? reasons : ["Useful supplemental reference"],
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((source, index) => ({
+      ...source,
+      id: source.id || createSourceId(source.url, index),
+      rank: index + 1,
+      selected: index < 4,
+    }));
+}
+
 export async function buildResearchProfile({ name, description, sourceQuery, sourceUrls }) {
   const query = String(sourceQuery || name || "").trim();
   const urls = dedupe((sourceUrls || []).map((url) => String(url).trim()));
 
   const wikipediaSource = await fetchWikipediaSummary(query);
   const remoteSources = await Promise.all(urls.map((url) => fetchSource(url)));
-  const sourceNotes = [wikipediaSource, ...remoteSources].filter(Boolean);
+  const sourceNotes = rankSources([wikipediaSource, ...remoteSources].filter(Boolean), query);
 
   const fallbackProfile = buildFallbackProfile({
     name,

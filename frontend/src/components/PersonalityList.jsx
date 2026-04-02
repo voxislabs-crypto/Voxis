@@ -143,7 +143,7 @@ export default function PersonalityList({
                     <span>{personality.mood}</span>
                     <span>{personality.traits.length} traits</span>
                     <span>{personality.quirks.length} quirks</span>
-                    <span>{personality.sourceUrls.length} sources</span>
+                    <span>{personality.researchSources?.length || personality.sourceUrls.length} sources</span>
                   </div>
                 </button>
               </div>
