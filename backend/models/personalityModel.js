@@ -47,6 +47,7 @@ function normalizeRow(row) {
     creativeContext: row.creativeContext || "default",
     moodBaseline: parseJsonObject(row.moodBaseline, {}),
     moodState: parseJsonObject(row.moodState, {}),
+    moodSensitivity: typeof row.moodSensitivity === "number" ? row.moodSensitivity : 1.0,
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
@@ -80,7 +81,8 @@ export function createPersonality(personality) {
       coreValues,
       creativeContext,
       moodBaseline,
-      moodState
+      moodState,
+      moodSensitivity
     )
     VALUES (
       @name,
@@ -101,7 +103,8 @@ export function createPersonality(personality) {
       @coreValues,
       @creativeContext,
       @moodBaseline,
-      @moodState
+      @moodState,
+      @moodSensitivity
     )
   `);
 
@@ -119,6 +122,7 @@ export function createPersonality(personality) {
     creativeContext: personality.creativeContext || "default",
     moodBaseline: JSON.stringify(personality.moodBaseline || {}),
     moodState: JSON.stringify(personality.moodState || {}),
+    moodSensitivity: typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
   });
 
   return getPersonalityById(result.lastInsertRowid);
@@ -146,7 +150,8 @@ export function getAllPersonalities() {
       coreValues,
       creativeContext,
       moodBaseline,
-      moodState
+      moodState,
+      moodSensitivity
     FROM personalities
     ORDER BY id DESC
   `);
@@ -176,7 +181,8 @@ export function getPersonalityById(id) {
       coreValues,
       creativeContext,
       moodBaseline,
-      moodState
+      moodState,
+      moodSensitivity
     FROM personalities
     WHERE id = ?
   `);

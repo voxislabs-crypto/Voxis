@@ -85,7 +85,13 @@ export function moodFromLabel(label) {
 // ---------------------------------------------------------------------------
 
 function getSensitivity(personality) {
-  const { creativeContext = "default", traits = [] } = personality;
+  const { creativeContext = "default", traits = [], moodSensitivity } = personality;
+
+  // User-set override: if provided and not exactly 1.0, use it directly (still clamped for safety)
+  if (typeof moodSensitivity === "number" && moodSensitivity !== 1.0) {
+    return Math.min(3.0, Math.max(0.1, moodSensitivity));
+  }
+
   let base = 1.0;
 
   // Creative context base modifiers

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import PersonalityForm from "./components/PersonalityForm.jsx";
 import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
+import MemoryJournal from "./components/MemoryJournal.jsx";
 
 const appStyles = `
   :root {
@@ -555,6 +556,13 @@ export default function App() {
               >
                 Character Chat
               </button>
+              <button
+                type="button"
+                className={`tab ${activeView === "journal" ? "active" : ""}`}
+                onClick={() => setActiveView("journal")}
+              >
+                Memory Journal
+              </button>
             </div>
 
             <div className="main-content">
@@ -567,6 +575,8 @@ export default function App() {
                   </p>
                   <PersonalityForm onCreated={handlePersonalityCreated} onError={setStatus} />
                 </>
+              ) : activeView === "journal" ? (
+                <MemoryJournal personality={selectedPersonality} />
               ) : (
                 <>
                   <h2 className="section-heading">Talk to the active character</h2>

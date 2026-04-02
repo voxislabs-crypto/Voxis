@@ -56,6 +56,31 @@ export function pruneMemory(personalityId, maxEntries = 50) {
   }
 }
 
+export function updateMemoryFact(id, { content, memoryType, importance }) {
+  db.prepare(
+    `UPDATE personality_memory
+     SET content = ?, memoryType = ?, importance = ?, updatedAt = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+  ).run(content, memoryType, importance, id);
+  return db.prepare(`SELECT * FROM personality_memory WHERE id = ?`).get(id);
+}
+
+export function deleteMemoryFact(id) {
+  db.prepare(`DELETE FROM personality_memory WHERE id = ?`).run(id);
+}
+
+// Fetch all facts for a personality (no limit — for journal view)
+export function getAllPersonalityMemory(personalityId) {
+  return db
+    .prepare(
+      `SELECT id, personalityId, memoryType, content, importance, createdAt, updatedAt
+       FROM personality_memory
+       WHERE personalityId = ?
+       ORDER BY importance DESC, id DESC`,
+    )
+    .all(personalityId);
+}
+
 export function clearPersonalityMemory(personalityId) {
   db.prepare(`DELETE FROM personality_memory WHERE personalityId = ?`).run(personalityId);
 }

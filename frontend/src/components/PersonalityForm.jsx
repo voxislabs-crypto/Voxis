@@ -238,6 +238,7 @@ const initialForm = {
   behaviorRules: "",
   goals: "",
   values: "",
+  moodSensitivity: 1.0,
   sourceQuery: "",
   sourceUrls: "",
   researchSummary: "",
@@ -305,6 +306,7 @@ export default function PersonalityForm({ onCreated, onError }) {
           goals: splitCommaSeparated(form.goals),
           values: splitCommaSeparated(form.values),
           creativeContext: form.creativeContext,
+          moodSensitivity: Number(form.moodSensitivity) || 1.0,
           researchSources: researchSources.filter((source) => source.selected),
           voiceProfile: {
             enabled: form.voiceEnabled,
@@ -579,6 +581,26 @@ export default function PersonalityForm({ onCreated, onError }) {
               value={form.values}
               onChange={updateField}
             />
+          </div>
+
+          <div className="field">
+            <label htmlFor="moodSensitivity">
+              Mood sensitivity: {Number(form.moodSensitivity).toFixed(2)}
+            </label>
+            <input
+              id="moodSensitivity"
+              name="moodSensitivity"
+              type="range"
+              min="0.1"
+              max="3.0"
+              step="0.05"
+              value={form.moodSensitivity}
+              onChange={updateField}
+            />
+            <small>
+              How strongly this character reacts emotionally to messages. 1.0 = trait-driven defaults.
+              Lower = stoic, higher = volatile. Overrides the automatic trait stack when not 1.0.
+            </small>
           </div>
 
           <div className="field full">

@@ -50,6 +50,7 @@ ensureColumn("personalities", "coreValues", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "creativeContext", "TEXT NOT NULL DEFAULT 'default'");
 ensureColumn("personalities", "moodBaseline", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("personalities", "moodState", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personalities", "moodSensitivity", "REAL NOT NULL DEFAULT 1.0");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_messages (

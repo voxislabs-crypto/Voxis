@@ -152,6 +152,7 @@ export function createPersonalityHandler(req, res, next) {
     const values = sanitizeItems(req.body.values);
     const creativeContext = sanitizeCreativeContext(req.body.creativeContext);
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
+    const moodSensitivity = Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0));
     const moodBaseline = moodFromLabel(mood);
     const moodState = { ...moodBaseline };
 
@@ -194,6 +195,7 @@ export function createPersonalityHandler(req, res, next) {
       creativeContext,
       moodBaseline,
       moodState,
+      moodSensitivity,
     });
 
     return res.status(201).json(personality);
