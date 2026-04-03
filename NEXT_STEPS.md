@@ -1,31 +1,34 @@
 # Voxis Handoff
 
-This checkpoint includes the first pass on the next feature wave after the core platform commit.
+Date: 2026-04-03
+Branch: `clean-main`
+Latest pushed commit: `c9bbc9d` (README Neural Core docs)
 
-## Completed In This Checkpoint
+## What Was Completed
 
-- YouTube source ingestion now attempts transcript capture and degrades cleanly to metadata if captions are unavailable.
-- Research sources are ranked and deduplicated on the backend before being returned to the UI.
-- The builder UI now exposes editable source cards with include/remove controls before save.
-- Personalities can persist curated `researchSources` and richer voice settings.
-- Server-side TTS endpoints and frontend playback wiring are in place.
+- Dual-mode platform behavior is in place: Scientist vs Kids policy paths, age-band gating, and fail-closed defaults.
+- User profile system is implemented end-to-end (backend tables/routes + frontend profile/mode controls).
+- Separate user-learning memory pipeline is implemented (storage, retrieval, extraction, API controls).
+- Scientist response hardening added: required sections/citation checks with one repair pass.
+- Kids safety/readability shaping added: stricter unsafe-topic blocking and simplified responses.
+- Mode stability safeguards shipped: per `(userId, personalityId)` mode lock and citation-range validation.
+- In-chat Neural Core UI shipped and centered in the chat experience (HUD orb + expanded mindscape overlay).
+- README was updated to document the Neural Core addon and feature flag behavior.
 
-## Still To Finish
+## Priority Resume Checklist
 
-- Validate the source-ranking UX more thoroughly in the browser.
-- Test server-side TTS end to end with real provider credentials in `backend/.env`.
-- Run one final browser pass on integrated flows and clean up any UI or response-shape rough edges.
+1. Run an end-to-end browser pass with valid LLM credentials to verify full Scientist/Kids behavior under real model responses.
+2. Verify all new profile/memory APIs from the UI with multiple users (create, switch, edit, delete flows).
+3. Add/expand automated tests for policy locking, fail-closed behavior, and citation validation.
+4. Decide if Neural Core should default on in all environments or stay behind `VITE_NEURAL_CORE_ENABLED`.
+5. Start voice roadmap Phase 4 only after policy/legal guardrails are finalized (custom voices, anti-impersonation checks).
 
-## Verified In This Session
+## Known Gaps / Follow-Ups
 
-- Confirmed `/research-profile` returns ranked sources with default include selection.
-- Confirmed curated source edits persist through `POST /personality` and reload through `GET /personalities`.
-- Confirmed voice profile persistence through `PATCH /personality/:id/voice`.
-- Confirmed expected TTS failure mode without provider credentials: `500` with configuration error.
-- Confirmed frontend compiles successfully with `npm run build`.
+- LLM-dependent runtime validation is still partial without stable provider keys and representative test prompts.
+- No complete automated regression suite yet for the new dual-mode policy branch logic.
+- Voice customization remains intentionally deferred pending compliance and abuse-prevention controls.
 
-## Notes
+## Suggested First Task Next Session
 
-- Backend health is currently restored and `/research-profile` is responding again.
-- TTS route wiring is implemented, but it requires `TTS_API_KEY` or a compatible `TTS_BASE_URL` before end-to-end audio generation can succeed.
-- The untracked `concepts/` folder was intentionally left out of the commit.
+Execute a full scripted QA run for one Scientist profile and one Kids profile, capture mismatches, then convert those into automated tests before additional feature expansion.
