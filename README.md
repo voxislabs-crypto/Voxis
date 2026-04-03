@@ -32,6 +32,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
+- Configure LLM providers at runtime from the UI with a provider-first flow (provider -> API key -> models -> active model), with optional auto-detect as a helper.
 - Long-term memory facts are extracted asynchronously after each reply and injected back into future prompts, letting characters "remember" things the user told them across sessions.
 - Memory retrieval can be upgraded to semantic recall with any OpenAI-compatible embeddings endpoint, so the prompt gets the most relevant facts for the current user turn instead of a flat recency/importance dump.
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
@@ -50,20 +51,24 @@ backend/
     personalityModel.js      Personality CRUD
     chatModel.js             Chat history CRUD
     memoryModel.js           Long-term memory fact CRUD
+    settingsModel.js         Runtime LLM provider/model persistence
   services/
     llmService.js            Prompt builders, LLM calls, memory extraction
     moodEngine.js            VAD mood engine
     researchService.js       Source scraping, ranking, synthesis
     ttsService.js            TTS generation
+    providerDiscoveryService.js Provider catalog + model discovery
   controllers/
     chatController.js        Per-turn chat orchestration
     personalityController.js Personality CRUD with mood init
     memoryController.js      Memory fact CRUD (list / edit / delete)
     researchController.js    Research pipeline endpoint
     ttsController.js         TTS endpoint
+    settingsController.js    Runtime LLM settings handlers
   routes/
     chatRoutes.js
     personalityRoutes.js
+    settingsRoutes.js
 
 frontend/
   src/
@@ -73,6 +78,8 @@ frontend/
       PersonalityList.jsx    Character selector cards
       ChatWindow.jsx         Chat UI with mood indicator
       MemoryJournal.jsx      Memory fact viewer / editor
+      HarnessReport.jsx      Adversarial eval report UI
+      LlmSettingsPanel.jsx   Provider-first runtime LLM config UI
 
 concepts/layouts/            AI-generated design references (characters, UI, logo, ambient avatar)
 ```
@@ -97,9 +104,9 @@ cp backend/.env.example backend/.env
 
 | Variable | Purpose |
 |---|---|
-| `LLM_API_KEY` | API key for OpenAI or any OpenAI-compatible chat provider |
-| `LLM_BASE_URL` | Base URL for a custom or self-hosted LLM (optional, overrides OpenAI) |
-| `LLM_MODEL` | Model name to use for chat (e.g. `gpt-4o`, `mistral-small`) |
+| `LLM_API_KEY` | Optional environment fallback API key for OpenAI-compatible chat providers (runtime settings in UI take precedence when connected) |
+| `LLM_BASE_URL` | Optional environment fallback base URL for a custom or self-hosted LLM |
+| `LLM_MODEL` | Optional environment fallback model name for chat (e.g. `gpt-4o`, `mistral-small`) |
 | `MOOD_ADJUDICATION_ENABLED` | Enables semantic mood adjudication on ambiguous turns; set to `false` to force regex-only mood updates |
 | `PERSONA_PROMPT_CHAR_BUDGET` | Approximate character budget for the runtime persona prompt before section compression kicks in |
 | `PERSONA_PROMPT_CHAR_BUDGET_DEFAULT` | Optional override for the default creative context prompt budget |
@@ -114,6 +121,8 @@ cp backend/.env.example backend/.env
 | `TTS_BASE_URL` | Base URL for TTS provider (optional) |
 
 Research scraping works without any LLM credentials. If an LLM is configured, Voxis also synthesizes scraped source notes into a structured character profile automatically.
+
+If you do not want to store provider secrets in `.env`, open the frontend and use the `LLM Settings` tab to connect a provider at runtime.
 
 YouTube transcript ingestion is best-effort — if captions cannot be retrieved, the video's metadata is kept as a lower-ranked source rather than failing the request.
 
@@ -388,6 +397,22 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 ---
 
+### Runtime LLM Provider Settings
+
+Voxis supports provider-first runtime model configuration through dedicated settings endpoints and a frontend tab.
+
+Flow:
+
+1. Choose provider (`openai`, `openrouter`, `groq`, `together`, `mistral`, `anthropic`, or `custom`)
+2. Enter API key (and base URL for `custom`)
+3. Connect and fetch live model catalog from that provider
+4. Select active model for all chat/research/eval LLM calls
+
+Runtime settings are persisted in SQLite (`app_settings`) and are read first by `llmService.js`; `.env` values remain a fallback.
+Optional `Auto-detect` can infer provider from key behavior, but explicit provider selection is the default path.
+
+---
+
 ### Database & Migrations
 
 `db.js` uses an `ensureColumn` helper to add new columns to an existing database without destroying data. The SQLite file is stored at `backend/voxis.sqlite`. All schema changes are additive — running the server against an older database is safe; missing columns are added with their defaults on startup.
@@ -396,13 +421,14 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 - `personalities` — one row per character, all fields above
 - `chat_messages` — `(id, personalityId, role, content, createdAt)`
-- `personality_memory` — `(id, personalityId, memoryType, content, importance, createdAt, updatedAt)`, indexed on `(personalityId, importance DESC, id DESC)`
+- `personality_memory` — `(id, personalityId, memoryType, content, importance, embedding, embeddingModel, createdAt, updatedAt)`, indexed on `(personalityId, importance DESC, id DESC)`
+- `app_settings` — key/value JSON config storage for runtime system settings (currently `llm_config`)
 
 ---
 
 ## How It Works — Frontend
 
-**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the four tabs. When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
+**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the five tabs (`Character Request`, `Character Chat`, `Memory Journal`, `Adversarial Eval`, `LLM Settings`). When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
 
 **`PersonalityForm.jsx`** is the character builder. It manages a controlled form with fields for every personality property. The research panel lets users enter a subject query and source URLs; hitting Research calls the backend pipeline and auto-fills the form. Fields:
 - Basic: name, description, traits, quirks, mood
@@ -427,6 +453,8 @@ It also includes a toggleable debug panel for assistant turns, rendering the bac
 
 **`HarnessReport.jsx`** is the adversarial evaluation tab. It runs the backend harness for the active personality, shows scenario-level scores and judge summaries, and lets you inspect the generated transcript without touching the persisted chat log.
 
+**`LlmSettingsPanel.jsx`** is the runtime provider configuration tab. It loads provider options from the backend, supports explicit provider selection, API key entry, optional custom base URL, connect/disconnect actions, model switching, and optional auto-detect for convenience.
+
 ---
 
 ## API Reference
@@ -447,3 +475,9 @@ It also includes a toggleable debug panel for assistant turns, rendering the bac
 | `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel, debug}` |
 | `POST` | `/research` | Run the research pipeline for a query + URL list |
 | `POST` | `/tts` | Generate TTS audio for a text string |
+| `GET` | `/settings/llm` | Get runtime LLM connection state and selected model |
+| `GET` | `/settings/llm/providers` | List supported provider presets for the provider-first UI |
+| `POST` | `/settings/llm/connect` | Connect selected provider and fetch available models |
+| `POST` | `/settings/llm/model` | Set active model from currently fetched provider models |
+| `POST` | `/settings/llm/detect` | Optional helper: attempt provider auto-detection from API key |
+| `DELETE` | `/settings/llm` | Disconnect and clear runtime LLM settings |

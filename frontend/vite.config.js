@@ -11,6 +11,7 @@ export default defineConfig({
       "/personalities": "http://localhost:3001",
       "/research-profile": "http://localhost:3001",
       "/chat": "http://localhost:3001",
+      "/settings": "http://localhost:3001",
     },
   },
 });

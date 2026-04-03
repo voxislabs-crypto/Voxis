@@ -89,4 +89,12 @@ db.exec(`
   ON personality_memory (personalityId, importance DESC, id DESC)
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 export default db;

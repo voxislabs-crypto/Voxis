@@ -8,8 +8,18 @@ const CONTEXT_BUDGET_ENV_KEYS = {
   morally_complex: "PERSONA_PROMPT_CHAR_BUDGET_MORALLY_COMPLEX",
   tragic_villain: "PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN",
 };
+import { getLlmRuntimeConfig } from "../models/settingsModel.js";
 
 function getLlmConfig() {
+  const runtime = getLlmRuntimeConfig();
+  if (runtime?.apiKey && runtime?.baseUrl) {
+    return {
+      baseUrl: runtime.baseUrl.replace(/\/$/, ""),
+      model: runtime.model || DEFAULT_MODEL,
+      apiKey: runtime.apiKey,
+    };
+  }
+
   return {
     baseUrl: (process.env.LLM_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, ""),
     model: process.env.LLM_MODEL || DEFAULT_MODEL,

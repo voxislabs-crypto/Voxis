@@ -5,6 +5,7 @@ import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
 import MemoryJournal from "./components/MemoryJournal.jsx";
 import HarnessReport from "./components/HarnessReport.jsx";
+import LlmSettingsPanel from "./components/LlmSettingsPanel.jsx";
 
 const appStyles = `
   :root {
@@ -571,6 +572,13 @@ export default function App() {
               >
                 Adversarial Eval
               </button>
+              <button
+                type="button"
+                className={`tab ${activeView === "settings" ? "active" : ""}`}
+                onClick={() => setActiveView("settings")}
+              >
+                LLM Settings
+              </button>
             </div>
 
             <div className="main-content">
@@ -593,6 +601,15 @@ export default function App() {
                     heuristic scoring, prompt-budget telemetry, and judge commentary without mutating chat history.
                   </p>
                   <HarnessReport personality={selectedPersonality} onStatus={setStatus} />
+                </>
+              ) : activeView === "settings" ? (
+                <>
+                  <h2 className="section-heading">Configure Runtime LLM</h2>
+                  <p className="section-copy">
+                    Select your provider first, add key and optional custom base URL,
+                    then fetch and choose the active model for all chat, memory, and eval calls.
+                  </p>
+                  <LlmSettingsPanel onStatus={setStatus} />
                 </>
               ) : (
                 <>
