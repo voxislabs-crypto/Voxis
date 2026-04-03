@@ -8,12 +8,12 @@ import {
 } from "../models/memoryModel.js";
 import {
   generateChatCompletion,
-  buildPersonaSystemPrompt,
+  buildPersonaPromptPackage,
   buildPersonaAnchor,
   extractMemoryFacts,
 } from "../services/llmService.js";
 import {
-  stepMood,
+  stepMoodDetailed,
   moodFromLabel,
   moodToPromptFragment,
   moodToLabel,
@@ -76,13 +76,15 @@ export async function chatHandler(req, res, next) {
       content: m.content,
     }));
 
-    const newMood = await stepMood({
+    const moodStep = await stepMoodDetailed({
       currentMood,
       baseline: moodBaseline,
       message,
       personality,
       recentMessages: history,
     });
+    const newMood = moodStep.mood;
+    const moodLabel = moodToLabel(newMood);
 
     // Persist synchronously before the LLM call so mood influences this response.
     updateMoodState(personalityId, newMood);
@@ -93,7 +95,8 @@ export async function chatHandler(req, res, next) {
       message,
       MEMORY_RETRIEVAL_LIMIT,
     );
-    const systemPrompt = buildPersonaSystemPrompt(personality, memoryFacts);
+    const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message);
+    const systemPrompt = promptPackage.prompt;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -104,7 +107,8 @@ export async function chatHandler(req, res, next) {
     // counter personality drift. Cadence is tighter for antagonist contexts.
     const reconditionEvery = getReconditionEvery(personality.creativeContext);
     const totalMessages = getChatMessageCount(personalityId);
-    if (totalMessages > 0 && totalMessages % reconditionEvery === 0) {
+    const shouldRecondition = totalMessages > 0 && totalMessages % reconditionEvery === 0;
+    if (shouldRecondition) {
       messages.push({ role: "system", content: buildPersonaAnchor(personality) });
     }
 
@@ -159,7 +163,35 @@ export async function chatHandler(req, res, next) {
       }
     });
 
-    return res.json({ reply, isAI: true, moodState: newMood, moodLabel: moodToLabel(newMood) });
+    const debugData = {
+      goal: promptPackage.activeGoal,
+      mood: {
+        before: currentMood,
+        after: newMood,
+        label: moodLabel,
+        adjudication: moodStep.diagnostics,
+      },
+      memoryRetrieved: memoryFacts.map((memory) => ({
+        content: memory.content,
+        importance: memory.importance,
+        type: memory.importance >= 9 ? "anchor" : "context",
+        memoryType: memory.memoryType,
+      })),
+      memoryInjected: (promptPackage.debug?.injectedMemories || []).map((memory) => ({
+        content: memory.content,
+        importance: memory.importance,
+        memoryType: memory.memoryType,
+        injectedAs: memory.injectedAs,
+      })),
+      prompt: promptPackage.debug,
+      flags: {
+        reconditioned: shouldRecondition,
+        moodFragmentInjected: Boolean(moodFragment),
+        historyMessages: history.length,
+      },
+    };
+
+    return res.json({ reply, isAI: true, moodState: newMood, moodLabel, debug: debugData });
   } catch (error) {
     return next(error);
   }

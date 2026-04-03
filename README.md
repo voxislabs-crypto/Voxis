@@ -186,6 +186,7 @@ System prompts are **built fresh on every chat turn** by `buildPersonaSystemProm
 == IMMUTABLE IDENTITY ANCHORS ==    (high-importance memory facts, importance ≥ 9)
 == ACTIVE SCHEMES & LEVERAGE ==     (villain contexts only)
 == ESTABLISHED CONTEXT ==           (standard memory facts, importance < 9)
+== ACTIVE INTENT ==                 (when at least one goal exists)
 == IDENTITY SOVEREIGNTY ==
 == CONTINUITY ==
 ```
@@ -196,6 +197,8 @@ A compact variant, `buildCompactPersonaSystemPrompt()`, compresses the same data
 
 The full runtime prompt now also applies a simple section budgeter. Traits, rules, quirks, research summary, anchor facts, and established context are each capped independently, and overflow is compressed into short summary lines instead of silently ballooning the prompt.
 You can tune this globally or per creative context with the `PERSONA_PROMPT_CHAR_BUDGET*` environment variables.
+
+When goals are present, Voxis also selects one active goal per turn. It prefers a goal that overlaps with the current user turn or retrieved memories and falls back to a lightweight rotation when nothing is clearly relevant. That active intent is injected as a separate prompt section so characters steer subtly rather than responding as static bundles of traits.
 
 ---
 
@@ -345,10 +348,19 @@ For dark creative contexts, the synthesis layer is explicitly instructed not to 
 14. Persist user message + assistant reply to SQLite
 15. setImmediate: backfillMissingMemoryEmbeddings      [best-effort for legacy rows]
 16. setImmediate: extractMemoryFacts → upsertMemoryFactWithEmbedding → pruneMemory
-17. Return { reply, isAI: true, moodState, moodLabel }
+17. Return { reply, isAI: true, moodState, moodLabel, debug }
 ```
 
 Memory extraction (step 14) is deferred so the HTTP response returns without waiting for the secondary LLM call. If extraction fails it is silently dropped; it never blocks the user-facing turn.
+
+The `debug` payload returned from chat includes:
+
+- mood before and after the turn
+- semantic adjudication diagnostics when ambiguity detection fired
+- retrieved memories and the exact subset actually injected after section budgeting
+- selected active goal and how it was chosen
+- prompt-budget decisions for each major section
+- system flags like reconditioning and mood-fragment injection
 
 To stress-test consistency, Voxis also ships a small adversarial harness:
 
@@ -402,6 +414,7 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 **`PersonalityList.jsx`** renders a card per personality. Each card shows the live `moodLabel` (updated after each chat turn), a `creativeContext` badge when the context is non-default, and counts for traits, quirks, and sources.
 
 **`ChatWindow.jsx`** is the chat interface. The header shows a VAD-driven mood dot (colored by valence) next to the character name and the character's description below it. The message list renders user and assistant bubbles. The composer is a `<textarea>` that submits on Enter (Shift+Enter for newline). The voice panel exposes TTS settings and a button to generate/play the last assistant reply.
+It also includes a toggleable debug panel for assistant turns, rendering the backend's per-turn debug payload directly in the chat UI.
 
 **`MemoryJournal.jsx`** is the Memory Journal tab. It fetches all memory facts for the selected personality and renders them sorted by importance. Features:
 - Color-coded type badges distinguish `fact`, `preference`, `relationship`, `event` from villain types (`scheme`, `grudge`, `leverage`, `target_weakness`, `debt`)
@@ -431,6 +444,6 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 | `POST` | `/personality/:id/memory/backfill` | Backfill missing embeddings for that personality's stored memories |
 | `PUT` | `/memory/:memoryId` | Edit a memory fact (content, memoryType, importance) |
 | `DELETE` | `/memory/:memoryId` | Delete a memory fact |
-| `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel}` |
+| `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel, debug}` |
 | `POST` | `/research` | Run the research pipeline for a query + URL list |
 | `POST` | `/tts` | Generate TTS audio for a text string |

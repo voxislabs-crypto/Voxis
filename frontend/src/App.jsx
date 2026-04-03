@@ -476,7 +476,7 @@ export default function App() {
         ...current,
         [personalityId]: [
           ...(current[personalityId] || []),
-          { role: "assistant", content: data.reply },
+          { role: "assistant", content: data.reply, debug: data.debug || null },
         ],
       }));
 

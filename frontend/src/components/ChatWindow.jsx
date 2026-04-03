@@ -26,6 +26,13 @@ const chatStyles = `
     background: rgba(0, 180, 255, 0.04);
   }
 
+  .chat-header-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
   .chat-header h3 {
     margin: 0 0 6px;
     font-size: 1.05rem;
@@ -49,6 +56,16 @@ const chatStyles = `
     color: var(--muted);
     font-size: 0.88rem;
     line-height: 1.6;
+  }
+
+  .debug-toggle {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    background: rgba(0, 180, 255, 0.06);
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 700;
   }
 
   .message-list {
@@ -84,6 +101,20 @@ const chatStyles = `
     border: 1px solid rgba(0, 180, 255, 0.08);
     color: var(--text);
     border-bottom-left-radius: 6px;
+  }
+
+  .debug-panel {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 200, 120, 0.18);
+    background: rgba(4, 18, 10, 0.88);
+    color: #9ef0b8;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    overflow: auto;
+    max-height: 260px;
+    white-space: pre-wrap;
   }
 
   .message-role {
@@ -277,6 +308,7 @@ export default function ChatWindow({
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
+  const [debugMode, setDebugMode] = useState(true);
   const lastGeneratedRef = useRef("");
 
   const latestAssistantMessage = useMemo(
@@ -443,23 +475,28 @@ export default function ChatWindow({
       <div className="chat-shell">
         <div className="chat-card">
           <div className="chat-header">
-            <h3>
-              {personality.moodState && (
-                <span
-                  className="mood-dot"
-                  title={personality.moodLabel || ""}
-                  style={{
-                    background:
-                      personality.moodState.valence > 0.2
-                        ? "#4ade80"
-                        : personality.moodState.valence < -0.2
-                        ? "#f87171"
-                        : "#fbbf24",
-                  }}
-                />
-              )}
-              {personality.name}
-            </h3>
+            <div className="chat-header-top">
+              <h3>
+                {personality.moodState && (
+                  <span
+                    className="mood-dot"
+                    title={personality.moodLabel || ""}
+                    style={{
+                      background:
+                        personality.moodState.valence > 0.2
+                          ? "#4ade80"
+                          : personality.moodState.valence < -0.2
+                          ? "#f87171"
+                          : "#fbbf24",
+                    }}
+                  />
+                )}
+                {personality.name}
+              </h3>
+              <button type="button" className="debug-toggle" onClick={() => setDebugMode((value) => !value)}>
+                {debugMode ? "Hide Debug" : "Show Debug"}
+              </button>
+            </div>
             <p>{personality.description}</p>
           </div>
 
@@ -566,6 +603,9 @@ export default function ChatWindow({
                     {message.role === "assistant" ? personality.name : "You"}
                   </span>
                   {message.content}
+                  {debugMode && message.role === "assistant" && message.debug ? (
+                    <pre className="debug-panel">{JSON.stringify(message.debug, null, 2)}</pre>
+                  ) : null}
                 </div>
               ))
             ) : (
