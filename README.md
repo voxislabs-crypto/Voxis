@@ -621,13 +621,23 @@ How it works:
 - A floating orb HUD appears inside the chat card; clicking it opens a full mindscape overlay.
 - The central mood orb is live-wired to VAD signals (`valence`, `arousal`, `dominance`) from chat debug payloads.
 - Orbiting system nodes (`Memory`, `Intent`, `Identity`, and `Evidence` in Scientist mode) pulse and light based on real runtime signals.
-- Clicking focus nodes triggers camera tweening and branch sprouting from live data (retrieved/injected memories, active goal details, identity stabilization events, citation status).
-- A subtle always-on neural mesh is rendered behind chat messages so the interface feels alive even when the overlay is closed.
+- Clicking focus nodes triggers camera tweening and SVG branch sprouting from live data (retrieved/injected memories, active goal details, identity stabilization events, citation status).
+- A subtle always-on neural mesh is rendered behind chat messages only above the `light` performance tier so lower-end devices are not forced into continuous ambience.
+- Scientist repair passes now surface as a visible `thinking...` ripple and citation-pathway reorganization instead of silently self-correcting.
+- `v0.2` lightweight curved SVG trunks and sprout branches now animate memory, intent, identity, and evidence signals without adding a graph dependency.
 
 Mode-aware rendering:
 
 - **Scientist mode** emphasizes telemetry and evidence/citation pathways.
-- **Kids mode** uses softer colors, larger touch targets, simplified labels, and sparkle ambience.
+- **Kids mode** defaults to `light` motion, uses larger touch targets, simplified labels, and can optionally speak a short positive orb narration when the mood brightens.
+- **Reduced motion** is respected through `prefers-reduced-motion`, which degrades the experience to the light tier and disables ambient movement.
+
+Color mapping:
+
+- Positive valence drives cyan/blue core glow.
+- High arousal increases amber/orange halo intensity and orb size.
+- Memory anchors stay gold.
+- Reconditioning events emit a white/blue stabilizing ripple.
 
 Keyboard controls:
 
@@ -651,7 +661,13 @@ Feature flag:
 
 **`LlmSettingsPanel.jsx`** is the runtime provider configuration tab. It loads provider options from the backend, supports explicit provider selection, API key entry, optional custom base URL, connect/disconnect actions, model switching, and optional auto-detect for convenience.
 
-The settings area also includes a user policy editor for the selected profile, including default mode, safety tier, and supervised advanced mode for teen accounts.
+The settings area also includes a user policy editor for the selected profile, including default mode, safety tier, Neural Core performance tier, optional Kids narration, and supervised advanced mode for teen accounts.
+
+Current rollout scope:
+
+- `v0.1`: shipped as a lightweight orb HUD + overlay with CSS-first pulses and mode-aware telemetry.
+- `v0.2`: shipped as curved SVG trunk growth and focused sprout branches layered over the existing orb system.
+- `v0.3`: planned `react-force-graph-2d` expansion for dynamic force-directed behavior once the current overlay proves stable.
 
 ---
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import NeuralCore from "./NeuralCore.jsx";
+import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 
 const chatStyles = `
   .chat-shell {
@@ -313,10 +314,24 @@ const chatStyles = `
   }
 `;
 
+function resolvePerformanceTier(profile, mode, prefersReducedMotion) {
+  if (prefersReducedMotion) {
+    return "light";
+  }
+
+  const tier = String(profile?.performanceTier || "").trim().toLowerCase();
+  if (["light", "balanced", "full"].includes(tier)) {
+    return tier;
+  }
+
+  return mode === "kids" ? "light" : "balanced";
+}
+
 export default function ChatWindow({
   personality,
   messages,
   activeMode,
+  neuralProfile,
   isLoadingMessages,
   isSending,
   onSend,
@@ -338,6 +353,8 @@ export default function ChatWindow({
   const [audioUrl, setAudioUrl] = useState("");
   const [debugMode, setDebugMode] = useState(true);
   const lastGeneratedRef = useRef("");
+  const lastNarrationRef = useRef("");
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const latestAssistantMessage = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant") || null,
@@ -347,6 +364,11 @@ export default function ChatWindow({
   const latestAssistantDebug = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant" && message.debug)?.debug || null,
     [messages],
+  );
+
+  const performanceTier = useMemo(
+    () => resolvePerformanceTier(neuralProfile, activeMode, prefersReducedMotion),
+    [neuralProfile, activeMode, prefersReducedMotion],
   );
 
   const neuralSignal = useMemo(() => {
@@ -403,6 +425,51 @@ export default function ChatWindow({
     void generateAudio(latestAssistantMessage.content);
     lastGeneratedRef.current = stamp;
   }, [latestAssistantMessage, personality?.id, voiceProfile]);
+
+  useEffect(() => {
+    const valence = Number(latestAssistantDebug?.mood?.after?.valence ?? personality?.moodState?.valence ?? 0);
+    const canNarrate =
+      activeMode === "kids" &&
+      Boolean(neuralProfile?.voiceNarrationEnabled) &&
+      !prefersReducedMotion &&
+      !(voiceProfile.enabled && voiceProfile.autoplay) &&
+      latestAssistantMessage &&
+      valence > 0.35 &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window;
+
+    if (!canNarrate) {
+      return;
+    }
+
+    const narrationStamp = `${personality?.id || "none"}:${latestAssistantMessage.content}:${valence.toFixed(2)}`;
+    if (lastNarrationRef.current === narrationStamp) {
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(
+      "My brain is lighting up because I'm happy about our story!",
+    );
+    utterance.rate = 1;
+    utterance.pitch = 1.1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    lastNarrationRef.current = narrationStamp;
+
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, [
+    activeMode,
+    latestAssistantDebug,
+    latestAssistantMessage,
+    neuralProfile?.voiceNarrationEnabled,
+    personality?.id,
+    personality?.moodState?.valence,
+    prefersReducedMotion,
+    voiceProfile.autoplay,
+    voiceProfile.enabled,
+  ]);
 
   function updateVoiceField(name, value) {
     setVoiceProfile((current) => ({
@@ -522,7 +589,13 @@ export default function ChatWindow({
       <style>{chatStyles}</style>
       <div className="chat-shell">
         <div className="chat-card">
-          <NeuralCore personality={personality} mode={activeMode || "scientist"} latestDebug={latestAssistantDebug} />
+          <NeuralCore
+            personality={personality}
+            mode={activeMode || "scientist"}
+            latestDebug={latestAssistantDebug}
+            performanceTier={performanceTier}
+            voiceNarrationEnabled={Boolean(neuralProfile?.voiceNarrationEnabled)}
+          />
           <div className="chat-header">
             <div className="chat-header-top">
               <h3>
@@ -643,18 +716,20 @@ export default function ChatWindow({
           </div>
 
           <div className="message-list">
-            <svg className="chat-neural-bg" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <line x1="48" y1="40" x2="24" y2="20" className={neuralSignal.memoryActive ? "active" : ""} />
-              <line x1="48" y1="40" x2="78" y2="24" className={neuralSignal.intentActive ? "active" : ""} />
-              <line x1="48" y1="40" x2="72" y2="72" className={neuralSignal.identityActive ? "active" : ""} />
-              <line x1="48" y1="40" x2="22" y2="70" className={Math.abs(neuralSignal.valence) > 0.2 ? "active" : ""} />
+            {performanceTier !== "light" ? (
+              <svg className="chat-neural-bg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <line x1="48" y1="40" x2="24" y2="20" className={neuralSignal.memoryActive ? "active" : ""} />
+                <line x1="48" y1="40" x2="78" y2="24" className={neuralSignal.intentActive ? "active" : ""} />
+                <line x1="48" y1="40" x2="72" y2="72" className={neuralSignal.identityActive ? "active" : ""} />
+                <line x1="48" y1="40" x2="22" y2="70" className={Math.abs(neuralSignal.valence) > 0.2 ? "active" : ""} />
 
-              <circle cx="48" cy="40" r={2.4 + Math.abs(neuralSignal.arousal) * 1.8} />
-              <circle cx="24" cy="20" r="1.6" />
-              <circle cx="78" cy="24" r="1.7" />
-              <circle cx="72" cy="72" r="1.5" />
-              <circle cx="22" cy="70" r="1.5" />
-            </svg>
+                <circle cx="48" cy="40" r={2.4 + Math.abs(neuralSignal.arousal) * (performanceTier === "full" ? 2.2 : 1.5)} />
+                <circle cx="24" cy="20" r="1.6" />
+                <circle cx="78" cy="24" r="1.7" />
+                <circle cx="72" cy="72" r="1.5" />
+                <circle cx="22" cy="70" r="1.5" />
+              </svg>
+            ) : null}
 
             {isLoadingMessages ? (
               <div className="empty-chat">Loading persisted conversation history...</div>

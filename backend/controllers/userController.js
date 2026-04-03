@@ -40,6 +40,8 @@ export function createUserHandler(req, res, next) {
       locale,
       defaultMode,
       safetyTier: req.body?.safetyTier,
+      performanceTier: req.body?.performanceTier,
+      voiceNarrationEnabled: req.body?.voiceNarrationEnabled,
       supervisedAdvancedMode: Boolean(req.body?.supervisedAdvancedMode),
       parentEmailOptional: req.body?.parentEmailOptional,
       parentalConsentRequired:
@@ -89,6 +91,8 @@ export function updateUserProfileHandler(req, res, next) {
     const profile = updateUserProfile(userId, {
       defaultMode: req.body?.defaultMode,
       safetyTier: req.body?.safetyTier,
+      performanceTier: req.body?.performanceTier,
+      voiceNarrationEnabled: req.body?.voiceNarrationEnabled,
       supervisedAdvancedMode: req.body?.supervisedAdvancedMode,
       parentEmailOptional: req.body?.parentEmailOptional,
       parentalConsentRequired: req.body?.parentalConsentRequired,

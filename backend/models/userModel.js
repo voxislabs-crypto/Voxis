@@ -2,6 +2,7 @@ import db from "../db/db.js";
 
 const VALID_AGE_BANDS = new Set(["child", "teen", "adult"]);
 const VALID_MODES = new Set(["kids", "scientist"]);
+const VALID_PERFORMANCE_TIERS = new Set(["light", "balanced", "full"]);
 
 function toBooleanFlag(value) {
   return value ? 1 : 0;
@@ -19,6 +20,11 @@ function normalizeAgeBand(value) {
 function normalizeMode(value, fallback = "scientist") {
   const mode = String(value || fallback).trim().toLowerCase();
   return VALID_MODES.has(mode) ? mode : fallback;
+}
+
+function normalizePerformanceTier(value, fallback = "balanced") {
+  const tier = String(value || fallback).trim().toLowerCase();
+  return VALID_PERFORMANCE_TIERS.has(tier) ? tier : fallback;
 }
 
 function normalizeUserRow(row) {
@@ -40,10 +46,15 @@ function normalizeProfileRow(row) {
     return null;
   }
 
+  const defaultMode = normalizeMode(row.defaultMode);
+  const defaultPerformanceTier = defaultMode === "kids" ? "light" : "balanced";
+
   return {
     userId: row.userId,
-    defaultMode: normalizeMode(row.defaultMode),
+    defaultMode,
     safetyTier: String(row.safetyTier || "standard").trim() || "standard",
+    performanceTier: normalizePerformanceTier(row.performanceTier, defaultPerformanceTier),
+    voiceNarrationEnabled: fromBooleanFlag(row.voiceNarrationEnabled),
     supervisedAdvancedMode: fromBooleanFlag(row.supervisedAdvancedMode),
     parentEmailOptional: String(row.parentEmailOptional || "").trim(),
     parentalConsentRequired: fromBooleanFlag(row.parentalConsentRequired),
@@ -60,11 +71,13 @@ function ensureUserProfile(userId) {
         userId,
         defaultMode,
         safetyTier,
+        performanceTier,
+        voiceNarrationEnabled,
         supervisedAdvancedMode,
         parentEmailOptional,
         parentalConsentRequired,
         parentalConsentVerifiedAt
-      ) VALUES (?, 'scientist', 'standard', 0, '', 0, '')
+      ) VALUES (?, 'scientist', 'standard', 'light', 0, 0, '', 0, '')
     `,
   ).run(userId);
 }
@@ -103,6 +116,12 @@ export function createUser(input) {
   const locale = String(input?.locale || "en-US").trim() || "en-US";
   const defaultMode = normalizeMode(input?.defaultMode, ageBand === "adult" ? "scientist" : "kids");
   const safetyTier = String(input?.safetyTier || (ageBand === "child" ? "child_strict" : "standard")).trim();
+  const performanceTier = normalizePerformanceTier(
+    input?.performanceTier,
+    defaultMode === "kids" ? "light" : "balanced",
+  );
+  const voiceNarrationEnabled =
+    input?.voiceNarrationEnabled === undefined ? ageBand === "child" : Boolean(input?.voiceNarrationEnabled);
 
   const result = db
     .prepare(
@@ -121,6 +140,8 @@ export function createUser(input) {
         userId,
         defaultMode,
         safetyTier,
+        performanceTier,
+        voiceNarrationEnabled,
         supervisedAdvancedMode,
         parentEmailOptional,
         parentalConsentRequired,
@@ -128,6 +149,8 @@ export function createUser(input) {
         createdAt,
         updatedAt
       ) VALUES (
+        ?,
+        ?,
         ?,
         ?,
         ?,
@@ -143,6 +166,8 @@ export function createUser(input) {
     userId,
     defaultMode,
     safetyTier || "standard",
+    performanceTier,
+    toBooleanFlag(voiceNarrationEnabled),
     toBooleanFlag(Boolean(input?.supervisedAdvancedMode)),
     String(input?.parentEmailOptional || "").trim(),
     toBooleanFlag(Boolean(input?.parentalConsentRequired || ageBand !== "adult")),
@@ -166,6 +191,8 @@ export function getUserProfile(userId) {
           userId,
           defaultMode,
           safetyTier,
+          performanceTier,
+          voiceNarrationEnabled,
           supervisedAdvancedMode,
           parentEmailOptional,
           parentalConsentRequired,
@@ -184,9 +211,24 @@ export function getUserProfile(userId) {
 export function updateUserProfile(userId, input) {
   ensureUserProfile(userId);
   const current = getUserProfile(userId);
+  const user = getUserById(userId);
 
   const nextDefaultMode = normalizeMode(input?.defaultMode, current?.defaultMode || "scientist");
   const nextSafetyTier = String(input?.safetyTier || current?.safetyTier || "standard").trim() || "standard";
+  const nextPerformanceTier =
+    input?.performanceTier === undefined
+      ? normalizePerformanceTier(
+          current?.performanceTier,
+          nextDefaultMode === "kids" || user?.ageBand === "child" ? "light" : "balanced",
+        )
+      : normalizePerformanceTier(
+          input?.performanceTier,
+          nextDefaultMode === "kids" || user?.ageBand === "child" ? "light" : "balanced",
+        );
+  const nextVoiceNarrationEnabled =
+    input?.voiceNarrationEnabled === undefined
+      ? current?.voiceNarrationEnabled ?? user?.ageBand === "child"
+      : Boolean(input?.voiceNarrationEnabled);
   const nextSupervisedAdvancedMode =
     input?.supervisedAdvancedMode === undefined
       ? current?.supervisedAdvancedMode
@@ -210,6 +252,8 @@ export function updateUserProfile(userId, input) {
       SET
         defaultMode = ?,
         safetyTier = ?,
+        performanceTier = ?,
+        voiceNarrationEnabled = ?,
         supervisedAdvancedMode = ?,
         parentEmailOptional = ?,
         parentalConsentRequired = ?,
@@ -220,6 +264,8 @@ export function updateUserProfile(userId, input) {
   ).run(
     nextDefaultMode,
     nextSafetyTier,
+    nextPerformanceTier,
+    toBooleanFlag(nextVoiceNarrationEnabled),
     toBooleanFlag(nextSupervisedAdvancedMode),
     nextParentEmail,
     toBooleanFlag(nextParentalConsentRequired),

@@ -339,6 +339,8 @@ export default function App() {
   const [profileDraft, setProfileDraft] = useState({
     defaultMode: "scientist",
     safetyTier: "standard",
+    performanceTier: "balanced",
+    voiceNarrationEnabled: false,
     supervisedAdvancedMode: false,
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -431,6 +433,8 @@ export default function App() {
     setProfileDraft({
       defaultMode: selectedUserProfile.defaultMode || "scientist",
       safetyTier: selectedUserProfile.safetyTier || "standard",
+      performanceTier: selectedUserProfile.performanceTier || "balanced",
+      voiceNarrationEnabled: Boolean(selectedUserProfile.voiceNarrationEnabled),
       supervisedAdvancedMode: Boolean(selectedUserProfile.supervisedAdvancedMode),
     });
   }, [selectedUserProfile]);
@@ -851,7 +855,7 @@ export default function App() {
                   <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0 }}>User Policy Profile</h3>
                     <p className="section-copy" style={{ marginBottom: 12 }}>
-                      Configure default mode and teen supervision controls for the selected profile.
+                      Configure default mode, Neural Core intensity, and teen supervision controls for the selected profile.
                     </p>
 
                     <div className="meta-row" style={{ marginBottom: 12 }}>
@@ -895,6 +899,51 @@ export default function App() {
                         </select>
                       </label>
                     </div>
+
+                    <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span className="profile-label">Neural Core Performance Tier</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="1"
+                          value={
+                            profileDraft.performanceTier === "light"
+                              ? 0
+                              : profileDraft.performanceTier === "full"
+                              ? 2
+                              : 1
+                          }
+                          onChange={(event) => {
+                            const nextValue = Number(event.target.value);
+                            setProfileDraft((current) => ({
+                              ...current,
+                              performanceTier: nextValue === 0 ? "light" : nextValue === 2 ? "full" : "balanced",
+                            }));
+                          }}
+                        />
+                      </label>
+                      <div className="meta-row" style={{ marginTop: -2 }}>
+                        <span className="meta-pill">Light: CSS-only pulse</span>
+                        <span className="meta-pill">Balanced: orbit + ambience</span>
+                        <span className="meta-pill">Full: prep for richer Scientist motion</span>
+                      </div>
+                    </div>
+
+                    <label style={{ display: "inline-flex", gap: 8, marginTop: 12, color: "var(--muted)" }}>
+                      <input
+                        type="checkbox"
+                        checked={profileDraft.voiceNarrationEnabled}
+                        onChange={(event) =>
+                          setProfileDraft((current) => ({
+                            ...current,
+                            voiceNarrationEnabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      Enable Kids Mode mood narration when the orb brightens positively
+                    </label>
 
                     <label style={{ display: "inline-flex", gap: 8, marginTop: 12, color: "var(--muted)" }}>
                       <input
@@ -961,6 +1010,7 @@ export default function App() {
                     personality={selectedPersonality}
                     messages={chatLogs[selectedId] || []}
                     activeMode={chatPolicy?.activeMode || selectedMode}
+                    neuralProfile={selectedUserProfile || chatPolicy}
                     isLoadingMessages={isLoadingMessages}
                     isSending={isSending}
                     onSend={handleSendMessage}

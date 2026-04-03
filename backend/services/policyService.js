@@ -1,10 +1,16 @@
 import { getUserById, getUserProfile } from "../models/userModel.js";
 
 const VALID_MODES = new Set(["kids", "scientist"]);
+const VALID_PERFORMANCE_TIERS = new Set(["light", "balanced", "full"]);
 
 function normalizeMode(value, fallback = "scientist") {
   const mode = String(value || fallback).trim().toLowerCase();
   return VALID_MODES.has(mode) ? mode : fallback;
+}
+
+function normalizePerformanceTier(value, fallback = "balanced") {
+  const tier = String(value || fallback).trim().toLowerCase();
+  return VALID_PERFORMANCE_TIERS.has(tier) ? tier : fallback;
 }
 
 function selectDefaultMode({ ageBand, profile }) {
@@ -55,6 +61,11 @@ function isCitationRequired(activeMode) {
   return process.env.RESEARCH_CITATION_REQUIRED !== "false";
 }
 
+function resolvePerformanceTier(ageBand, profile, activeMode) {
+  const fallback = ageBand === "child" || activeMode === "kids" ? "light" : "balanced";
+  return normalizePerformanceTier(profile?.performanceTier, fallback);
+}
+
 export function resolvePolicyContext({ userId, requestedMode }) {
   const parsedUserId = Number(userId);
   const user = Number.isInteger(parsedUserId) ? getUserById(parsedUserId) : null;
@@ -69,6 +80,8 @@ export function resolvePolicyContext({ userId, requestedMode }) {
         activeMode: "kids",
         defaultMode: "kids",
         safetyTier: "child_strict",
+        performanceTier: "light",
+        voiceNarrationEnabled: false,
         citationRequired: false,
         modeRequested: Boolean(requestedMode),
         modeAccepted: false,
@@ -92,6 +105,8 @@ export function resolvePolicyContext({ userId, requestedMode }) {
       activeMode,
       defaultMode,
       safetyTier: resolveSafetyTier(user.ageBand, profile),
+      performanceTier: resolvePerformanceTier(user.ageBand, profile, activeMode),
+      voiceNarrationEnabled: Boolean(profile?.voiceNarrationEnabled),
       citationRequired: isCitationRequired(activeMode),
       modeRequested: Boolean(requestedMode),
       modeAccepted: accepted,

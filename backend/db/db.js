@@ -120,6 +120,8 @@ db.exec(`
     userId INTEGER PRIMARY KEY,
     defaultMode TEXT NOT NULL DEFAULT 'scientist',
     safetyTier TEXT NOT NULL DEFAULT 'standard',
+    performanceTier TEXT NOT NULL DEFAULT 'light',
+    voiceNarrationEnabled INTEGER NOT NULL DEFAULT 0,
     supervisedAdvancedMode INTEGER NOT NULL DEFAULT 0,
     parentEmailOptional TEXT NOT NULL DEFAULT '',
     parentalConsentRequired INTEGER NOT NULL DEFAULT 0,
@@ -129,6 +131,9 @@ db.exec(`
     FOREIGN KEY (userId) REFERENCES users(id)
   )
 `);
+
+ensureColumn("user_profiles", "performanceTier", "TEXT NOT NULL DEFAULT 'light'");
+ensureColumn("user_profiles", "voiceNarrationEnabled", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_users_age_band
