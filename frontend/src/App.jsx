@@ -210,6 +210,7 @@ const appStyles = `
     display: flex;
     gap: 8px;
     padding: 20px 20px 0;
+    flex-wrap: wrap;
   }
 
   .tab {
@@ -233,6 +234,12 @@ const appStyles = `
     border-color: transparent;
     color: #fff;
     box-shadow: 0 4px 16px rgba(0, 160, 255, 0.30);
+  }
+
+  @keyframes softPulse {
+    0% { box-shadow: 0 0 0 rgba(0, 200, 255, 0.0); }
+    50% { box-shadow: 0 0 24px rgba(0, 200, 255, 0.18); }
+    100% { box-shadow: 0 0 0 rgba(0, 200, 255, 0.0); }
   }
 
   .main-content {
@@ -953,6 +960,7 @@ export default function App() {
                   <ChatWindow
                     personality={selectedPersonality}
                     messages={chatLogs[selectedId] || []}
+                    activeMode={chatPolicy?.activeMode || selectedMode}
                     isLoadingMessages={isLoadingMessages}
                     isSending={isSending}
                     onSend={handleSendMessage}

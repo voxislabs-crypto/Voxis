@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import NeuralCore from "./NeuralCore.jsx";
 
 const chatStyles = `
   .chat-shell {
@@ -12,6 +13,10 @@ const chatStyles = `
     border-radius: 22px;
     background: rgba(6, 14, 28, 0.72);
     overflow: hidden;
+  }
+
+  .chat-card {
+    position: relative;
   }
 
   .chat-placeholder {
@@ -69,6 +74,7 @@ const chatStyles = `
   }
 
   .message-list {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -76,6 +82,27 @@ const chatStyles = `
     max-height: 520px;
     padding: 20px;
     overflow-y: auto;
+  }
+
+  .chat-neural-bg {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.34;
+  }
+
+  .chat-neural-bg line {
+    stroke: rgba(0, 200, 255, 0.22);
+    stroke-width: 1;
+  }
+
+  .chat-neural-bg line.active {
+    stroke: rgba(255, 132, 72, 0.44);
+    stroke-width: 1.4;
+  }
+
+  .chat-neural-bg circle {
+    fill: rgba(140, 214, 255, 0.42);
   }
 
   .message-bubble {
@@ -289,6 +316,7 @@ const chatStyles = `
 export default function ChatWindow({
   personality,
   messages,
+  activeMode,
   isLoadingMessages,
   isSending,
   onSend,
@@ -315,6 +343,26 @@ export default function ChatWindow({
     () => [...messages].reverse().find((message) => message.role === "assistant") || null,
     [messages],
   );
+
+  const latestAssistantDebug = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant" && message.debug)?.debug || null,
+    [messages],
+  );
+
+  const neuralSignal = useMemo(() => {
+    const mood = latestAssistantDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 };
+    const memoryActive = ((latestAssistantDebug?.memoryInjected || []).length + (latestAssistantDebug?.userMemoryRetrieved || []).length) > 0;
+    const intentActive = Boolean(latestAssistantDebug?.goal?.goal);
+    const identityActive = Boolean(latestAssistantDebug?.flags?.reconditioned);
+
+    return {
+      valence: Number(mood?.valence || 0),
+      arousal: Number(mood?.arousal || 0),
+      memoryActive,
+      intentActive,
+      identityActive,
+    };
+  }, [latestAssistantDebug, personality?.moodState]);
 
   useEffect(() => {
     if (!personality) {
@@ -474,6 +522,7 @@ export default function ChatWindow({
       <style>{chatStyles}</style>
       <div className="chat-shell">
         <div className="chat-card">
+          <NeuralCore personality={personality} mode={activeMode || "scientist"} latestDebug={latestAssistantDebug} />
           <div className="chat-header">
             <div className="chat-header-top">
               <h3>
@@ -594,6 +643,19 @@ export default function ChatWindow({
           </div>
 
           <div className="message-list">
+            <svg className="chat-neural-bg" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <line x1="48" y1="40" x2="24" y2="20" className={neuralSignal.memoryActive ? "active" : ""} />
+              <line x1="48" y1="40" x2="78" y2="24" className={neuralSignal.intentActive ? "active" : ""} />
+              <line x1="48" y1="40" x2="72" y2="72" className={neuralSignal.identityActive ? "active" : ""} />
+              <line x1="48" y1="40" x2="22" y2="70" className={Math.abs(neuralSignal.valence) > 0.2 ? "active" : ""} />
+
+              <circle cx="48" cy="40" r={2.4 + Math.abs(neuralSignal.arousal) * 1.8} />
+              <circle cx="24" cy="20" r="1.6" />
+              <circle cx="78" cy="24" r="1.7" />
+              <circle cx="72" cy="72" r="1.5" />
+              <circle cx="22" cy="70" r="1.5" />
+            </svg>
+
             {isLoadingMessages ? (
               <div className="empty-chat">Loading persisted conversation history...</div>
             ) : messages.length ? (
