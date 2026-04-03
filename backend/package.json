@@ -6,7 +6,9 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "backfill-memory-embeddings": "node scripts/backfillMemoryEmbeddings.js",
+    "adversarial-harness": "node scripts/adversarialTranscriptHarness.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.5.0",

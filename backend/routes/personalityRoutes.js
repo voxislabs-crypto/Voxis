@@ -6,10 +6,12 @@ import {
   listPersonalitiesHandler,
   updateVoiceProfileHandler,
 } from "../controllers/personalityController.js";
+import { runHarnessHandler } from "../controllers/harnessController.js";
 import { researchProfileHandler } from "../controllers/researchController.js";
 import { chatHistoryHandler } from "../controllers/chatController.js";
 import { generateSpeechHandler } from "../controllers/ttsController.js";
 import {
+  backfillMemoryEmbeddingsHandler,
   listMemoryHandler,
   updateMemoryHandler,
   deleteMemoryHandler,
@@ -21,8 +23,10 @@ router.post("/personality", createPersonalityHandler);
 router.post("/research-profile", researchProfileHandler);
 router.get("/personalities", listPersonalitiesHandler);
 router.get("/personality/:id", getPersonalityHandler);
+router.post("/personality/:id/harness", runHarnessHandler);
 router.get("/personality/:id/messages", chatHistoryHandler);
 router.get("/personality/:id/memory", listMemoryHandler);
+router.post("/personality/:id/memory/backfill", backfillMemoryEmbeddingsHandler);
 router.put("/memory/:memoryId", updateMemoryHandler);
 router.delete("/memory/:memoryId", deleteMemoryHandler);
 router.post("/personality/:id/tts", generateSpeechHandler);

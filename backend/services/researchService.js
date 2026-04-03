@@ -294,7 +294,7 @@ async function fetchSource(url) {
   return fetchReadablePage(url);
 }
 
-function buildFallbackProfile({ name, description, sourceQuery, sourceUrls, sourceNotes }) {
+function buildFallbackProfile({ name, description, sourceQuery, sourceUrls, sourceNotes, creativeContext = "default" }) {
   const combinedText = normalizeWhitespace(
     [description, ...sourceNotes.map((source) => source.text)].filter(Boolean).join(" "),
   );
@@ -312,7 +312,11 @@ function buildFallbackProfile({ name, description, sourceQuery, sourceUrls, sour
   return {
     name,
     descriptionSuggestion: description || truncate(combinedText, 420),
-    traits: traits.length ? traits : ["distinctive", "character-driven"],
+    traits: traits.length
+      ? traits
+      : creativeContext === "default"
+        ? ["distinctive", "character-driven"]
+        : ["driven", "internally consistent"],
     quirks: quirks.length ? quirks : ["speaks in a recognizable cadence"],
     mood: "Focused",
     speechStyle,
@@ -389,7 +393,7 @@ function rankSources(sourceNotes, query) {
     }));
 }
 
-export async function buildResearchProfile({ name, description, sourceQuery, sourceUrls }) {
+export async function buildResearchProfile({ name, description, sourceQuery, sourceUrls, creativeContext = "default" }) {
   const query = String(sourceQuery || name || "").trim();
   const urls = dedupe((sourceUrls || []).map((url) => String(url).trim()));
 
@@ -403,6 +407,7 @@ export async function buildResearchProfile({ name, description, sourceQuery, sou
     sourceQuery: query,
     sourceUrls: dedupe([...(wikipediaSource ? [wikipediaSource.url] : []), ...urls]),
     sourceNotes,
+    creativeContext,
   });
 
   if (!sourceNotes.length || !isLlmConfigured()) {
@@ -416,6 +421,7 @@ export async function buildResearchProfile({ name, description, sourceQuery, sou
       sourceQuery: query,
       sourceNotes,
       fallbackProfile,
+      creativeContext,
     });
 
     return {

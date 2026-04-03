@@ -30,6 +30,13 @@ const journalStyles = `
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .journal-header-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .journal-header h2 {
@@ -363,6 +370,7 @@ function MemoryRow({ fact, onSave, onDelete }) {
 export default function MemoryJournal({ personality }) {
   const [facts, setFacts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
 
@@ -410,6 +418,35 @@ export default function MemoryJournal({ personality }) {
     }
   }
 
+  async function handleBackfill() {
+    if (!personality) {
+      return;
+    }
+
+    setBackfilling(true);
+    try {
+      const res = await fetch(`/personality/${personality.id}/memory/backfill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 100 }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Backfill failed.");
+      }
+
+      await load();
+      setStatusMsg(
+        `Embeddings backfilled: ${data.completed}/${data.attempted} updated, ${data.remaining} remaining.`
+      );
+    } catch (error) {
+      setStatusMsg(error.message || "Backfill failed.");
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   const presentTypes = ["all", ...Array.from(new Set(facts.map((f) => f.memoryType)))];
   const visible = typeFilter === "all" ? facts : facts.filter((f) => f.memoryType === typeFilter);
 
@@ -428,13 +465,19 @@ export default function MemoryJournal({ personality }) {
 
       <div className="journal-header">
         <h2>Memory Journal</h2>
-        <button type="button" className="btn-icon" onClick={load}>Refresh</button>
+        <div className="journal-header-actions">
+          <button type="button" className="btn-icon" onClick={handleBackfill} disabled={backfilling}>
+            {backfilling ? "Backfilling…" : "Backfill embeddings"}
+          </button>
+          <button type="button" className="btn-icon" onClick={load} disabled={loading || backfilling}>Refresh</button>
+        </div>
       </div>
 
       <p className="journal-copy">
         Facts {personality.name} has learned across conversations. Anchor facts (importance ≥ 9) are permanently
         injected into every prompt and are never auto-pruned. Edit importance or type, or delete facts that are
-        wrong or outdated.
+        wrong or outdated. If embeddings are configured, you can backfill older entries so semantic recall works
+        immediately instead of waiting for future chat turns.
       </p>
 
       {statusMsg && <p className="journal-status">{statusMsg}</p>}

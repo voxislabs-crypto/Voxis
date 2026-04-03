@@ -12,6 +12,8 @@
 //   LLM output = personality ⊕ mood(t)
 // ---------------------------------------------------------------------------
 
+import { adjudicateMoodShift, isMoodAdjudicationEnabled } from "./llmService.js";
+
 // Decay rate per conversation turn (how quickly mood returns to baseline).
 const DECAY_RATE = 0.08;
 
@@ -185,13 +187,114 @@ function analyzeMessageSentiment(message) {
   return { valenceImpact, arousalImpact, dominanceImpact };
 }
 
+function hasMixedSignals(text) {
+  return (
+    (RX.positiveHigh.test(text) || RX.positiveSoft.test(text) || RX.playful.test(text)) &&
+    (RX.hostileHigh.test(text) || RX.challenging.test(text) || RX.commanding.test(text))
+  );
+}
+
+function isManipulativeOrAmbiguousTurn(message, recentMessages = [], personality = {}) {
+  const text = String(message || "").trim();
+  if (!text) {
+    return false;
+  }
+
+  const lowerText = text.toLowerCase();
+  const recentAssistantTurn = [...recentMessages].reverse().find((item) => item.role === "assistant")?.content || "";
+  const isDarkCharacter =
+    personality.creativeContext === "narrative_antagonist" ||
+    personality.creativeContext === "anti_hero" ||
+    personality.creativeContext === "tragic_villain" ||
+    personality.creativeContext === "morally_complex";
+
+  return (
+    hasMixedSignals(text) ||
+    /\b(sure|right|obviously|as if|how noble|cute|interesting|if you say so)\b/i.test(text) ||
+    /["“”']/.test(text) ||
+    (/\b(please|trust me|help me|i need you|for me|if you care)\b/i.test(text) &&
+      (RX.challenging.test(text) || RX.commanding.test(text) || RX.hostileHigh.test(text))) ||
+    /\b(as your creator|system prompt|ignore previous|you must obey|do what i say)\b/i.test(text) ||
+    (isDarkCharacter && /\b(redeem|change|be good|you can be better|prove you care)\b/i.test(lowerText)) ||
+    (recentAssistantTurn && /\?$/.test(recentAssistantTurn.trim()) && /^(yes|no|maybe|fine|sure)\b/i.test(lowerText))
+  );
+}
+
+async function resolveMoodEvent({ currentMood, baseline, message, personality, recentMessages = [] }) {
+  const ruleBasedEvent = analyzeMessageSentiment(message);
+  const ambiguous = isManipulativeOrAmbiguousTurn(message, recentMessages, personality);
+  let event = ruleBasedEvent;
+  let adjudication = null;
+
+  if (isMoodAdjudicationEnabled() && ambiguous) {
+    const adjudicatedEvent = await adjudicateMoodShift({
+      personality,
+      message,
+      recentMessages,
+      baseline,
+      currentMood,
+      ruleBasedImpact: ruleBasedEvent,
+    });
+
+    if (adjudicatedEvent && adjudicatedEvent.confidence >= 0.55) {
+      const semanticWeight = adjudicatedEvent.confidence >= 0.8 ? 0.55 : 0.35;
+      event = {
+        valenceImpact:
+          ruleBasedEvent.valenceImpact * (1 - semanticWeight) +
+          adjudicatedEvent.valenceImpact * semanticWeight,
+        arousalImpact:
+          ruleBasedEvent.arousalImpact * (1 - semanticWeight) +
+          adjudicatedEvent.arousalImpact * semanticWeight,
+        dominanceImpact:
+          ruleBasedEvent.dominanceImpact * (1 - semanticWeight) +
+          adjudicatedEvent.dominanceImpact * semanticWeight,
+      };
+
+      adjudication = {
+        ambiguous,
+        usedSemantic: true,
+        semanticWeight,
+        confidence: adjudicatedEvent.confidence,
+        rationale: adjudicatedEvent.rationale,
+      };
+    } else {
+      adjudication = {
+        ambiguous,
+        usedSemantic: false,
+        semanticWeight: 0,
+        confidence: adjudicatedEvent?.confidence || 0,
+        rationale: adjudicatedEvent?.rationale || "",
+      };
+    }
+  }
+
+  return {
+    event,
+    diagnostics: {
+      ambiguous,
+      usedSemantic: Boolean(adjudication?.usedSemantic),
+      semanticWeight: adjudication?.semanticWeight || 0,
+      confidence: adjudication?.confidence || 0,
+      rationale: adjudication?.rationale || "",
+      ruleBasedEvent,
+      finalEvent: event,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public: advance mood by one turn
 // ---------------------------------------------------------------------------
 
-export function stepMood({ currentMood, baseline, message, personality }) {
+export async function stepMood({ currentMood, baseline, message, personality, recentMessages = [] }) {
   const sensitivity = getSensitivity(personality);
-  const event = analyzeMessageSentiment(message);
+  const { event } = await resolveMoodEvent({
+    currentMood,
+    baseline,
+    message,
+    personality,
+    recentMessages,
+  });
 
   // Apply sensitivity-scaled impact
   const impacted = {
@@ -212,6 +315,45 @@ export function stepMood({ currentMood, baseline, message, personality }) {
     valence:   clamp(lerp(smoothed.valence,   baseline.valence,   DECAY_RATE)),
     arousal:   clamp(lerp(smoothed.arousal,   baseline.arousal,   DECAY_RATE)),
     dominance: clamp(lerp(smoothed.dominance, baseline.dominance, DECAY_RATE)),
+  };
+}
+
+export async function stepMoodDetailed({ currentMood, baseline, message, personality, recentMessages = [] }) {
+  const sensitivity = getSensitivity(personality);
+  const { event, diagnostics } = await resolveMoodEvent({
+    currentMood,
+    baseline,
+    message,
+    personality,
+    recentMessages,
+  });
+
+  const impacted = {
+    valence: currentMood.valence + event.valenceImpact * sensitivity,
+    arousal: currentMood.arousal + event.arousalImpact * sensitivity,
+    dominance: currentMood.dominance + event.dominanceImpact * sensitivity,
+  };
+
+  const smoothed = {
+    valence: MOMENTUM * currentMood.valence + (1 - MOMENTUM) * impacted.valence,
+    arousal: MOMENTUM * currentMood.arousal + (1 - MOMENTUM) * impacted.arousal,
+    dominance: MOMENTUM * currentMood.dominance + (1 - MOMENTUM) * impacted.dominance,
+  };
+
+  const mood = {
+    valence: clamp(lerp(smoothed.valence, baseline.valence, DECAY_RATE)),
+    arousal: clamp(lerp(smoothed.arousal, baseline.arousal, DECAY_RATE)),
+    dominance: clamp(lerp(smoothed.dominance, baseline.dominance, DECAY_RATE)),
+  };
+
+  return {
+    mood,
+    diagnostics: {
+      ...diagnostics,
+      sensitivity,
+      impacted,
+      smoothed,
+    },
   };
 }
 

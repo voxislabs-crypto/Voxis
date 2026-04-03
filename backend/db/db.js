@@ -81,6 +81,9 @@ db.exec(`
   )
 `);
 
+ensureColumn("personality_memory", "embedding", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personality_memory", "embeddingModel", "TEXT NOT NULL DEFAULT ''");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_personality_memory_personality_id
   ON personality_memory (personalityId, importance DESC, id DESC)

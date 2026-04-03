@@ -1,6 +1,11 @@
 import { getPersonalityById, updateMoodState } from "../models/personalityModel.js";
 import { createChatMessage, getChatMessages, getRecentChatMessages, getChatMessageCount } from "../models/chatModel.js";
-import { getPersonalityMemory, upsertMemoryFact, pruneMemory } from "../models/memoryModel.js";
+import {
+  backfillMissingMemoryEmbeddings,
+  getRelevantPersonalityMemory,
+  upsertMemoryFactWithEmbedding,
+  pruneMemory,
+} from "../models/memoryModel.js";
 import {
   generateChatCompletion,
   buildPersonaSystemPrompt,
@@ -29,6 +34,7 @@ function getReconditionEvery(creativeContext) {
 
 // Maximum number of long-term memory facts to retain per personality.
 const MEMORY_MAX = 50;
+const MEMORY_RETRIEVAL_LIMIT = 5;
 
 export async function chatHandler(req, res, next) {
   try {
@@ -63,25 +69,31 @@ export async function chatHandler(req, res, next) {
         ? personality.moodState
         : { ...moodBaseline };
 
-    const newMood = stepMood({
+    // Fetch recent conversation history before mood stepping so the hybrid
+    // adjudicator can use local context on ambiguous or manipulative turns.
+    const history = getRecentChatMessages(personalityId, 10).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const newMood = await stepMood({
       currentMood,
       baseline: moodBaseline,
       message,
       personality,
+      recentMessages: history,
     });
 
     // Persist synchronously before the LLM call so mood influences this response.
     updateMoodState(personalityId, newMood);
 
     // Fetch long-term memory facts and build the dynamic, memory-enriched system prompt.
-    const memoryFacts = getPersonalityMemory(personalityId, 20);
+    const memoryFacts = await getRelevantPersonalityMemory(
+      personalityId,
+      message,
+      MEMORY_RETRIEVAL_LIMIT,
+    );
     const systemPrompt = buildPersonaSystemPrompt(personality, memoryFacts);
-
-    // Fetch recent conversation history.
-    const history = getRecentChatMessages(personalityId, 10).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -108,6 +120,12 @@ export async function chatHandler(req, res, next) {
 
     const reply = await generateChatCompletion(messages);
 
+    setImmediate(() => {
+      backfillMissingMemoryEmbeddings(personalityId).catch(() => {
+        // Backfill is best-effort and should never impact chat flow.
+      });
+    });
+
     createChatMessage({ personalityId, role: "user", content: message });
     createChatMessage({ personalityId, role: "assistant", content: reply });
 
@@ -125,7 +143,12 @@ export async function chatHandler(req, res, next) {
         });
 
         for (const fact of newFacts) {
-          upsertMemoryFact(personalityId, fact.content, fact.memoryType, fact.importance);
+          await upsertMemoryFactWithEmbedding(
+            personalityId,
+            fact.content,
+            fact.memoryType,
+            fact.importance,
+          );
         }
 
         if (newFacts.length > 0) {

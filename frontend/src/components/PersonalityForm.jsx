@@ -355,6 +355,7 @@ export default function PersonalityForm({ onCreated, onError }) {
           description: form.description,
           sourceQuery: form.sourceQuery,
           sourceUrls: splitLineSeparated(form.sourceUrls),
+          creativeContext: form.creativeContext,
         }),
       });
 

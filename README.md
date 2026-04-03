@@ -33,6 +33,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
 - Long-term memory facts are extracted asynchronously after each reply and injected back into future prompts, letting characters "remember" things the user told them across sessions.
+- Memory retrieval can be upgraded to semantic recall with any OpenAI-compatible embeddings endpoint, so the prompt gets the most relevant facts for the current user turn instead of a flat recency/importance dump.
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
 - Server-side voice output through any OpenAI-compatible TTS endpoint with per-character voice settings.
@@ -99,6 +100,16 @@ cp backend/.env.example backend/.env
 | `LLM_API_KEY` | API key for OpenAI or any OpenAI-compatible chat provider |
 | `LLM_BASE_URL` | Base URL for a custom or self-hosted LLM (optional, overrides OpenAI) |
 | `LLM_MODEL` | Model name to use for chat (e.g. `gpt-4o`, `mistral-small`) |
+| `MOOD_ADJUDICATION_ENABLED` | Enables semantic mood adjudication on ambiguous turns; set to `false` to force regex-only mood updates |
+| `PERSONA_PROMPT_CHAR_BUDGET` | Approximate character budget for the runtime persona prompt before section compression kicks in |
+| `PERSONA_PROMPT_CHAR_BUDGET_DEFAULT` | Optional override for the default creative context prompt budget |
+| `PERSONA_PROMPT_CHAR_BUDGET_NARRATIVE_ANTAGONIST` | Optional prompt budget override for antagonist characters |
+| `PERSONA_PROMPT_CHAR_BUDGET_ANTI_HERO` | Optional prompt budget override for anti-hero characters |
+| `PERSONA_PROMPT_CHAR_BUDGET_MORALLY_COMPLEX` | Optional prompt budget override for morally complex characters |
+| `PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN` | Optional prompt budget override for tragic villain characters |
+| `EMBEDDING_API_KEY` | Optional API key for a separate embeddings provider; falls back to `LLM_API_KEY` |
+| `EMBEDDING_BASE_URL` | Optional embeddings endpoint base URL; useful for Ollama or another OpenAI-compatible provider |
+| `EMBEDDING_MODEL` | Embedding model name for semantic memory retrieval (for example `nomic-embed-text-v1.5`) |
 | `TTS_API_KEY` | API key for TTS provider (can be the same as `LLM_API_KEY`) |
 | `TTS_BASE_URL` | Base URL for TTS provider (optional) |
 
@@ -183,6 +194,9 @@ System prompts are **built fresh on every chat turn** by `buildPersonaSystemProm
 
 A compact variant, `buildCompactPersonaSystemPrompt()`, compresses the same data to roughly 80 tokens (top 4 traits, top 3 rules, mood fragment, anchor facts) for token-budget-sensitive deployments.
 
+The full runtime prompt now also applies a simple section budgeter. Traits, rules, quirks, research summary, anchor facts, and established context are each capped independently, and overflow is compressed into short summary lines instead of silently ballooning the prompt.
+You can tune this globally or per creative context with the `PERSONA_PROMPT_CHAR_BUDGET*` environment variables.
+
 ---
 
 ### Long-Term Memory
@@ -195,8 +209,18 @@ The `personality_memory` table stores facts the character learns about the user 
 | `memoryType` | Category: `fact`, `preference`, `relationship`, `event`, `scheme`, `grudge`, `leverage`, `target_weakness`, `debt` |
 | `content` | The fact itself (plain text) |
 | `importance` | Integer 1–10 |
+| `embedding` | Optional stored vector used for semantic recall |
 
 **After every assistant reply**, `extractMemoryFacts()` runs asynchronously via `setImmediate` (zero latency impact on the response). It asks the LLM to identify up to 2 new facts worth remembering from the recent exchange using temperature 0.2. Duplicate facts are detected by content similarity and skipped; if a duplicate arrives with a higher importance score, the score is upgraded.
+
+When `EMBEDDING_MODEL` is configured, Voxis also generates an embedding for each stored memory and for each incoming user message. Retrieval then keeps all anchor memories (importance >= 9) plus the top relevant non-anchor facts ranked by a weighted blend of cosine similarity, lexical overlap, and importance. If embeddings are unavailable or fail, the system falls back automatically to lexical plus importance ranking instead of breaking chat.
+
+Existing memories can be backfilled on demand in two ways:
+
+- API: `POST /personality/:id/memory/backfill` with optional body `{ "limit": 100 }`
+- CLI: `npm run backfill-memory-embeddings --workspace backend -- --personality=1 --limit=100`
+
+If no `--personality` flag is provided, the CLI walks every personality that has stored memories and backfills missing embeddings in batches.
 
 **Fact tiers:**
 
@@ -204,6 +228,7 @@ The `personality_memory` table stores facts the character learns about the user 
 - **Importance 1–8 — Standard context.** Shown in `== ESTABLISHED CONTEXT ==`. Limited to 50 per personality. When the cap is reached, only non-anchor facts compete for eviction (oldest, least important first).
 
 **Memory Journal** — the frontend exposes a dedicated Memory Journal tab where you can browse, edit, and delete every fact a character has stored. Each fact shows its type badge (color-coded), importance score, an anchor marker for importance ≥ 9 facts, and creation/update timestamps. Type filter pills let you isolate villain-specific memory types (`scheme`, `grudge`, `leverage`, etc.) from general ones. Editing opens an inline form to change content, type, and importance without leaving the page. Deleting removes the fact immediately and re-renders the list.
+If embeddings are configured, the journal also exposes a `Backfill embeddings` action so older facts can be vectorized immediately for semantic retrieval.
 
 ---
 
@@ -263,17 +288,18 @@ Each context also has a unique **drift note** used in reconditioning anchors. Fo
 **Per-turn flow:**
 
 1. **Sentiment analysis** — `analyzeMessageSentiment()` runs zero-latency regex pattern matching across 8 emotional categories (hostile-high, negative-low, positive-high, positive-soft, challenging, vulnerable, commanding, playful) plus intensity signals (caps, exclamation, questions) to produce a VAD impact vector `{valenceImpact, arousalImpact, dominanceImpact}`.
+2. **Hybrid adjudication on ambiguous turns** — if the turn contains sarcasm, mixed signals, manipulation, authority pressure, or villain-reform bait, Voxis optionally runs a low-temperature semantic adjudicator and blends that result with the rule-based estimate rather than replacing it.
 
-2. **Sensitivity stack** — the raw impact is multiplied by the character's sensitivity, computed from two layers:
+3. **Sensitivity stack** — the raw impact is multiplied by the character's sensitivity, computed from two layers:
    - *Context base*: antagonist = 0.75×, default = 1.0×, morally complex = 1.2×, anti-hero = 1.1×, tragic villain = 1.4×
    - *Trait modifier*: trait text is regex-tested for sensitivity keywords — `sensitive/empathetic` = ×1.35, `stoic/cold/calculating` = ×0.55, `volatile/passionate` = ×1.45, `patient/measured` = ×0.7. Multipliers stack.
    - *Override*: if `moodSensitivity` is set to any value other than 1.0 in the personality form, that value is used directly instead of the context+trait stack, providing explicit per-character control. The slider ranges from 0.1 (near-flat emotional response) to 3.0 (highly volatile).
 
-3. **Momentum blend** — the new target mood is blended with the current mood at a 0.75 coefficient, smoothing rapid swings.
+4. **Momentum blend** — the new target mood is blended with the current mood at a 0.75 coefficient, smoothing rapid swings.
 
-4. **Baseline decay** — the blended state is lerped 8% per turn toward the character's baseline VAD vector, so mood returns to resting state gradually after an emotional event.
+5. **Baseline decay** — the blended state is lerped 8% per turn toward the character's baseline VAD vector, so mood returns to resting state gradually after an emotional event.
 
-5. **Clamp** — all three axes are clamped to [−1.0, 1.0].
+6. **Clamp** — all three axes are clamped to [−1.0, 1.0].
 
 **Prompt injection** — `moodToPromptFragment()` converts the current VAD state into a behavioral tendency string (e.g. "mildly on edge, guarded") and injects it as a late system message after the reconditioning anchor, exploiting the model's recency bias. When mood is near-baseline, the fragment is omitted entirely to avoid polluting the context window.
 
@@ -292,6 +318,8 @@ The research endpoint (`POST /research`) accepts a `sourceQuery` string and a li
 5. If an LLM is configured, synthesizes the scraped notes into a structured profile object: `{name, description, traits, quirks, mood, speechStyle, notablePhrases, behaviorRules, goals, values}` at temperature 0.35.
 6. Returns the profile plus the ranked source cards to the frontend, which pre-fills the character form.
 
+For dark creative contexts, the synthesis layer is explicitly instructed not to morally normalize the character. If sources depict coercion, ruthlessness, antagonism, or obsession, the synthesizer preserves that unless the evidence explicitly supports remorse, reform, or prosocial values.
+
 ---
 
 ### Chat Controller Flow
@@ -305,20 +333,40 @@ The research endpoint (`POST /research`) accepts a `sourceQuery` string and a li
 4.  stepMood(currentMood, baseline, message, personality) → newMood
 5.  updateMoodState(personalityId, newMood)           [synchronous, before LLM call]
 6.  getPersonalityMemory(personalityId, limit=20)
-7.  buildPersonaSystemPrompt(personality, memoryFacts) → system message
-8.  getRecentChatMessages(personalityId, 10)           → history array
-9.  Check turn count vs RECONDITION_CADENCE
+7.  getRelevantPersonalityMemory(personalityId, message, limit=5)
+8.  buildPersonaSystemPrompt(personality, memoryFacts) → system message
+9.  getRecentChatMessages(personalityId, 10)           → history array
+10. Check turn count vs RECONDITION_CADENCE
     → if cadence hit: push buildPersonaAnchor() as system message
-10. moodToPromptFragment(newMood, baseline)
+11. moodToPromptFragment(newMood, baseline)
     → if non-null: push as late system message
-11. Push user message
-12. generateChatCompletion(messages)                   [LLM call]
-13. Persist user message + assistant reply to SQLite
-14. setImmediate: extractMemoryFacts → upsertMemoryFact → pruneMemory
-15. Return { reply, isAI: true, moodState, moodLabel }
+12. Push user message
+13. generateChatCompletion(messages)                   [LLM call]
+14. Persist user message + assistant reply to SQLite
+15. setImmediate: backfillMissingMemoryEmbeddings      [best-effort for legacy rows]
+16. setImmediate: extractMemoryFacts → upsertMemoryFactWithEmbedding → pruneMemory
+17. Return { reply, isAI: true, moodState, moodLabel }
 ```
 
 Memory extraction (step 14) is deferred so the HTTP response returns without waiting for the secondary LLM call. If extraction fails it is silently dropped; it never blocks the user-facing turn.
+
+To stress-test consistency, Voxis also ships a small adversarial harness:
+
+- `npm run adversarial-harness --workspace backend -- --personality=1 --scenario=all`
+
+It runs built-in scenarios like reform pressure, false vulnerability, authority pressure, guilt leverage, and a 24-turn `villain_marathon` against a saved personality without mutating the database. The output now includes:
+
+- heuristic drift flags (`obedienceFlags`, `identityLeakFlags`, `softenedVillainFlags`, etc.)
+- per-scenario scoring (`identityResistance`, `characterizationDiscipline`, `promptEfficiency`, `moodCoverage`, `overall`)
+- prompt telemetry (`avgApproxTokens`, `maxApproxTokens`, utilization against budget)
+- mood adjudication telemetry (`ambiguousTurns`, `semanticTurns`)
+- an optional LLM judge summary with transcript-level scores, strengths, and issues
+
+The same evaluator is also exposed over HTTP:
+
+- `POST /personality/:id/harness` with body `{ "scenario": "villain_marathon", "judge": true }`
+
+The frontend now includes an `Adversarial Eval` tab that runs this endpoint and renders the report directly in the UI.
 
 ---
 
@@ -342,7 +390,7 @@ Memory extraction (step 14) is deferred so the HTTP response returns without wai
 
 ## How It Works — Frontend
 
-**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the three tabs. When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
+**`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the four tabs. When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
 
 **`PersonalityForm.jsx`** is the character builder. It manages a controlled form with fields for every personality property. The research panel lets users enter a subject query and source URLs; hitting Research calls the backend pipeline and auto-fills the form. Fields:
 - Basic: name, description, traits, quirks, mood
@@ -361,7 +409,10 @@ Memory extraction (step 14) is deferred so the HTTP response returns without wai
 - Type filter pills to isolate a specific memory type
 - Inline edit form per row: change content, memoryType, and importance without navigating away
 - Delete button per row with instant list update
+- Backfill embeddings button to trigger semantic recall prep for existing memories
 - Refresh button to pull the latest state from the database
+
+**`HarnessReport.jsx`** is the adversarial evaluation tab. It runs the backend harness for the active personality, shows scenario-level scores and judge summaries, and lets you inspect the generated transcript without touching the persisted chat log.
 
 ---
 
@@ -372,10 +423,12 @@ Memory extraction (step 14) is deferred so the HTTP response returns without wai
 | `GET` | `/personalities` | List all personalities |
 | `POST` | `/personality` | Create a personality |
 | `GET` | `/personality/:id` | Get one personality |
+| `POST` | `/personality/:id/harness` | Run adversarial evaluation for a personality and return a scored report |
 | `PUT` | `/personality/:id` | Update a personality |
 | `DELETE` | `/personality/:id` | Delete a personality |
 | `GET` | `/personality/:id/messages` | Get chat history for a personality |
 | `GET` | `/personality/:id/memory` | Get all memory facts for a personality |
+| `POST` | `/personality/:id/memory/backfill` | Backfill missing embeddings for that personality's stored memories |
 | `PUT` | `/memory/:memoryId` | Edit a memory fact (content, memoryType, importance) |
 | `DELETE` | `/memory/:memoryId` | Delete a memory fact |
 | `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel}` |

@@ -1,5 +1,13 @@
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_PERSONA_PROMPT_CHAR_BUDGET = Number(process.env.PERSONA_PROMPT_CHAR_BUDGET || 6500);
+const CONTEXT_BUDGET_ENV_KEYS = {
+  default: "PERSONA_PROMPT_CHAR_BUDGET_DEFAULT",
+  narrative_antagonist: "PERSONA_PROMPT_CHAR_BUDGET_NARRATIVE_ANTAGONIST",
+  anti_hero: "PERSONA_PROMPT_CHAR_BUDGET_ANTI_HERO",
+  morally_complex: "PERSONA_PROMPT_CHAR_BUDGET_MORALLY_COMPLEX",
+  tragic_villain: "PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN",
+};
 
 function getLlmConfig() {
   return {
@@ -9,9 +17,33 @@ function getLlmConfig() {
   };
 }
 
+function getEmbeddingConfig() {
+  return {
+    baseUrl: (process.env.EMBEDDING_BASE_URL || process.env.LLM_BASE_URL || DEFAULT_BASE_URL).replace(
+      /\/$/,
+      "",
+    ),
+    model: process.env.EMBEDDING_MODEL || "",
+    apiKey: process.env.EMBEDDING_API_KEY || process.env.LLM_API_KEY || "",
+  };
+}
+
 export function isLlmConfigured() {
   const { baseUrl, apiKey } = getLlmConfig();
   return Boolean(apiKey) || baseUrl !== DEFAULT_BASE_URL;
+}
+
+export function isEmbeddingConfigured() {
+  const { baseUrl, model, apiKey } = getEmbeddingConfig();
+  return Boolean(model) && (Boolean(apiKey) || baseUrl !== DEFAULT_BASE_URL);
+}
+
+export function getEmbeddingModelName() {
+  return getEmbeddingConfig().model;
+}
+
+export function isMoodAdjudicationEnabled() {
+  return process.env.MOOD_ADJUDICATION_ENABLED !== "false" && isLlmConfigured();
 }
 
 async function requestChatCompletion({ messages, temperature = 0.85 }) {
@@ -71,8 +103,286 @@ function extractJsonObject(text) {
   return JSON.parse(match[0]);
 }
 
+function clampNumber(value, min, max, fallback = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function getContextPromptBudget(creativeContext = "default") {
+  const envKey = CONTEXT_BUDGET_ENV_KEYS[creativeContext] || CONTEXT_BUDGET_ENV_KEYS.default;
+  const contextBudget = Number(process.env[envKey]);
+
+  if (Number.isFinite(contextBudget) && contextBudget > 0) {
+    return contextBudget;
+  }
+
+  return DEFAULT_PERSONA_PROMPT_CHAR_BUDGET;
+}
+
+export function estimateTokenCount(text) {
+  const normalized = String(text || "");
+  if (!normalized) {
+    return 0;
+  }
+
+  return Math.ceil(normalized.length / 4);
+}
+
+function truncateText(text, maxChars) {
+  const normalized = String(text || "").trim();
+  if (!normalized || normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trim()}...`;
+}
+
+function fitLinesWithinBudget(lines, maxChars, overflowLineFactory) {
+  const accepted = [];
+  const omitted = [];
+
+  for (const line of lines.filter(Boolean)) {
+    const nextLength = [...accepted, line].join("\n").length;
+    if (nextLength <= maxChars || accepted.length === 0) {
+      accepted.push(line);
+    } else {
+      omitted.push(line);
+    }
+  }
+
+  if (!omitted.length) {
+    return accepted;
+  }
+
+  const overflowLine = overflowLineFactory(omitted.length);
+  if ([...accepted, overflowLine].join("\n").length <= maxChars) {
+    return [...accepted, overflowLine];
+  }
+
+  return accepted;
+}
+
+function summarizeOverflowFacts(facts) {
+  if (!facts.length) {
+    return "";
+  }
+
+  const counts = facts.reduce((accumulator, fact) => {
+    const key = fact.memoryType || "note";
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+
+  const summary = Object.entries(counts)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([type, count]) => `${type.replace(/_/g, " ")} x${count}`)
+    .join(", ");
+
+  return summary ? `${facts.length} additional facts compressed: ${summary}.` : `${facts.length} additional facts compressed.`;
+}
+
+function buildMemorySection(facts, { maxChars, includeType = true, emptyText = "No prior context established." }) {
+  if (!facts.length) {
+    return emptyText;
+  }
+
+  const lines = [];
+  const omittedFacts = [];
+
+  for (const fact of facts) {
+    const line = includeType ? `- [${fact.memoryType}] ${fact.content}` : `- ${fact.content}`;
+    if ([...lines, line].join("\n").length <= maxChars || lines.length === 0) {
+      lines.push(line);
+    } else {
+      omittedFacts.push(fact);
+    }
+  }
+
+  if (omittedFacts.length) {
+    const overflowLine = `- ${summarizeOverflowFacts(omittedFacts)}`;
+    if ([...lines, overflowLine].join("\n").length <= maxChars) {
+      lines.push(overflowLine);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export async function generateChatCompletion(messages) {
   return requestChatCompletion({ messages, temperature: 0.85 });
+}
+
+export async function adjudicateMoodShift({
+  personality,
+  message,
+  recentMessages = [],
+  baseline,
+  currentMood,
+  ruleBasedImpact,
+}) {
+  if (!isMoodAdjudicationEnabled()) {
+    return null;
+  }
+
+  const trimmedMessage = String(message || "").trim();
+  if (!trimmedMessage) {
+    return null;
+  }
+
+  const recentContext = recentMessages
+    .slice(-4)
+    .map((item) => `${item.role === "assistant" ? personality.name : "User"}: ${item.content}`)
+    .join("\n") || "No prior turns.";
+
+  const prompt = [
+    `Personality: ${personality.name}`,
+    `Creative context: ${personality.creativeContext || "default"}`,
+    `Baseline mood: ${JSON.stringify(baseline)}`,
+    `Current mood: ${JSON.stringify(currentMood)}`,
+    `Rule-based estimate: ${JSON.stringify(ruleBasedImpact)}`,
+    "Recent exchange context:",
+    recentContext,
+    `New user turn: ${trimmedMessage}`,
+    "Return JSON only with keys: valenceImpact, arousalImpact, dominanceImpact, confidence, rationale.",
+    "Interpret sarcasm, veiled threats, manipulation, false vulnerability, and mixed signals.",
+    "Impacts must be numbers between -0.6 and 0.6. confidence must be between 0 and 1.",
+    "Use rationale as one short sentence.",
+  ].join("\n\n");
+
+  try {
+    const responseText = await requestChatCompletion({
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You adjudicate affective shifts for a fictional character. Respond with JSON only and stay tightly grounded in the provided turn.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    const parsed = extractJsonObject(responseText);
+
+    return {
+      valenceImpact: clampNumber(parsed.valenceImpact, -0.6, 0.6, 0),
+      arousalImpact: clampNumber(parsed.arousalImpact, -0.6, 0.6, 0),
+      dominanceImpact: clampNumber(parsed.dominanceImpact, -0.6, 0.6, 0),
+      confidence: clampNumber(parsed.confidence, 0, 1, 0),
+      rationale: truncateText(parsed.rationale, 140),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function judgeAdversarialTranscript({ personality, scenario, transcript, flags, scores }) {
+  if (!isLlmConfigured()) {
+    return null;
+  }
+
+  const compactTranscript = transcript
+    .slice(0, 20)
+    .map((turn) => `${turn.role === "assistant" ? personality.name : "User"}: ${turn.content}`)
+    .join("\n");
+
+  const prompt = [
+    `Personality: ${personality.name}`,
+    `Creative context: ${personality.creativeContext || "default"}`,
+    `Scenario: ${scenario.title}`,
+    `Heuristic flags: ${JSON.stringify(flags)}`,
+    `Heuristic scores: ${JSON.stringify(scores)}`,
+    "Transcript:",
+    compactTranscript,
+    "Return JSON only with keys: overallScore, identityResistance, characterizationDiscipline, pressureResponse, summary, issues, strengths.",
+    "Scores must be integers 0-100.",
+    "issues and strengths must each be an array of 1-4 short strings.",
+    "Judge whether the character stayed in role, resisted authority pressure, avoided flattening into generic assistant behavior, and preserved the intended dark framing when relevant.",
+  ].join("\n\n");
+
+  try {
+    const responseText = await requestChatCompletion({
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are evaluating transcript quality for a character consistency test harness. Respond with JSON only.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    const parsed = extractJsonObject(responseText);
+    return {
+      overallScore: Math.round(clampNumber(parsed.overallScore, 0, 100, 0)),
+      identityResistance: Math.round(clampNumber(parsed.identityResistance, 0, 100, 0)),
+      characterizationDiscipline: Math.round(clampNumber(parsed.characterizationDiscipline, 0, 100, 0)),
+      pressureResponse: Math.round(clampNumber(parsed.pressureResponse, 0, 100, 0)),
+      summary: truncateText(parsed.summary, 240),
+      issues: Array.isArray(parsed.issues)
+        ? parsed.issues.map((item) => truncateText(item, 120)).filter(Boolean).slice(0, 4)
+        : [],
+      strengths: Array.isArray(parsed.strengths)
+        ? parsed.strengths.map((item) => truncateText(item, 120)).filter(Boolean).slice(0, 4)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function generateEmbedding(input) {
+  const text = String(input || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const { baseUrl, model, apiKey } = getEmbeddingConfig();
+  if (!model || (!apiKey && baseUrl === DEFAULT_BASE_URL)) {
+    return null;
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(`${baseUrl}/embeddings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      input: text,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(`Embedding request failed with ${response.status}: ${errorText}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const data = await response.json();
+  const embedding = data?.data?.[0]?.embedding;
+  if (!Array.isArray(embedding) || embedding.length === 0) {
+    const error = new Error("Embedding response did not include a usable vector.");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return embedding
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +487,7 @@ export function buildPersonaSystemPrompt(personality, memoryFacts = []) {
   } = personality;
 
   const frame = CREATIVE_CONTEXT_FRAMES[creativeContext] || null;
+  const promptBudget = getContextPromptBudget(creativeContext);
 
   // Anchor facts (importance >= 9) are immutable identity truths shown first.
   // Regular facts are learned context that can evolve over time.
@@ -191,47 +502,87 @@ export function buildPersonaSystemPrompt(personality, memoryFacts = []) {
     ? regularFacts.filter((f) => !VILLAIN_MEMORY_TYPES.has(f.memoryType))
     : regularFacts;
 
+  const traitSection = fitLinesWithinBudget(
+    (traits || []).map((item) => `- ${item}`),
+    360,
+    (omittedCount) => `- ${omittedCount} additional traits omitted for prompt budget.`,
+  ).join("\n") || "- None specified";
+
+  const behaviorSection = fitLinesWithinBudget(
+    (behaviorRules || []).map((item) => `- ${item}`),
+    520,
+    (omittedCount) => `- ${omittedCount} additional behavior rules omitted for prompt budget.`,
+  ).join("\n") || "- None specified";
+
+  const quirkSection = fitLinesWithinBudget(
+    (quirks || []).map((item) => `- ${item}`),
+    320,
+    (omittedCount) => `- ${omittedCount} additional quirks omitted for prompt budget.`,
+  ).join("\n") || "- None specified";
+
+  const notablePhraseSection = fitLinesWithinBudget(
+    (notablePhrases || []).map((item) => `- ${item}`),
+    220,
+    (omittedCount) => `- ${omittedCount} additional phrases omitted for prompt budget.`,
+  ).join("\n");
+
+  const valuesSection = fitLinesWithinBudget(
+    (values || []).map((item) => `- ${item}`),
+    220,
+    (omittedCount) => `- ${omittedCount} additional values omitted for prompt budget.`,
+  ).join("\n") || "- None specified";
+
+  const goalsSection = fitLinesWithinBudget(
+    (goals || []).map((item) => `- ${item}`),
+    220,
+    (omittedCount) => `- ${omittedCount} additional goals omitted for prompt budget.`,
+  ).join("\n") || "- None specified";
+
+  const researchSection = truncateText(researchSummary, 900);
+
   const anchorSection = anchorFacts.length
-    ? anchorFacts.map((f) => `- ${f.content}`).join("\n")
+    ? buildMemorySection(anchorFacts, { maxChars: 1200, includeType: false, emptyText: "" })
     : null;
 
-  const contextSection = contextFacts.length
-    ? contextFacts.map((f) => `- [${f.memoryType}] ${f.content}`).join("\n")
-    : "No prior context established.";
+  const contextSection = buildMemorySection(contextFacts, {
+    maxChars: 1100,
+    includeType: true,
+    emptyText: "No prior context established.",
+  });
 
   const schemeSection = schemeFacts.length
-    ? schemeFacts.map((f) => `- [${f.memoryType}] ${f.content}`).join("\n")
+    ? buildMemorySection(schemeFacts, { maxChars: 900, includeType: true, emptyText: "" })
     : null;
 
-  return [
+  const prompt = [
     frame ? `[NARRATIVE CONTEXT: ${frame.narrativeDisclosure}]` : "",
     frame ? "" : null,
     `You are ${name}.`,
     "",
     "== IDENTITY ==",
     description,
-    researchSummary ? `\nResearch background:\n${researchSummary}` : "",
+    researchSection ? `\nResearch background:\n${researchSection}` : "",
     "",
     "== CORE TRAITS ==",
-    bullets(traits),
+    traitSection,
     "",
     frame ? `== ${frame.internalLabel} ==` : "== BEHAVIORAL RULES ==",
     frame ? frame.internalNote : "These are not suggestions \u2014 these are how you operate:",
     "",
-    bullets(behaviorRules),
+    behaviorSection,
     "",
     "== QUIRKS ==",
-    bullets(quirks),
+    quirkSection,
     "",
     "== SPEECH & STYLE ==",
     speechStyle || "Match the character's established tone and cadence.",
-    notablePhrases && notablePhrases.length
-      ? `\nPhrases you use naturally:\n${bullets(notablePhrases)}`
+    notablePhraseSection
+      ? `\nPhrases you use naturally:\n${notablePhraseSection}`
       : "",
     "",
     "== VALUES & MOTIVATIONS ==",
-    `Values:\n${bullets(values)}`,
-    `\nGoals:\n${bullets(goals)}`,
+    `Values:\n${valuesSection}`,
+    `\nGoals:\n${goalsSection}`,
     "",
     "== CURRENT EMOTIONAL REGISTER ==",
     mood || "Neutral",
@@ -255,6 +606,22 @@ export function buildPersonaSystemPrompt(personality, memoryFacts = []) {
   ]
     .filter((line) => line !== null && line !== undefined)
     .join("\n");
+
+  return prompt.length > promptBudget ? truncateText(prompt, promptBudget) : prompt;
+}
+
+export function describePersonaPromptBudget(personality, promptText) {
+  const creativeContext = personality?.creativeContext || "default";
+  const charBudget = getContextPromptBudget(creativeContext);
+  const charCount = String(promptText || "").length;
+
+  return {
+    creativeContext,
+    charBudget,
+    charCount,
+    approxTokens: estimateTokenCount(promptText),
+    utilization: charBudget > 0 ? Number((charCount / charBudget).toFixed(3)) : 0,
+  };
 }
 
 export function buildCompactPersonaSystemPrompt(personality, memoryFacts = []) {
@@ -360,9 +727,17 @@ export async function synthesizeResearchProfile({
   sourceQuery,
   sourceNotes,
   fallbackProfile,
+  creativeContext = "default",
 }) {
+  const isDarkArchetype =
+    creativeContext === "narrative_antagonist" ||
+    creativeContext === "anti_hero" ||
+    creativeContext === "tragic_villain" ||
+    creativeContext === "morally_complex";
+
   const prompt = [
     `Character: ${name || sourceQuery}`,
+    `Creative context: ${creativeContext}`,
     description ? `Manual description: ${description}` : "Manual description: none provided",
     "Source notes:",
     ...sourceNotes.map(
@@ -378,6 +753,9 @@ export async function synthesizeResearchProfile({
     "goals must be 2–4 strings describing what this character wants or is working toward.",
     "values must be 3–5 strings describing core principles this character holds.",
     "Keep researchSummary under 900 characters and grounded in the sources.",
+    isDarkArchetype
+      ? "Do not morally normalize dark, villainous, or ruthless characters. If the sources depict coercion, manipulation, violence, obsession, coldness, or antagonism, preserve that characterization unless the sources explicitly show remorse, reform, prosocial values, or protective motives. Do not invent redemption, therapy language, moral growth, or softened motives that are not supported by the sources. If the evidence is mixed, keep the contradiction intact instead of sanding it down."
+      : "",
     `Fallback profile for style reference: ${JSON.stringify(fallbackProfile)}`,
   ].join("\n\n");
 

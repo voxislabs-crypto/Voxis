@@ -4,6 +4,7 @@ import PersonalityForm from "./components/PersonalityForm.jsx";
 import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
 import MemoryJournal from "./components/MemoryJournal.jsx";
+import HarnessReport from "./components/HarnessReport.jsx";
 
 const appStyles = `
   :root {
@@ -563,6 +564,13 @@ export default function App() {
               >
                 Memory Journal
               </button>
+              <button
+                type="button"
+                className={`tab ${activeView === "eval" ? "active" : ""}`}
+                onClick={() => setActiveView("eval")}
+              >
+                Adversarial Eval
+              </button>
             </div>
 
             <div className="main-content">
@@ -577,6 +585,15 @@ export default function App() {
                 </>
               ) : activeView === "journal" ? (
                 <MemoryJournal personality={selectedPersonality} />
+              ) : activeView === "eval" ? (
+                <>
+                  <h2 className="section-heading">Pressure-test the active character</h2>
+                  <p className="section-copy">
+                    Run adversarial scenarios against the active personality and inspect transcript,
+                    heuristic scoring, prompt-budget telemetry, and judge commentary without mutating chat history.
+                  </p>
+                  <HarnessReport personality={selectedPersonality} onStatus={setStatus} />
+                </>
               ) : (
                 <>
                   <h2 className="section-heading">Talk to the active character</h2>
