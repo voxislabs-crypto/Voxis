@@ -138,6 +138,30 @@ const appStyles = `
     line-height: 1.65;
   }
 
+  .profile-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .profile-label {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .profile-select {
+    min-width: 140px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 180, 255, 0.2);
+    background: rgba(5, 14, 26, 0.88);
+    color: var(--text);
+  }
+
   .hero-callout {
     padding: 20px;
     border-radius: 22px;
@@ -300,6 +324,17 @@ const appStyles = `
 
 export default function App() {
   const [personalities, setPersonalities] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [userProfiles, setUserProfiles] = useState({});
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedMode, setSelectedMode] = useState("scientist");
+  const [chatPolicy, setChatPolicy] = useState(null);
+  const [profileDraft, setProfileDraft] = useState({
+    defaultMode: "scientist",
+    safetyTier: "standard",
+    supervisedAdvancedMode: false,
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [activeView, setActiveView] = useState("builder");
   const [chatLogs, setChatLogs] = useState({});
@@ -313,6 +348,40 @@ export default function App() {
     [personalities, selectedId],
   );
 
+  const selectedUser = useMemo(
+    () => users.find((user) => user.id === selectedUserId) || null,
+    [users, selectedUserId],
+  );
+
+  const selectedUserProfile = useMemo(
+    () => (selectedUserId ? userProfiles[selectedUserId] || null : null),
+    [selectedUserId, userProfiles],
+  );
+
+  const allowedModes = useMemo(() => {
+    if (!selectedUser) {
+      return ["scientist"];
+    }
+
+    if (selectedUser.ageBand === "child") {
+      return ["kids"];
+    }
+
+    if (selectedUser.ageBand === "teen") {
+      if (selectedUserProfile?.supervisedAdvancedMode) {
+        return ["kids", "scientist"];
+      }
+
+      return ["kids"];
+    }
+
+    return ["kids", "scientist"];
+  }, [selectedUser, selectedUserProfile]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, []);
+
   useEffect(() => {
     void loadPersonalities();
   }, []);
@@ -324,6 +393,135 @@ export default function App() {
 
     void loadChatHistory(selectedId);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!allowedModes.includes(selectedMode)) {
+      setSelectedMode(allowedModes[0] || "scientist");
+    }
+  }, [allowedModes, selectedMode]);
+
+  useEffect(() => {
+    if (!selectedUserId) {
+      return;
+    }
+
+    const preferredMode = selectedUserProfile?.defaultMode;
+    if (preferredMode && allowedModes.includes(preferredMode)) {
+      setSelectedMode(preferredMode);
+      return;
+    }
+
+    if (allowedModes.length) {
+      setSelectedMode(allowedModes[0]);
+    }
+  }, [selectedUserId, selectedUserProfile?.defaultMode, allowedModes]);
+
+  useEffect(() => {
+    if (!selectedUserProfile) {
+      return;
+    }
+
+    setProfileDraft({
+      defaultMode: selectedUserProfile.defaultMode || "scientist",
+      safetyTier: selectedUserProfile.safetyTier || "standard",
+      supervisedAdvancedMode: Boolean(selectedUserProfile.supervisedAdvancedMode),
+    });
+  }, [selectedUserProfile]);
+
+  async function loadUsers() {
+    try {
+      const response = await fetch("/users");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load users.");
+      }
+
+      let loadedUsers = Array.isArray(data.users) ? data.users : [];
+
+      if (!loadedUsers.length) {
+        const bootstrapResponse = await fetch("/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            displayName: "Guest",
+            ageBand: "adult",
+            defaultMode: "scientist",
+          }),
+        });
+
+        const bootstrapData = await bootstrapResponse.json();
+        if (!bootstrapResponse.ok) {
+          throw new Error(bootstrapData.error || "Failed to bootstrap default user.");
+        }
+
+        loadedUsers = [bootstrapData.user];
+        setUserProfiles((current) => ({
+          ...current,
+          [bootstrapData.user.id]: bootstrapData.profile,
+        }));
+      }
+
+      setUsers(loadedUsers);
+      if (!selectedUserId && loadedUsers.length) {
+        setSelectedUserId(loadedUsers[0].id);
+      }
+
+      await Promise.all(
+        loadedUsers.map(async (user) => {
+          const profileResponse = await fetch(`/users/${user.id}/profile`);
+          const profileData = await profileResponse.json();
+          if (!profileResponse.ok) {
+            throw new Error(profileData.error || `Failed to load profile for ${user.displayName}.`);
+          }
+
+          setUserProfiles((current) => ({
+            ...current,
+            [user.id]: profileData.profile,
+          }));
+        }),
+      );
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error.message || "Failed to load users.",
+      });
+    }
+  }
+
+  async function saveSelectedUserProfile() {
+    if (!selectedUserId) {
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const response = await fetch(`/users/${selectedUserId}/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(profileDraft),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save user profile.");
+      }
+
+      setUserProfiles((current) => ({
+        ...current,
+        [selectedUserId]: data.profile,
+      }));
+      setStatus({ type: "success", message: "User policy profile saved." });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message || "Failed to save user profile." });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
 
   async function loadPersonalities() {
     setIsLoading(true);
@@ -463,6 +661,8 @@ export default function App() {
         },
         body: JSON.stringify({
           personalityId,
+          userId: selectedUserId,
+          mode: selectedMode,
           message,
         }),
       });
@@ -489,6 +689,10 @@ export default function App() {
               : p
           )
         );
+      }
+
+      if (data.policy) {
+        setChatPolicy(data.policy);
       }
     } catch (error) {
       setChatLogs((current) => ({
@@ -518,6 +722,34 @@ export default function App() {
                 in-character chat loop. This version focuses on durable prompt engineering,
                 fast iteration, and clean handoff to any OpenAI-compatible LLM endpoint.
               </p>
+                <div className="profile-row" style={{ marginTop: 16 }}>
+                  <label className="profile-label" htmlFor="profile-select">Profile</label>
+                  <select
+                    id="profile-select"
+                    className="profile-select"
+                    value={selectedUserId || ""}
+                    onChange={(event) => setSelectedUserId(Number(event.target.value))}
+                  >
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.displayName} ({user.ageBand})
+                      </option>
+                    ))}
+                  </select>
+                  <label className="profile-label" htmlFor="mode-select">Mode</label>
+                  <select
+                    id="mode-select"
+                    className="profile-select"
+                    value={selectedMode}
+                    onChange={(event) => setSelectedMode(event.target.value)}
+                  >
+                    {allowedModes.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {mode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
             </div>
             <div className="hero-callout">
               <strong>Best input</strong>
@@ -609,6 +841,80 @@ export default function App() {
                     Select your provider first, add key and optional custom base URL,
                     then fetch and choose the active model for all chat, memory, and eval calls.
                   </p>
+                  <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+                    <h3 style={{ marginTop: 0 }}>User Policy Profile</h3>
+                    <p className="section-copy" style={{ marginBottom: 12 }}>
+                      Configure default mode and teen supervision controls for the selected profile.
+                    </p>
+
+                    <div className="meta-row" style={{ marginBottom: 12 }}>
+                      <span className="meta-pill">User: {selectedUser?.displayName || "None"}</span>
+                      <span className="meta-pill">Age: {selectedUser?.ageBand || "adult"}</span>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span className="profile-label">Default Mode</span>
+                        <select
+                          className="profile-select"
+                          value={profileDraft.defaultMode}
+                          onChange={(event) =>
+                            setProfileDraft((current) => ({
+                              ...current,
+                              defaultMode: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="kids">kids</option>
+                          <option value="scientist">scientist</option>
+                        </select>
+                      </label>
+
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span className="profile-label">Safety Tier</span>
+                        <select
+                          className="profile-select"
+                          value={profileDraft.safetyTier}
+                          onChange={(event) =>
+                            setProfileDraft((current) => ({
+                              ...current,
+                              safetyTier: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="child_strict">child_strict</option>
+                          <option value="teen_guarded">teen_guarded</option>
+                          <option value="standard">standard</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <label style={{ display: "inline-flex", gap: 8, marginTop: 12, color: "var(--muted)" }}>
+                      <input
+                        type="checkbox"
+                        checked={profileDraft.supervisedAdvancedMode}
+                        onChange={(event) =>
+                          setProfileDraft((current) => ({
+                            ...current,
+                            supervisedAdvancedMode: event.target.checked,
+                          }))
+                        }
+                        disabled={selectedUser?.ageBand !== "teen"}
+                      />
+                      Enable supervised advanced mode for teen profiles
+                    </label>
+
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="tab active"
+                        disabled={!selectedUserId || isSavingProfile}
+                        onClick={() => void saveSelectedUserProfile()}
+                      >
+                        {isSavingProfile ? "Saving..." : "Save Profile Policy"}
+                      </button>
+                    </div>
+                  </div>
                   <LlmSettingsPanel onStatus={setStatus} />
                 </>
               ) : (
@@ -622,6 +928,13 @@ export default function App() {
                   {selectedPersonality ? (
                     <div className="meta-row">
                       <span className="meta-pill">Active: {selectedPersonality.name}</span>
+                      {selectedUser ? (
+                        <span className="meta-pill">Age band: {selectedUser.ageBand}</span>
+                      ) : null}
+                      <span className="meta-pill">Mode: {selectedMode}</span>
+                      {chatPolicy?.modeAccepted === false ? (
+                        <span className="meta-pill">Policy fallback: {chatPolicy.activeMode}</span>
+                      ) : null}
                       <span className="meta-pill">
                         Mood: {selectedPersonality.moodLabel || selectedPersonality.mood}
                       </span>

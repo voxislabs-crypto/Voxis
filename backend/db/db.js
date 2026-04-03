@@ -63,9 +63,17 @@ db.exec(`
   )
 `);
 
+ensureColumn("chat_messages", "userId", "INTEGER");
+ensureColumn("chat_messages", "mode", "TEXT NOT NULL DEFAULT ''");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_messages_personality_id
   ON chat_messages (personalityId, id DESC)
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_user_personality
+  ON chat_messages (userId, personalityId, id DESC)
 `);
 
 db.exec(`
@@ -95,6 +103,56 @@ db.exec(`
     value TEXT NOT NULL,
     updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    displayName TEXT NOT NULL,
+    ageBand TEXT NOT NULL DEFAULT 'adult',
+    locale TEXT NOT NULL DEFAULT 'en-US',
+    createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_profiles (
+    userId INTEGER PRIMARY KEY,
+    defaultMode TEXT NOT NULL DEFAULT 'scientist',
+    safetyTier TEXT NOT NULL DEFAULT 'standard',
+    supervisedAdvancedMode INTEGER NOT NULL DEFAULT 0,
+    parentEmailOptional TEXT NOT NULL DEFAULT '',
+    parentalConsentRequired INTEGER NOT NULL DEFAULT 0,
+    parentalConsentVerifiedAt TEXT NOT NULL DEFAULT '',
+    createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id)
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_users_age_band
+  ON users (ageBand, id DESC)
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_memory (
+    id INTEGER PRIMARY KEY,
+    userId INTEGER NOT NULL,
+    memoryType TEXT NOT NULL DEFAULT 'preference',
+    content TEXT NOT NULL,
+    importance INTEGER NOT NULL DEFAULT 5,
+    embedding TEXT NOT NULL DEFAULT '',
+    embeddingModel TEXT NOT NULL DEFAULT '',
+    createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id)
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_user_memory_user_id
+  ON user_memory (userId, importance DESC, id DESC)
 `);
 
 export default db;

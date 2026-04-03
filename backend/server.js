@@ -5,6 +5,7 @@ import cors from "cors";
 import personalityRoutes from "./routes/personalityRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -24,6 +25,7 @@ app.get("/health", (_req, res) => {
 app.use(personalityRoutes);
 app.use(chatRoutes);
 app.use(settingsRoutes);
+app.use(userRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

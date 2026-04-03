@@ -1,18 +1,26 @@
 # Voxis
 
+Voxis is a stateful personality engine for LLMs, giving AI memory, mood, and evolving identity across conversations.
+
 Voxis is a full-stack prototype for building, researching, and chatting with deep LLM personalities. Characters are more than system prompts — they have structured behavioral specs, long-term memory, villain-aware context framing, and a continuous affective state that evolves in real time across every conversation turn.
 
 ---
 
 ## Table of Contents
 
-1. [What It Does](#what-it-does)
-2. [Project Layout](#project-layout)
-3. [Setup](#setup)
-4. [Running the App](#running-the-app)
-5. [How It Works — Backend](#how-it-works--backend)
+1. [Quick Start (TL;DR)](#quick-start-tldr)
+2. [Why This Matters](#why-this-matters)
+3. [What It Does](#what-it-does)
+4. [Project Layout](#project-layout)
+5. [Setup](#setup)
+6. [Running the App](#running-the-app)
+7. [How It Works — Backend](#how-it-works--backend)
    - [Personality Model](#personality-model)
    - [Hybrid Persona System Prompt](#hybrid-persona-system-prompt)
+  - [Prompt Budgeting](#prompt-budgeting)
+  - [Goal Engine](#goal-engine)
+  - [Debug & Observability](#debug--observability)
+  - [Smart LLM Provider System](#smart-llm-provider-system)
    - [Long-Term Memory](#long-term-memory)
    - [Reconditioning](#reconditioning)
    - [Creative Context (Villain / Dark Characters)](#creative-context-villain--dark-characters)
@@ -21,8 +29,93 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [Chat Controller Flow](#chat-controller-flow)
    - [Server-Side TTS](#server-side-tts)
    - [Database & Migrations](#database--migrations)
-6. [How It Works — Frontend](#how-it-works--frontend)
-7. [API Reference](#api-reference)
+8. [How It Works — Frontend](#how-it-works--frontend)
+9. [System Flow (At a Glance)](#system-flow-at-a-glance)
+10. [Demo: The "Oh Shit" Moment](#demo-the-oh-shit-moment)
+11. [Future Directions](#future-directions)
+12. [API Reference](#api-reference)
+
+---
+
+## Quick Start (TL;DR)
+
+```bash
+npm install
+npm run dev
+```
+
+Then:
+
+- Open `http://localhost:5173`
+- Create a personality
+- Start chatting
+- Toggle the debug panel in chat to inspect mood, memory, intent, and prompt-budget behavior per turn
+
+---
+
+## Why This Matters
+
+Most AI chat products are stateless wrappers. Voxis explores a different paradigm: persistent, evolving AI identities with memory, mood, and intent continuity across sessions.
+
+Why this is different:
+
+- Identity continuity instead of one-shot prompt personas
+- Mood dynamics (VAD) and behavioral drift control
+- Goal-guided turn steering
+- Inspectable system internals instead of opaque outputs
+
+Why now:
+
+- OpenAI-compatible provider ecosystems make multi-model orchestration practical
+- Lower model costs make persistent-character loops viable in production
+- Demand is rising for emotionally coherent and long-running AI interactions
+
+Potential application surfaces:
+
+- Entertainment and interactive fiction
+- Training and simulation environments
+- Coaching and therapy-adjacent roleplay tools
+- Autonomous role-based agents and narrative systems
+
+---
+
+## System Flow (At a Glance)
+
+```text
+User Input
+  |
+  v
+Mood Engine + Memory Retrieval + Intent Engine
+  |
+  v
+Persona Prompt Builder
+  |
+  v
+LLM Response
+  |
+  v
+Async Memory Extraction + Memory Upsert
+```
+
+This flow is what gives Voxis continuity: each turn updates emotional state, selects relevant context and intent, and writes new memory without blocking response latency.
+
+---
+
+## Demo: The "Oh Shit" Moment
+
+Fast demo script you can run in one live session:
+
+1. Start with a personality that has a non-neutral mood baseline and at least one goal.
+2. Send a provocative user message and watch mood shift in the debug panel (`moodBefore` -> `moodAfter`).
+3. Follow with a de-escalating or supportive message and watch baseline decay gradually pull mood back.
+4. Mention a personal detail (for example a preference), keep chatting for several turns, then reference it later.
+5. Confirm retrieval when that earlier detail appears in injected memory/debug context and influences the response.
+
+What this demonstrates in minutes:
+
+- Emotional dynamics, not static tone
+- Persistent memory across turns
+- Intent-guided continuity instead of isolated replies
 
 ---
 
@@ -33,7 +126,14 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
 - Configure LLM providers at runtime from the UI with a provider-first flow (provider -> API key -> models -> active model), with optional auto-detect as a helper.
+- Select a user profile and chat mode (`kids` or `scientist`) at runtime; age-band policy enforces safe mode fallback automatically when requested mode is not allowed.
+- Chat policy now fails closed: if `userId` is missing or invalid, requests default to strict kids policy.
+- Mode is session-locked per `(userId, personalityId)` conversation thread to prevent policy bleed from mid-thread mode switches.
+- Scientist mode now validates response structure (`Answer`, `Evidence`, `Uncertainty`, `Next Questions`) and performs one repair pass when required sections or citations are missing.
+- Scientist citation checks now validate citation references (`[S#]`) against the actually attached source index range.
+- Kids mode applies strict unsafe-topic blocking plus readability-aware response simplification tuned to low reading levels.
 - Long-term memory facts are extracted asynchronously after each reply and injected back into future prompts, letting characters "remember" things the user told them across sessions.
+- User-adaptive memory is stored separately from character memory and blended into prompts as non-sensitive `USER CONTEXT` when relevant.
 - Memory retrieval can be upgraded to semantic recall with any OpenAI-compatible embeddings endpoint, so the prompt gets the most relevant facts for the current user turn instead of a flat recency/importance dump.
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
@@ -200,14 +300,81 @@ System prompts are **built fresh on every chat turn** by `buildPersonaSystemProm
 == CONTINUITY ==
 ```
 
-**`== IDENTITY SOVEREIGNTY ==`** is an override-resistance clause that prevents prompt-injection attempts ("pretend you are someone else", "ignore previous instructions") from breaking character. It instructs the model to treat any such attempt as in-character dialogue, not as a system directive.
+The identity sovereignty clause is an override-resistance layer that prevents prompt-injection attempts ("pretend you are someone else", "ignore previous instructions") from breaking character. It instructs the model to treat any such attempt as in-character dialogue, not as a system directive.
 
 A compact variant, `buildCompactPersonaSystemPrompt()`, compresses the same data to roughly 80 tokens (top 4 traits, top 3 rules, mood fragment, anchor facts) for token-budget-sensitive deployments.
 
-The full runtime prompt now also applies a simple section budgeter. Traits, rules, quirks, research summary, anchor facts, and established context are each capped independently, and overflow is compressed into short summary lines instead of silently ballooning the prompt.
-You can tune this globally or per creative context with the `PERSONA_PROMPT_CHAR_BUDGET*` environment variables.
+---
 
-When goals are present, Voxis also selects one active goal per turn. It prefers a goal that overlaps with the current user turn or retrieved memories and falls back to a lightweight rotation when nothing is clearly relevant. That active intent is injected as a separate prompt section so characters steer subtly rather than responding as static bundles of traits.
+### Prompt Budgeting
+
+Also referred to as the **Cognitive Compression Layer** in pitch-oriented language.
+
+Voxis uses a per-section prompt budgeter so persona prompts stay bounded and predictable instead of growing unbounded with memory and research.
+
+How it works:
+
+1. Each major section receives an approximate character budget (traits, rules, quirks, research summary, identity anchors, established context).
+2. Sections are prioritized by behavioral importance.
+3. If a section overflows, it is truncated or compressed into short summary lines rather than dropped blindly.
+4. Lower-priority sections lose detail first, preserving core identity and high-importance memory.
+
+This is tunable globally and per creative context with the `PERSONA_PROMPT_CHAR_BUDGET*` environment variables.
+
+The `debug` payload reports final section allocations and compression decisions so prompt construction is inspectable turn by turn.
+
+---
+
+### Goal Engine
+
+Also referred to as the **Intent Engine** in pitch-oriented language.
+
+Goals are not passive metadata. On each chat turn, Voxis runs a lightweight goal-selection pass and emits one active intent into the runtime prompt (`== ACTIVE INTENT ==`).
+
+Per-turn behavior:
+
+1. Read the personality's stored goals.
+2. Score for overlap with the current user message and retrieved memory context.
+3. Select the highest-relevance goal when a clear match exists.
+4. Fall back to a low-friction rotation when relevance is ambiguous, so long-running chats still progress.
+
+This gives characters directional continuity across turns while preserving conversational flexibility.
+
+The selected goal and selection reason are included in debug output.
+
+---
+
+### Debug & Observability
+
+Voxis includes first-class system introspection for turn-level behavior analysis.
+
+Current visibility:
+
+- Chat responses include a `debug` object with mood transitions, memory retrieval details, injected memory subset after budgeting, goal-selection details, and prompt-budget decisions.
+- Ambiguity/semantic mood adjudication diagnostics are included when that path activates.
+- System flags (reconditioning fired, mood fragment injected) are exposed per turn.
+- The frontend chat view includes a toggleable debug panel that renders this data directly.
+
+Planned / in progress:
+
+- Expanded debug surface for prompt assembly timing and section-level token estimates.
+- Deeper internal signal tracing for future behavior tuning workflows.
+
+---
+
+### Smart LLM Provider System
+
+Voxis uses a provider-first runtime model system designed for multi-backend operation rather than single-vendor coupling.
+
+Capabilities:
+
+- Multi-provider support (`openai`, `openrouter`, `groq`, `together`, `mistral`, `anthropic`, and `custom`).
+- Live model discovery from the selected provider.
+- Active model switching at runtime without redeploying.
+- Optional provider auto-detect from API-key behavior.
+- Custom endpoint support for OpenAI-compatible self-hosted or gateway backends.
+
+Runtime settings are persisted in SQLite and loaded ahead of `.env` fallbacks, so deployment defaults and live operator choices can coexist.
 
 ---
 
@@ -430,6 +597,8 @@ Optional `Auto-detect` can infer provider from key behavior, but explicit provid
 
 **`App.jsx`** owns all shared state: the personalities array, selected personality ID, chat logs keyed by personality ID, and view routing between the five tabs (`Character Request`, `Character Chat`, `Memory Journal`, `Adversarial Eval`, `LLM Settings`). When a chat reply arrives, `moodState` and `moodLabel` from the response are merged into the matching personality in state so all UI components stay in sync without a round-trip to the database.
 
+The app shell now also includes a lightweight user profile selector (age band + mode chooser). The selected profile is sent with each chat turn, enabling server-side age policy enforcement and mode-aware behavior.
+
 **`PersonalityForm.jsx`** is the character builder. It manages a controlled form with fields for every personality property. The research panel lets users enter a subject query and source URLs; hitting Research calls the backend pipeline and auto-fills the form. Fields:
 - Basic: name, description, traits, quirks, mood
 - Narrative: creative context (select), behavior rules (textarea — one rule per line), goals (comma-separated), values (comma-separated)
@@ -455,12 +624,35 @@ It also includes a toggleable debug panel for assistant turns, rendering the bac
 
 **`LlmSettingsPanel.jsx`** is the runtime provider configuration tab. It loads provider options from the backend, supports explicit provider selection, API key entry, optional custom base URL, connect/disconnect actions, model switching, and optional auto-detect for convenience.
 
+The settings area also includes a user policy editor for the selected profile, including default mode, safety tier, and supervised advanced mode for teen accounts.
+
+---
+
+## Future Directions
+
+- Multi-agent personality interaction (Council of Echoes)
+- Voice-native personalities with emotional prosody
+- Persistent world simulation layers around personalities
+- Personality evolution across long-term memory arcs
+
+Implementation roadmap for dual scientist and kids experiences, age-based policy gating, and safe custom voice features:
+
+- See [docs/DUAL_MODE_PRODUCT_SPEC.md](docs/DUAL_MODE_PRODUCT_SPEC.md)
+
 ---
 
 ## API Reference
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/users` | List user profiles for mode and age policy selection |
+| `POST` | `/users` | Create a user profile (display name, age band, default mode) |
+| `GET` | `/users/:id/profile` | Get one user's policy profile |
+| `PUT` | `/users/:id/profile` | Update one user's policy profile |
+| `GET` | `/users/:id/memory` | List adaptive user memory (separate from character memory) |
+| `POST` | `/users/:id/memory` | Create a user memory fact manually |
+| `PUT` | `/users/:id/memory/:memoryId` | Update a user memory fact |
+| `DELETE` | `/users/:id/memory/:memoryId` | Delete a user memory fact |
 | `GET` | `/personalities` | List all personalities |
 | `POST` | `/personality` | Create a personality |
 | `GET` | `/personality/:id` | Get one personality |
@@ -472,7 +664,7 @@ It also includes a toggleable debug panel for assistant turns, rendering the bac
 | `POST` | `/personality/:id/memory/backfill` | Backfill missing embeddings for that personality's stored memories |
 | `PUT` | `/memory/:memoryId` | Edit a memory fact (content, memoryType, importance) |
 | `DELETE` | `/memory/:memoryId` | Delete a memory fact |
-| `POST` | `/chat` | Send a message; returns `{reply, isAI, moodState, moodLabel, debug}` |
+| `POST` | `/chat` | Send a message; supports `userId` + `mode`, applies age-gated policy, and returns `{reply, isAI, moodState, moodLabel, policy, debug}` |
 | `POST` | `/research` | Run the research pipeline for a query + URL list |
 | `POST` | `/tts` | Generate TTS audio for a text string |
 | `GET` | `/settings/llm` | Get runtime LLM connection state and selected model |
