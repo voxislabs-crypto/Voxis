@@ -30,6 +30,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [Server-Side TTS](#server-side-tts)
    - [Database & Migrations](#database--migrations)
 8. [How It Works — Frontend](#how-it-works--frontend)
+  - [Neural Core Mindscape](#neural-core-mindscape)
 9. [System Flow (At a Glance)](#system-flow-at-a-glance)
 10. [Demo: The "Oh Shit" Moment](#demo-the-oh-shit-moment)
 11. [Future Directions](#future-directions)
@@ -610,6 +611,32 @@ The app shell now also includes a lightweight user profile selector (age band + 
 
 **`ChatWindow.jsx`** is the chat interface. The header shows a VAD-driven mood dot (colored by valence) next to the character name and the character's description below it. The message list renders user and assistant bubbles. The composer is a `<textarea>` that submits on Enter (Shift+Enter for newline). The voice panel exposes TTS settings and a button to generate/play the last assistant reply.
 It also includes a toggleable debug panel for assistant turns, rendering the backend's per-turn debug payload directly in the chat UI.
+
+### Neural Core Mindscape
+
+Voxis now includes an in-chat Neural Core overlay (`NeuralCore.jsx`) as the primary futuristic visualization layer instead of a separate analytics tab.
+
+How it works:
+
+- A floating orb HUD appears inside the chat card; clicking it opens a full mindscape overlay.
+- The central mood orb is live-wired to VAD signals (`valence`, `arousal`, `dominance`) from chat debug payloads.
+- Orbiting system nodes (`Memory`, `Intent`, `Identity`, and `Evidence` in Scientist mode) pulse and light based on real runtime signals.
+- Clicking focus nodes triggers camera tweening and branch sprouting from live data (retrieved/injected memories, active goal details, identity stabilization events, citation status).
+- A subtle always-on neural mesh is rendered behind chat messages so the interface feels alive even when the overlay is closed.
+
+Mode-aware rendering:
+
+- **Scientist mode** emphasizes telemetry and evidence/citation pathways.
+- **Kids mode** uses softer colors, larger touch targets, simplified labels, and sparkle ambience.
+
+Keyboard controls:
+
+- Press `N` to toggle Neural Core open/closed.
+- Press `Esc` to close the overlay.
+
+Feature flag:
+
+- Frontend env var: `VITE_NEURAL_CORE_ENABLED=true` (see `frontend/.env.example`)
 
 **`MemoryJournal.jsx`** is the Memory Journal tab. It fetches all memory facts for the selected personality and renders them sorted by importance. Features:
 - Color-coded type badges distinguish `fact`, `preference`, `relationship`, `event` from villain types (`scheme`, `grudge`, `leverage`, `target_weakness`, `debt`)
