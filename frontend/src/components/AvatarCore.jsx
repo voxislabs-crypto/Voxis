@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const avatarStyles = `
   .avatar-core {
@@ -82,6 +82,26 @@ const avatarStyles = `
     --wave: #ff8b62;
   }
 
+  .avatar-core.state-idle {
+    animation-duration: 3.8s;
+  }
+
+  .avatar-core.state-listen {
+    animation-duration: 3.1s;
+  }
+
+  .avatar-core.state-think {
+    animation-duration: 2.4s;
+  }
+
+  .avatar-core.state-speak {
+    animation-duration: 1.5s;
+  }
+
+  .avatar-core.state-recover {
+    animation-duration: 2.1s;
+  }
+
   .avatar-core.compact {
     --size: 50px;
   }
@@ -100,6 +120,16 @@ const avatarStyles = `
     pointer-events: none;
   }
 
+  .avatar-core.state-speak .avatar-aura {
+    animation-duration: 0.82s;
+    opacity: 0.88;
+  }
+
+  .avatar-core.state-think .avatar-aura {
+    animation-duration: 1.1s;
+    opacity: 0.74;
+  }
+
   .avatar-face {
     position: absolute;
     inset: 0;
@@ -114,6 +144,7 @@ const avatarStyles = `
     filter: drop-shadow(0 0 7px rgba(48, 236, 255, 0.6));
     transform-origin: center;
     animation: avatarBlink 6.6s ease-in-out infinite;
+    transition: ry 240ms ease;
   }
 
   .avatar-face .pupil {
@@ -150,6 +181,11 @@ const avatarStyles = `
   .avatar-wave.idle span {
     animation-duration: 1.8s;
     opacity: 0.62;
+  }
+
+  .avatar-wave.recover span {
+    animation-duration: 1.25s;
+    opacity: 0.74;
   }
 
   .avatar-wave.burst span {
@@ -223,9 +259,29 @@ function resolvePersonaPreset(seed, mode) {
   return presets[hashSeed(seed) % presets.length];
 }
 
-function resolveExpressionMode({ valence, arousal, phase }) {
+function resolveTargetState({ phase, speaking }) {
+  if (speaking || ["generation", "reply", "reply-complete"].includes(phase)) {
+    return "speak";
+  }
+
+  if (["intent", "mood", "memory", "memory-write", "user-memory-write"].includes(phase)) {
+    return "think";
+  }
+
+  if (["queued", "prompt"].includes(phase)) {
+    return "listen";
+  }
+
+  return "idle";
+}
+
+function resolveExpressionMode({ valence, arousal, phase, animState }) {
   if (["intent", "generation", "reply"].includes(phase)) {
     return "surge";
+  }
+
+  if (animState === "recover") {
+    return "focused";
   }
 
   if (valence >= 0.4 && arousal >= 0.15) {
@@ -253,6 +309,42 @@ export default function AvatarCore({
   size = "default",
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
+  const [animState, setAnimState] = useState("idle");
+  const recoverTimerRef = useRef(null);
+
+  const targetState = useMemo(
+    () => resolveTargetState({ phase, speaking }),
+    [phase, speaking],
+  );
+
+  useEffect(() => {
+    if (recoverTimerRef.current) {
+      window.clearTimeout(recoverTimerRef.current);
+      recoverTimerRef.current = null;
+    }
+
+    setAnimState((current) => {
+      if (targetState === "speak") {
+        return "speak";
+      }
+
+      if (current === "speak" && targetState !== "speak") {
+        recoverTimerRef.current = window.setTimeout(() => {
+          setAnimState(targetState === "idle" ? "idle" : targetState);
+        }, 420);
+        return "recover";
+      }
+
+      return targetState;
+    });
+
+    return () => {
+      if (recoverTimerRef.current) {
+        window.clearTimeout(recoverTimerRef.current);
+        recoverTimerRef.current = null;
+      }
+    };
+  }, [targetState]);
 
   useEffect(() => {
     const intensity = clamp(0.18 + Math.abs(Number(arousal) || 0) * 0.55, 0.2, 0.85);
@@ -288,10 +380,10 @@ export default function AvatarCore({
       eyeOpen,
       browTilt,
       aura,
-      mode: resolveExpressionMode({ valence: v, arousal: a, phase }),
+      mode: resolveExpressionMode({ valence: v, arousal: a, phase, animState }),
       rim: phase === "reply" ? "rgba(255, 128, 196, 0.72)" : "rgba(192, 82, 255, 0.48)",
     };
-  }, [arousal, phase, valence]);
+  }, [animState, arousal, phase, valence]);
 
   const preset = useMemo(
     () => resolvePersonaPreset(personalitySeed, mode),
@@ -301,12 +393,16 @@ export default function AvatarCore({
   const pupilOffsetX = clamp(gaze.x * 2.3, -2.2, 2.2);
   const pupilOffsetY = clamp(gaze.y * 1.8, -1.6, 1.6);
 
-  const speakingWave = speaking || ["generation", "reply", "reply-complete"].includes(phase);
-  const waveClass = speakingWave ? (phase === "intent" || phase === "mood" ? "burst" : "") : "idle";
+  const speakingWave = animState === "speak" || ["generation", "reply", "reply-complete"].includes(phase);
+  const waveClass = speakingWave
+    ? (phase === "intent" || phase === "mood" ? "burst" : "")
+    : animState === "recover"
+    ? "recover"
+    : "idle";
 
   return (
     <div
-      className={`avatar-core exp-${mood.mode} persona-${preset} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
+      className={`avatar-core exp-${mood.mode} persona-${preset} state-${animState} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
       style={{ "--aura": mood.aura, "--rim": mood.rim }}
       aria-hidden="true"
     >
