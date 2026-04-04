@@ -49,6 +49,7 @@ function normalizeRow(row) {
     moodState: parseJsonObject(row.moodState, {}),
     moodSensitivity: typeof row.moodSensitivity === "number" ? row.moodSensitivity : 1.0,
     expressionProfile: parseJsonObject(row.expressionProfile, {
+      preset: "auto",
       calmness: 0.5,
       intensity: 0.5,
       blinkRate: 0.5,

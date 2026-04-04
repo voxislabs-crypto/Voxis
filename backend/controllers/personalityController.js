@@ -103,9 +103,20 @@ function clamp01(value, fallback = 0.5) {
   return Math.min(1, Math.max(0, n));
 }
 
+const VALID_EXPRESSION_PRESETS = new Set([
+  "auto",
+  "sentinel",
+  "wisp",
+  "oracle",
+  "echo",
+  "rogue",
+]);
+
 function sanitizeExpressionProfile(input) {
   const profile = input && typeof input === "object" ? input : {};
+  const preset = String(profile.preset || "auto").trim().toLowerCase();
   return {
+    preset: VALID_EXPRESSION_PRESETS.has(preset) ? preset : "auto",
     calmness: clamp01(profile.calmness, 0.5),
     intensity: clamp01(profile.intensity, 0.5),
     blinkRate: clamp01(profile.blinkRate, 0.5),

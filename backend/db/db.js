@@ -54,7 +54,7 @@ ensureColumn("personalities", "moodSensitivity", "REAL NOT NULL DEFAULT 1.0");
 ensureColumn(
   "personalities",
   "expressionProfile",
-  `TEXT NOT NULL DEFAULT '{"calmness":0.5,"intensity":0.5,"blinkRate":0.5,"gazeDrift":0.5}'`,
+  `TEXT NOT NULL DEFAULT '{"preset":"auto","calmness":0.5,"intensity":0.5,"blinkRate":0.5,"gazeDrift":0.5}'`,
 );
 
 db.exec(`

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import AvatarCore from "./AvatarCore.jsx";
 
 const formStyles = `
   .creator-grid {
@@ -132,6 +133,34 @@ const formStyles = `
     display: grid;
     gap: 14px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .avatar-preview-panel {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    background: rgba(0, 180, 255, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .avatar-preview-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .avatar-preview-controls select {
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    background: rgba(6, 14, 28, 0.88);
+    color: var(--text);
   }
 
   .voice-slider {
@@ -379,6 +408,7 @@ const initialForm = {
   voiceRate: 1,
   preferredVoice: "alloy",
   providerModel: "gpt-4o-mini-tts",
+  expressionPreset: "auto",
   expressionCalmness: 0.5,
   expressionIntensity: 0.5,
   expressionBlinkRate: 0.5,
@@ -415,6 +445,8 @@ export default function PersonalityForm({ onCreated, onError }) {
   const [isResearching, setIsResearching] = useState(false);
   const [researchResult, setResearchResult] = useState(null);
   const [researchSources, setResearchSources] = useState([]);
+  const [previewPhase, setPreviewPhase] = useState("idle");
+  const [previewSpeaking, setPreviewSpeaking] = useState(false);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -461,6 +493,7 @@ export default function PersonalityForm({ onCreated, onError }) {
             providerModel: form.providerModel,
           },
           expressionProfile: {
+            preset: form.expressionPreset,
             calmness: Number(form.expressionCalmness),
             intensity: Number(form.expressionIntensity),
             blinkRate: Number(form.expressionBlinkRate),
@@ -789,6 +822,24 @@ export default function PersonalityForm({ onCreated, onError }) {
             <label>Expression profile</label>
             <div className="expression-grid">
               <div className="field">
+                <label htmlFor="expressionPreset">Preset</label>
+                <select
+                  id="expressionPreset"
+                  name="expressionPreset"
+                  value={form.expressionPreset}
+                  onChange={updateField}
+                  style={{ padding: "13px 16px", border: "1px solid rgba(0,180,255,0.14)", borderRadius: 16, background: "rgba(6,14,28,0.88)", color: "var(--text)" }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="sentinel">Sentinel</option>
+                  <option value="wisp">Wisp</option>
+                  <option value="oracle">Oracle</option>
+                  <option value="echo">Echo</option>
+                  <option value="rogue">Rogue</option>
+                </select>
+              </div>
+
+              <div className="field">
                 <label htmlFor="expressionCalmness">Calmness: {Number(form.expressionCalmness).toFixed(2)}</label>
                 <input
                   className="voice-slider"
@@ -848,6 +899,46 @@ export default function PersonalityForm({ onCreated, onError }) {
                 />
               </div>
             </div>
+
+            <div className="avatar-preview-panel">
+              <AvatarCore
+                size="large"
+                valence={Number(form.expressionIntensity) - Number(form.expressionCalmness)}
+                arousal={Number(form.expressionIntensity)}
+                phase={previewPhase}
+                speaking={previewSpeaking}
+                mode="scientist"
+                personalitySeed={form.name || "preview"}
+                expressionPreset={form.expressionPreset}
+                expressionProfile={{
+                  preset: form.expressionPreset,
+                  calmness: Number(form.expressionCalmness),
+                  intensity: Number(form.expressionIntensity),
+                  blinkRate: Number(form.expressionBlinkRate),
+                  gazeDrift: Number(form.expressionGazeDrift),
+                }}
+              />
+              <div className="avatar-preview-controls">
+                <label htmlFor="previewPhase" style={{ color: "var(--muted)", fontSize: "0.85rem", fontWeight: 700 }}>Preview phase</label>
+                <select id="previewPhase" value={previewPhase} onChange={(event) => setPreviewPhase(event.target.value)}>
+                  <option value="idle">idle</option>
+                  <option value="queued">listen</option>
+                  <option value="intent">intent</option>
+                  <option value="generation">generation</option>
+                  <option value="reply">reply</option>
+                </select>
+                <label style={{ color: "var(--muted)", fontSize: "0.85rem", fontWeight: 700 }}>
+                  <input
+                    type="checkbox"
+                    checked={previewSpeaking}
+                    onChange={(event) => setPreviewSpeaking(event.target.checked)}
+                    style={{ marginRight: 6 }}
+                  />
+                  Speaking
+                </label>
+              </div>
+            </div>
+
             <small>
               Tune personality-specific expressiveness. Lower calmness = twitchier motion. Higher intensity = stronger emotional contrast.
             </small>

@@ -82,6 +82,11 @@ const avatarStyles = `
     --wave: #ff8b62;
   }
 
+  .avatar-core.persona-rogue {
+    --eye: #79b9ff;
+    --wave: #ff7a67;
+  }
+
   .avatar-core.state-idle {
     animation-duration: 3.8s;
   }
@@ -250,12 +255,17 @@ function hashSeed(input) {
   return hash;
 }
 
-function resolvePersonaPreset(seed, mode) {
+function resolvePersonaPreset(seed, mode, explicitPreset = "auto") {
+  const requested = String(explicitPreset || "auto").trim().toLowerCase();
+  if (["sentinel", "wisp", "oracle", "echo", "rogue"].includes(requested)) {
+    return requested;
+  }
+
   if (mode === "kids") {
     return "wisp";
   }
 
-  const presets = ["sentinel", "oracle", "echo", "wisp"];
+  const presets = ["sentinel", "oracle", "echo", "wisp", "rogue"];
   return presets[hashSeed(seed) % presets.length];
 }
 
@@ -307,6 +317,7 @@ export default function AvatarCore({
   mode = "scientist",
   personalitySeed = "",
   expressionProfile,
+  expressionPreset = "auto",
   size = "default",
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
@@ -402,8 +413,8 @@ export default function AvatarCore({
   }, [animState, arousal, expression.blinkRate, expression.calmness, expression.intensity, phase, valence]);
 
   const preset = useMemo(
-    () => resolvePersonaPreset(personalitySeed, mode),
-    [mode, personalitySeed],
+    () => resolvePersonaPreset(personalitySeed, mode, expressionPreset),
+    [expressionPreset, mode, personalitySeed],
   );
 
   const pupilOffsetX = clamp(gaze.x * 2.3, -2.2, 2.2);

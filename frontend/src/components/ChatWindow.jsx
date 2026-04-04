@@ -703,6 +703,7 @@ export default function ChatWindow({
                     mode={activeMode || "scientist"}
                     personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                     expressionProfile={personality.expressionProfile}
+                    expressionPreset={personality.expressionProfile?.preset || "auto"}
                   />
                   <span>{personality.name}</span>
                 </span>

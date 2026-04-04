@@ -1099,6 +1099,7 @@ export default function NeuralCore({
                   mode={mode}
                   personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                   expressionProfile={personality.expressionProfile}
+                  expressionPreset={personality.expressionProfile?.preset || "auto"}
                 />
                 <span>{kidsMode ? "Friend Brain" : "Voxis Neural Core"}</span>
               </span>
