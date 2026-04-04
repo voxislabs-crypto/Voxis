@@ -496,17 +496,21 @@ export default function App() {
         throw new Error(data.error || "Failed to load current user.");
       }
 
-      const me = data;
-      setUsers([me]);
-      setSelectedUserId(me.id);
+      const me = data?.user || data;
+      if (!me || !Number.isInteger(Number(me.id))) {
+        throw new Error("Failed to resolve current user id.");
+      }
 
-      const profileResponse = await authFetch(`/users/${me.id}/profile`);
+      setUsers([me]);
+      setSelectedUserId(Number(me.id));
+
+      const profileResponse = await authFetch(`/users/${Number(me.id)}/profile`);
       const profileData = await profileResponse.json();
       if (!profileResponse.ok) {
         throw new Error(profileData.error || "Failed to load user profile.");
       }
 
-      setUserProfiles({ [me.id]: profileData.profile });
+      setUserProfiles({ [Number(me.id)]: profileData.profile });
     } catch (error) {
       setStatus({
         type: "error",
