@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const MEMORY_TYPES = [
   "fact", "preference", "relationship", "event",
@@ -368,6 +369,7 @@ function MemoryRow({ fact, onSave, onDelete }) {
 }
 
 export default function MemoryJournal({ personality }) {
+  const authFetch = useAuthFetch();
   const [facts, setFacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
@@ -378,7 +380,7 @@ export default function MemoryJournal({ personality }) {
     if (!personality) return;
     setLoading(true);
     try {
-      const res = await fetch(`/personality/${personality.id}/memory`);
+      const res = await authFetch(`/personality/${personality.id}/memory`);
       const data = await res.json();
       setFacts(Array.isArray(data) ? data : []);
     } catch {
@@ -394,7 +396,7 @@ export default function MemoryJournal({ personality }) {
 
   async function handleSave(id, draft) {
     try {
-      const res = await fetch(`/memory/${id}`, {
+      const res = await authFetch(`/memory/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
@@ -411,7 +413,7 @@ export default function MemoryJournal({ personality }) {
 
   async function handleDelete(id) {
     try {
-      await fetch(`/memory/${id}`, { method: "DELETE" });
+      await authFetch(`/memory/${id}`, { method: "DELETE" });
       setFacts((current) => current.filter((f) => f.id !== id));
     } catch {
       setStatusMsg("Delete failed.");
@@ -425,7 +427,7 @@ export default function MemoryJournal({ personality }) {
 
     setBackfilling(true);
     try {
-      const res = await fetch(`/personality/${personality.id}/memory/backfill`, {
+      const res = await authFetch(`/personality/${personality.id}/memory/backfill`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 100 }),

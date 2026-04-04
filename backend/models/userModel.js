@@ -37,6 +37,7 @@ function normalizeUserRow(row) {
     displayName: row.displayName,
     ageBand: normalizeAgeBand(row.ageBand),
     locale: row.locale || "en-US",
+    clerkId: row.clerkId || "",
     createdAt: row.createdAt,
   };
 }
@@ -86,7 +87,7 @@ export function listUsers() {
   const rows = db
     .prepare(
       `
-        SELECT id, displayName, ageBand, locale, createdAt
+        SELECT id, displayName, ageBand, locale, clerkId, createdAt
         FROM users
         ORDER BY id DESC
       `,
@@ -100,12 +101,26 @@ export function getUserById(userId) {
   const row = db
     .prepare(
       `
-        SELECT id, displayName, ageBand, locale, createdAt
+        SELECT id, displayName, ageBand, locale, clerkId, createdAt
         FROM users
         WHERE id = ?
       `,
     )
     .get(userId);
+
+  return normalizeUserRow(row);
+}
+
+export function getUserByClerkId(clerkId) {
+  const row = db
+    .prepare(
+      `
+        SELECT id, displayName, ageBand, locale, clerkId, createdAt
+        FROM users
+        WHERE clerkId = ?
+      `,
+    )
+    .get(String(clerkId || ""));
 
   return normalizeUserRow(row);
 }
@@ -123,14 +138,16 @@ export function createUser(input) {
   const voiceNarrationEnabled =
     input?.voiceNarrationEnabled === undefined ? ageBand === "child" : Boolean(input?.voiceNarrationEnabled);
 
+  const clerkId = String(input?.clerkId || "").trim();
+
   const result = db
     .prepare(
       `
-        INSERT INTO users (displayName, ageBand, locale)
-        VALUES (?, ?, ?)
+        INSERT INTO users (displayName, ageBand, locale, clerkId)
+        VALUES (?, ?, ?, ?)
       `,
     )
-    .run(displayName, ageBand, locale);
+    .run(displayName, ageBand, locale, clerkId);
 
   const userId = Number(result.lastInsertRowid);
 

@@ -62,7 +62,10 @@ function isCitationRequired(activeMode) {
 }
 
 function resolvePerformanceTier(ageBand, profile, activeMode) {
-  const fallback = ageBand === "child" || activeMode === "kids" ? "light" : "balanced";
+  if (ageBand === "child") {
+    return "light";
+  }
+  const fallback = activeMode === "kids" ? "light" : "balanced";
   return normalizePerformanceTier(profile?.performanceTier, fallback);
 }
 

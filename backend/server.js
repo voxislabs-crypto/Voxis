@@ -6,6 +6,7 @@ import personalityRoutes from "./routes/personalityRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import { clerkVerify } from "./middleware/requireAuth.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -17,6 +18,10 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Clerk JWT verification runs on every request (no-op when no token present).
+// Individual routes call requireAuth() to enforce sign-in.
+app.use(clerkVerify);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

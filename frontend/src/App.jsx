@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuth, UserButton, SignIn } from "@clerk/react";
 
+import { useAuthFetch } from "./hooks/useAuthFetch.js";
 import PersonalityForm from "./components/PersonalityForm.jsx";
 import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
@@ -352,6 +354,9 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
 
+  const { isSignedIn, isLoaded } = useAuth();
+  const authFetch = useAuthFetch();
+
   const selectedPersonality = useMemo(
     () => personalities.find((personality) => personality.id === selectedId) || null,
     [personalities, selectedId],
@@ -388,12 +393,16 @@ export default function App() {
   }, [selectedUser, selectedUserProfile]);
 
   useEffect(() => {
-    void loadUsers();
-  }, []);
+    if (!isSignedIn) return;
+    void loadCurrentUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   useEffect(() => {
+    if (!isSignedIn) return;
     void loadPersonalities();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -439,65 +448,30 @@ export default function App() {
     });
   }, [selectedUserProfile]);
 
-  async function loadUsers() {
+  async function loadCurrentUser() {
     try {
-      const response = await fetch("/users");
+      const response = await authFetch("/me");
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to load users.");
+        throw new Error(data.error || "Failed to load current user.");
       }
 
-      let loadedUsers = Array.isArray(data.users) ? data.users : [];
+      const me = data;
+      setUsers([me]);
+      setSelectedUserId(me.id);
 
-      if (!loadedUsers.length) {
-        const bootstrapResponse = await fetch("/users", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            displayName: "Guest",
-            ageBand: "adult",
-            defaultMode: "scientist",
-          }),
-        });
-
-        const bootstrapData = await bootstrapResponse.json();
-        if (!bootstrapResponse.ok) {
-          throw new Error(bootstrapData.error || "Failed to bootstrap default user.");
-        }
-
-        loadedUsers = [bootstrapData.user];
-        setUserProfiles((current) => ({
-          ...current,
-          [bootstrapData.user.id]: bootstrapData.profile,
-        }));
+      const profileResponse = await authFetch(`/users/${me.id}/profile`);
+      const profileData = await profileResponse.json();
+      if (!profileResponse.ok) {
+        throw new Error(profileData.error || "Failed to load user profile.");
       }
 
-      setUsers(loadedUsers);
-      if (!selectedUserId && loadedUsers.length) {
-        setSelectedUserId(loadedUsers[0].id);
-      }
-
-      await Promise.all(
-        loadedUsers.map(async (user) => {
-          const profileResponse = await fetch(`/users/${user.id}/profile`);
-          const profileData = await profileResponse.json();
-          if (!profileResponse.ok) {
-            throw new Error(profileData.error || `Failed to load profile for ${user.displayName}.`);
-          }
-
-          setUserProfiles((current) => ({
-            ...current,
-            [user.id]: profileData.profile,
-          }));
-        }),
-      );
+      setUserProfiles({ [me.id]: profileData.profile });
     } catch (error) {
       setStatus({
         type: "error",
-        message: error.message || "Failed to load users.",
+        message: error.message || "Failed to load user.",
       });
     }
   }
@@ -509,7 +483,7 @@ export default function App() {
 
     setIsSavingProfile(true);
     try {
-      const response = await fetch(`/users/${selectedUserId}/profile`, {
+      const response = await authFetch(`/users/${selectedUserId}/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -538,7 +512,7 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/personalities");
+      const response = await authFetch("/personalities");
       const data = await response.json();
 
       if (!response.ok) {
@@ -564,7 +538,7 @@ export default function App() {
     setIsLoadingMessages(true);
 
     try {
-      const response = await fetch(`/personality/${personalityId}/messages`);
+      const response = await authFetch(`/personality/${personalityId}/messages`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -605,7 +579,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(`/personality/${selectedPersonality.id}/voice`, {
+      const response = await authFetch(`/personality/${selectedPersonality.id}/voice`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -665,7 +639,7 @@ export default function App() {
     }));
 
     try {
-      const response = await fetch("/chat", {
+      const response = await authFetch("/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -719,6 +693,19 @@ export default function App() {
     }
   }
 
+  if (!isLoaded) return null;
+
+  if (!isSignedIn) {
+    return (
+      <>
+        <style>{appStyles}</style>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
+          <SignIn />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <style>{appStyles}</style>
@@ -734,19 +721,10 @@ export default function App() {
                 fast iteration, and clean handoff to any OpenAI-compatible LLM endpoint.
               </p>
                 <div className="profile-row" style={{ marginTop: 16 }}>
-                  <label className="profile-label" htmlFor="profile-select">Profile</label>
-                  <select
-                    id="profile-select"
-                    className="profile-select"
-                    value={selectedUserId || ""}
-                    onChange={(event) => setSelectedUserId(Number(event.target.value))}
-                  >
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.displayName} ({user.ageBand})
-                      </option>
-                    ))}
-                  </select>
+                  <UserButton afterSignOutUrl="/" />
+                  {selectedUser && (
+                    <span className="profile-label">{selectedUser.displayName}</span>
+                  )}
                   <label className="profile-label" htmlFor="mode-select">Mode</label>
                   <select
                     id="mode-select"

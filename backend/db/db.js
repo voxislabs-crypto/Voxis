@@ -135,6 +135,10 @@ db.exec(`
 ensureColumn("user_profiles", "performanceTier", "TEXT NOT NULL DEFAULT 'light'");
 ensureColumn("user_profiles", "voiceNarrationEnabled", "INTEGER NOT NULL DEFAULT 0");
 
+// Clerk integration
+ensureColumn("users", "clerkId", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personalities", "ownerId", "INTEGER");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_users_age_band
   ON users (ageBand, id DESC)

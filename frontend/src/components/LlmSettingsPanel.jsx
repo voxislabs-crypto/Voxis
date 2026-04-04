@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const settingsStyles = `
   .llm-settings {
@@ -105,6 +106,7 @@ function fallbackProviders() {
 }
 
 export default function LlmSettingsPanel({ onStatus }) {
+  const authFetch = useAuthFetch();
   const [providers, setProviders] = useState([]);
   const [provider, setProvider] = useState("openai");
   const [apiKey, setApiKey] = useState("");
@@ -137,8 +139,8 @@ export default function LlmSettingsPanel({ onStatus }) {
 
     try {
       const [providersResponse, settingsResponse] = await Promise.all([
-        fetch("/settings/llm/providers"),
-        fetch("/settings/llm"),
+        authFetch("/settings/llm/providers"),
+        authFetch("/settings/llm"),
       ]);
 
       const providersData = await providersResponse.json();
@@ -186,7 +188,7 @@ export default function LlmSettingsPanel({ onStatus }) {
     setIsDetecting(true);
 
     try {
-      const response = await fetch("/settings/llm/detect", {
+      const response = await authFetch("/settings/llm/detect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -230,7 +232,7 @@ export default function LlmSettingsPanel({ onStatus }) {
     setIsConnecting(true);
 
     try {
-      const response = await fetch("/settings/llm/connect", {
+      const response = await authFetch("/settings/llm/connect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -270,7 +272,7 @@ export default function LlmSettingsPanel({ onStatus }) {
     setModel(nextModel);
 
     try {
-      const response = await fetch("/settings/llm/model", {
+      const response = await authFetch("/settings/llm/model", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -294,7 +296,7 @@ export default function LlmSettingsPanel({ onStatus }) {
     setIsDisconnecting(true);
 
     try {
-      const response = await fetch("/settings/llm", {
+      const response = await authFetch("/settings/llm", {
         method: "DELETE",
       });
       const data = await response.json();

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const scenarios = [
   { value: "villain_marathon", label: "Villain Marathon" },
@@ -187,6 +188,7 @@ function ScoreCard({ label, value }) {
 }
 
 export default function HarnessReport({ personality, onStatus }) {
+  const authFetch = useAuthFetch();
   const [scenario, setScenario] = useState("villain_marathon");
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState(null);
@@ -205,7 +207,7 @@ export default function HarnessReport({ personality, onStatus }) {
     onStatus({ type: "", message: "" });
 
     try {
-      const response = await fetch(`/personality/${personality.id}/harness`, {
+      const response = await authFetch(`/personality/${personality.id}/harness`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scenario, judge: true }),

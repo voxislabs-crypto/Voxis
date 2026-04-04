@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import NeuralCore from "./NeuralCore.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 
@@ -338,6 +339,7 @@ export default function ChatWindow({
   onSaveVoiceProfile,
   onJumpToBuilder,
 }) {
+  const authFetch = useAuthFetch();
   const [draft, setDraft] = useState("");
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
@@ -494,7 +496,7 @@ export default function ChatWindow({
     setIsGeneratingAudio(true);
 
     try {
-      const response = await fetch(`/personality/${personality.id}/tts`, {
+      const response = await authFetch(`/personality/${personality.id}/tts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

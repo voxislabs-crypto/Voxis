@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const formStyles = `
   .creator-grid {
@@ -213,6 +214,116 @@ const formStyles = `
     line-height: 1.55;
   }
 
+  .workflow-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 200, 255, 0.18);
+    background: rgba(0, 180, 255, 0.05);
+  }
+
+  .workflow-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .workflow-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #000;
+    font-weight: 800;
+    font-size: 0.72rem;
+    flex-shrink: 0;
+  }
+
+  .workflow-arrow {
+    color: var(--muted);
+    font-size: 0.82rem;
+    flex-shrink: 0;
+  }
+
+  .workflow-required-note {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .required-star {
+    color: var(--accent);
+    margin-left: 2px;
+  }
+
+  .field-tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .field-tip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 180, 255, 0.28);
+    background: rgba(0, 180, 255, 0.07);
+    color: var(--accent);
+    font-size: 0.62rem;
+    font-weight: 800;
+    cursor: default;
+    margin-left: 6px;
+    flex-shrink: 0;
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .field-tip:hover .field-tip-bubble,
+  .field-tip:focus-within .field-tip-bubble {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .field-tip-bubble {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: 240px;
+    padding: 10px 13px;
+    border-radius: 12px;
+    background: rgba(8, 18, 40, 0.98);
+    border: 1px solid rgba(0, 180, 255, 0.22);
+    color: var(--text);
+    font-size: 0.80rem;
+    font-weight: 500;
+    line-height: 1.55;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease, transform 150ms ease;
+    transform: translateY(4px);
+    z-index: 30;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    white-space: normal;
+  }
+
   @media (max-width: 720px) {
     .creator-grid {
       grid-template-columns: 1fr;
@@ -224,6 +335,14 @@ const formStyles = `
 
     .checkbox-row {
       padding-top: 0;
+    }
+
+    .workflow-required-note {
+      margin-left: 0;
+    }
+
+    .field-tip-bubble {
+      width: 200px;
     }
   }
 `;
@@ -252,6 +371,15 @@ const initialForm = {
   providerModel: "gpt-4o-mini-tts",
 };
 
+function Tip({ text }) {
+  return (
+    <span className="field-tip">
+      <span className="field-tip-icon" tabIndex={0} role="button" aria-label={text}>?</span>
+      <span className="field-tip-bubble" role="tooltip">{text}</span>
+    </span>
+  );
+}
+
 function splitCommaSeparated(value) {
   return value
     .split(",")
@@ -267,6 +395,7 @@ function splitLineSeparated(value) {
 }
 
 export default function PersonalityForm({ onCreated, onError }) {
+  const authFetch = useAuthFetch();
   const [form, setForm] = useState(initialForm);
   const [isSaving, setIsSaving] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
@@ -286,7 +415,7 @@ export default function PersonalityForm({ onCreated, onError }) {
     setIsSaving(true);
 
     try {
-      const response = await fetch("/personality", {
+      const response = await authFetch("/personality", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -345,7 +474,7 @@ export default function PersonalityForm({ onCreated, onError }) {
     setIsResearching(true);
 
     try {
-      const response = await fetch("/research-profile", {
+      const response = await authFetch("/research-profile", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -411,9 +540,29 @@ export default function PersonalityForm({ onCreated, onError }) {
     <>
       <style>{formStyles}</style>
       <form onSubmit={handleSubmit}>
+        <div className="workflow-banner">
+          <span className="workflow-step">
+            <span className="workflow-num">1</span>
+            Enter a name &amp; brief
+          </span>
+          <span className="workflow-arrow">→</span>
+          <span className="workflow-step">
+            <span className="workflow-num">2</span>
+            Hit <strong style={{ marginLeft: 4 }}>Research Character</strong>
+          </span>
+          <span className="workflow-arrow">→</span>
+          <span className="workflow-step">
+            <span className="workflow-num">3</span>
+            Review auto-filled fields &amp; <strong style={{ marginLeft: 4 }}>Save</strong>
+          </span>
+          <span className="workflow-required-note">Fields marked <span className="required-star">*</span> are required</span>
+        </div>
         <div className="creator-grid">
           <div className="field">
-            <label htmlFor="name">Character name</label>
+            <label htmlFor="name">
+              Character name<span className="required-star">*</span>
+              <Tip text="Required. The character's full name — used as the primary research search seed. Be specific (e.g. 'Abraham Lincoln' not 'Lincoln')." />
+            </label>
             <input
               id="name"
               name="name"
@@ -436,7 +585,10 @@ export default function PersonalityForm({ onCreated, onError }) {
           </div>
 
           <div className="field">
-            <label htmlFor="creativeContext">Creative context</label>
+            <label htmlFor="creativeContext">
+              Creative context
+              <Tip text="Controls how morally complex characters are framed. Use Narrative Antagonist or Tragic Villain for dark archetypes so the AI doesn't sanitize them. Default is fine for most characters." />
+            </label>
             <select
               id="creativeContext"
               name="creativeContext"
@@ -453,7 +605,10 @@ export default function PersonalityForm({ onCreated, onError }) {
           </div>
 
           <div className="field">
-            <label htmlFor="sourceQuery">Research query</label>
+            <label htmlFor="sourceQuery">
+              Research query
+              <Tip text="Extra keywords to guide the web search beyond the name alone. e.g. 'Lincoln speeches voice mannerisms'. Leave blank to search by name only." />
+            </label>
             <input
               id="sourceQuery"
               name="sourceQuery"
@@ -464,7 +619,10 @@ export default function PersonalityForm({ onCreated, onError }) {
           </div>
 
           <div className="field full">
-            <label htmlFor="description">Character brief</label>
+            <label htmlFor="description">
+              Character brief<span className="required-star">*</span>
+              <Tip text="Required, but can be a single sentence — Research Character will expand it automatically. After the research pass, scraped notes are merged into this field for your review before saving." />
+            </label>
             <textarea
               id="description"
               name="description"
@@ -480,7 +638,10 @@ export default function PersonalityForm({ onCreated, onError }) {
           </div>
 
           <div className="field full">
-            <label htmlFor="sourceUrls">Source URLs</label>
+            <label htmlFor="sourceUrls">
+              Source URLs
+              <Tip text="Optional but powerful. Drop in Wikipedia pages, blog posts, or YouTube video URLs (one per line). Voxis scrapes and ranks them — you review and pick which sources to include before saving." />
+            </label>
             <textarea
               className="compact"
               id="sourceUrls"
@@ -754,8 +915,7 @@ export default function PersonalityForm({ onCreated, onError }) {
 
         <div className="creator-actions">
           <div className="creator-note">
-            Run a research pass first if you want Voxis to pull public source notes into the
-            character profile before saving it.
+            Only <strong>name</strong> and <strong>brief</strong> are required to save. Hit <strong>Research Character</strong> first to auto-fill traits, speech style, quirks, and more from public sources.
           </div>
           <div>
             <button

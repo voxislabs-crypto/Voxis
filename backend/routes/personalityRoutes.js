@@ -16,20 +16,21 @@ import {
   updateMemoryHandler,
   deleteMemoryHandler,
 } from "../controllers/memoryController.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 const router = Router();
 
-router.post("/personality", createPersonalityHandler);
-router.post("/research-profile", researchProfileHandler);
-router.get("/personalities", listPersonalitiesHandler);
-router.get("/personality/:id", getPersonalityHandler);
-router.post("/personality/:id/harness", runHarnessHandler);
-router.get("/personality/:id/messages", chatHistoryHandler);
-router.get("/personality/:id/memory", listMemoryHandler);
-router.post("/personality/:id/memory/backfill", backfillMemoryEmbeddingsHandler);
-router.put("/memory/:memoryId", updateMemoryHandler);
-router.delete("/memory/:memoryId", deleteMemoryHandler);
-router.post("/personality/:id/tts", generateSpeechHandler);
-router.patch("/personality/:id/voice", updateVoiceProfileHandler);
+router.post("/personality", requireAuth, createPersonalityHandler);
+router.post("/research-profile", requireAuth, researchProfileHandler);
+router.get("/personalities", requireAuth, listPersonalitiesHandler);
+router.get("/personality/:id", requireAuth, getPersonalityHandler);
+router.post("/personality/:id/harness", requireAuth, runHarnessHandler);
+router.get("/personality/:id/messages", requireAuth, chatHistoryHandler);
+router.get("/personality/:id/memory", requireAuth, listMemoryHandler);
+router.post("/personality/:id/memory/backfill", requireAuth, backfillMemoryEmbeddingsHandler);
+router.put("/memory/:memoryId", requireAuth, updateMemoryHandler);
+router.delete("/memory/:memoryId", requireAuth, deleteMemoryHandler);
+router.post("/personality/:id/tts", requireAuth, generateSpeechHandler);
+router.patch("/personality/:id/voice", requireAuth, updateVoiceProfileHandler);
 
 export default router;

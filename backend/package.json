@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "backfill-memory-embeddings": "node scripts/backfillMemoryEmbeddings.js",
     "adversarial-harness": "node scripts/adversarialTranscriptHarness.js"
   },
   "dependencies": {
+    "@clerk/express": "^2.0.8",
     "@mozilla/readability": "^0.5.0",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
@@ -20,6 +23,7 @@
     "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "vitest": "^4.1.2"
   }
 }

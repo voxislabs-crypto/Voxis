@@ -82,7 +82,8 @@ export function createPersonality(personality) {
       creativeContext,
       moodBaseline,
       moodState,
-      moodSensitivity
+      moodSensitivity,
+      ownerId
     )
     VALUES (
       @name,
@@ -104,7 +105,8 @@ export function createPersonality(personality) {
       @creativeContext,
       @moodBaseline,
       @moodState,
-      @moodSensitivity
+      @moodSensitivity,
+      @ownerId
     )
   `);
 
@@ -123,71 +125,65 @@ export function createPersonality(personality) {
     moodBaseline: JSON.stringify(personality.moodBaseline || {}),
     moodState: JSON.stringify(personality.moodState || {}),
     moodSensitivity: typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
+    ownerId: personality.ownerId || null,
   });
 
   return getPersonalityById(result.lastInsertRowid);
 }
 
-export function getAllPersonalities() {
-  const statement = db.prepare(`
-    SELECT
-      id,
-      name,
-      description,
-      traits,
-      quirks,
-      mood,
-      systemPrompt,
-      sourceQuery,
-      sourceUrls,
-      researchSummary,
-      speechStyle,
-      notablePhrases,
-      researchSources,
-      voiceProfile,
-      behaviorRules,
-      goals,
-      coreValues,
-      creativeContext,
-      moodBaseline,
-      moodState,
-      moodSensitivity
-    FROM personalities
-    ORDER BY id DESC
-  `);
+export function getAllPersonalities(ownerId = null) {
+  const statement = ownerId
+    ? db.prepare(`
+        SELECT
+          id, name, description, traits, quirks, mood, systemPrompt,
+          sourceQuery, sourceUrls, researchSummary, speechStyle,
+          notablePhrases, researchSources, voiceProfile, behaviorRules,
+          goals, coreValues, creativeContext, moodBaseline, moodState,
+          moodSensitivity, ownerId
+        FROM personalities
+        WHERE ownerId = ?
+        ORDER BY id DESC
+      `)
+    : db.prepare(`
+        SELECT
+          id, name, description, traits, quirks, mood, systemPrompt,
+          sourceQuery, sourceUrls, researchSummary, speechStyle,
+          notablePhrases, researchSources, voiceProfile, behaviorRules,
+          goals, coreValues, creativeContext, moodBaseline, moodState,
+          moodSensitivity, ownerId
+        FROM personalities
+        ORDER BY id DESC
+      `);
 
-  return statement.all().map(normalizeRow);
+  const rows = ownerId ? statement.all(ownerId) : statement.all();
+  return rows.map(normalizeRow);
 }
 
-export function getPersonalityById(id) {
-  const statement = db.prepare(`
-    SELECT
-      id,
-      name,
-      description,
-      traits,
-      quirks,
-      mood,
-      systemPrompt,
-      sourceQuery,
-      sourceUrls,
-      researchSummary,
-      speechStyle,
-      notablePhrases,
-      researchSources,
-      voiceProfile,
-      behaviorRules,
-      goals,
-      coreValues,
-      creativeContext,
-      moodBaseline,
-      moodState,
-      moodSensitivity
-    FROM personalities
-    WHERE id = ?
-  `);
+export function getPersonalityById(id, ownerId = null) {
+  const statement = ownerId
+    ? db.prepare(`
+        SELECT
+          id, name, description, traits, quirks, mood, systemPrompt,
+          sourceQuery, sourceUrls, researchSummary, speechStyle,
+          notablePhrases, researchSources, voiceProfile, behaviorRules,
+          goals, coreValues, creativeContext, moodBaseline, moodState,
+          moodSensitivity, ownerId
+        FROM personalities
+        WHERE id = ? AND ownerId = ?
+      `)
+    : db.prepare(`
+        SELECT
+          id, name, description, traits, quirks, mood, systemPrompt,
+          sourceQuery, sourceUrls, researchSummary, speechStyle,
+          notablePhrases, researchSources, voiceProfile, behaviorRules,
+          goals, coreValues, creativeContext, moodBaseline, moodState,
+          moodSensitivity, ownerId
+        FROM personalities
+        WHERE id = ?
+      `);
 
-  return normalizeRow(statement.get(id));
+  const row = ownerId ? statement.get(id, ownerId) : statement.get(id);
+  return normalizeRow(row);
 }
 
 export function updatePersonalityVoiceProfile(id, voiceProfile) {

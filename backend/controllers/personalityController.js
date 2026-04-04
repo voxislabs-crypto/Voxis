@@ -196,6 +196,7 @@ export function createPersonalityHandler(req, res, next) {
       moodBaseline,
       moodState,
       moodSensitivity,
+      ownerId: req.voxisUser?.id ?? null,
     });
 
     return res.status(201).json(personality);
@@ -229,9 +230,10 @@ export function updateVoiceProfileHandler(req, res, next) {
   }
 }
 
-export function listPersonalitiesHandler(_req, res, next) {
+export function listPersonalitiesHandler(req, res, next) {
   try {
-    return res.json(getAllPersonalities());
+    const ownerId = req.voxisUser?.id ?? null;
+    return res.json(getAllPersonalities(ownerId));
   } catch (error) {
     return next(error);
   }
@@ -239,7 +241,8 @@ export function listPersonalitiesHandler(_req, res, next) {
 
 export function getPersonalityHandler(req, res, next) {
   try {
-    const personality = getPersonalityById(Number(req.params.id));
+    const ownerId = req.voxisUser?.id ?? null;
+    const personality = getPersonalityById(Number(req.params.id), ownerId);
 
     if (!personality) {
       return res.status(404).json({ error: "Personality not found." });
