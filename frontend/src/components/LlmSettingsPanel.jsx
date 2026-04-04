@@ -379,7 +379,7 @@ export default function LlmSettingsPanel({ onStatus }) {
             <option value="">Choose model</option>
             {availableModels.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.name || candidate.id}
+                {(candidate.name || candidate.id) + (candidate.isFree ? " (free)" : "")}
               </option>
             ))}
           </select>

@@ -993,7 +993,7 @@ export default function App() {
                     Start with a character name and optional source URLs, pull research into the
                     form, then save a profile with voice settings and a stronger system prompt.
                   </p>
-                  <PersonalityForm onCreated={handlePersonalityCreated} onError={setStatus} />
+                  <PersonalityForm onCreated={handlePersonalityCreated} onError={setStatus} personalities={personalities} />
                 </>
               ) : activeView === "journal" ? (
                 <MemoryJournal personality={selectedPersonality} />

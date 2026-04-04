@@ -25,6 +25,7 @@ function sanitizeModels(models) {
       return {
         id: String(model.id || "").trim(),
         name: String(model.name || model.id || "").trim(),
+        isFree: Boolean(model.isFree),
       };
     })
     .filter((model) => model && model.id)

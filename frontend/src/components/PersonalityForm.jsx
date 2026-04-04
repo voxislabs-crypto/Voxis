@@ -135,6 +135,24 @@ const formStyles = `
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .expression-copy-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .expression-copy-row select {
+    min-width: 260px;
+    max-width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    background: rgba(6, 14, 28, 0.88);
+    color: var(--text);
+  }
+
   .avatar-preview-panel {
     margin-top: 14px;
     padding: 14px;
@@ -438,9 +456,10 @@ function splitLineSeparated(value) {
     .filter(Boolean);
 }
 
-export default function PersonalityForm({ onCreated, onError }) {
+export default function PersonalityForm({ onCreated, onError, personalities = [] }) {
   const authFetch = useAuthFetch();
   const [form, setForm] = useState(initialForm);
+  const [copySourceId, setCopySourceId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [researchResult, setResearchResult] = useState(null);
@@ -511,6 +530,7 @@ export default function PersonalityForm({ onCreated, onError }) {
       onCreated(data);
       onError({ type: "", message: "" });
       setForm(initialForm);
+      setCopySourceId("");
       setResearchResult(null);
       setResearchSources([]);
     } catch (error) {
@@ -588,6 +608,33 @@ export default function PersonalityForm({ onCreated, onError }) {
   function removeSource(sourceId) {
     setResearchSources((current) => current.filter((source) => source.id !== sourceId));
   }
+
+  function copyExpressionProfile() {
+    if (!copySourceId) {
+      onError({ type: "error", message: "Choose a saved persona to copy from." });
+      return;
+    }
+
+    const source = personalities.find((item) => String(item.id) === copySourceId);
+    if (!source) {
+      onError({ type: "error", message: "Selected persona was not found." });
+      return;
+    }
+
+    const profile = source.expressionProfile || {};
+    setForm((current) => ({
+      ...current,
+      expressionPreset: String(profile.preset || "auto"),
+      expressionCalmness: String(Number(profile.calmness ?? 0.5)),
+      expressionIntensity: String(Number(profile.intensity ?? 0.5)),
+      expressionBlinkRate: String(Number(profile.blinkRate ?? 0.5)),
+      expressionGazeDrift: String(Number(profile.gazeDrift ?? 0.5)),
+    }));
+
+    onError({ type: "success", message: `Copied expression profile from ${source.name}.` });
+  }
+
+  const personalitiesWithExpression = personalities.filter((item) => item && item.expressionProfile);
 
   return (
     <>
@@ -820,6 +867,27 @@ export default function PersonalityForm({ onCreated, onError }) {
 
           <div className="field full">
             <label>Expression profile</label>
+            <div className="expression-copy-row">
+              <select
+                value={copySourceId}
+                onChange={(event) => setCopySourceId(event.target.value)}
+              >
+                <option value="">Copy from saved persona (optional)</option>
+                {personalitiesWithExpression.map((personality) => (
+                  <option key={personality.id} value={String(personality.id)}>
+                    {personality.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!copySourceId}
+                onClick={copyExpressionProfile}
+              >
+                Copy Preset
+              </button>
+            </div>
             <div className="expression-grid">
               <div className="field">
                 <label htmlFor="expressionPreset">Preset</label>

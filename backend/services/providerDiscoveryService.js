@@ -68,6 +68,37 @@ function buildHeaders(provider, apiKey) {
 function normalizeModelList(payload) {
   const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
 
+  function hasZeroPricing(pricing) {
+    if (!pricing || typeof pricing !== "object") {
+      return false;
+    }
+
+    const values = [
+      pricing.prompt,
+      pricing.completion,
+      pricing.request,
+      pricing.input,
+      pricing.output,
+      pricing.image,
+    ]
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+
+    return values.length > 0 && values.every((value) => value <= 0);
+  }
+
+  function isLikelyFreeModel(item, id, name) {
+    if (item?.isFree === true || item?.is_free === true || item?.free === true) {
+      return true;
+    }
+
+    if (hasZeroPricing(item?.pricing)) {
+      return true;
+    }
+
+    return /(^|[:/\s_-])free($|[:/\s_-])/i.test(`${id} ${name}`);
+  }
+
   return list
     .map((item) => {
       if (!item || typeof item !== "object") {
@@ -80,7 +111,11 @@ function normalizeModelList(payload) {
       }
 
       const name = String(item.name || item.display_name || id).trim();
-      return { id, name };
+      return {
+        id,
+        name,
+        isFree: isLikelyFreeModel(item, id, name),
+      };
     })
     .filter(Boolean)
     .slice(0, 400);
