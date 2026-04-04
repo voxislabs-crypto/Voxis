@@ -14,6 +14,7 @@ const CONTEXT_BUDGET_ENV_KEYS = {
   tragic_villain: "PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN",
 };
 import { getLlmRuntimeConfig, setLlmRuntimeConfig } from "../models/settingsModel.js";
+import { fetchProviderModels } from "./providerDiscoveryService.js";
 
 function getLlmConfig() {
   const runtime = getLlmRuntimeConfig();
@@ -142,7 +143,44 @@ function getFallbackModels(config) {
   return [...sameTier, ...otherTier];
 }
 
-function persistWorkingModel(config, model) {
+async function getDynamicFallbackModels(config, failedModel) {
+  if (!config?.apiKey || !isOpenRouterConfig(config)) {
+    return {
+      candidateModels: [],
+      models: Array.isArray(config?.models) ? config.models : [],
+    };
+  }
+
+  try {
+    const detected = await fetchProviderModels({
+      providerId: "openrouter",
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+    });
+
+    const refreshedConfig = {
+      ...config,
+      provider: detected.provider || config.provider,
+      baseUrl: detected.baseUrl || config.baseUrl,
+      model: detected.model || failedModel,
+      models: Array.isArray(detected.models) ? detected.models : [],
+    };
+
+    return {
+      candidateModels: [refreshedConfig.model, ...getFallbackModels(refreshedConfig)].filter(
+        (model, index, list) => model && model !== failedModel && list.indexOf(model) === index,
+      ),
+      models: refreshedConfig.models,
+    };
+  } catch {
+    return {
+      candidateModels: [],
+      models: Array.isArray(config?.models) ? config.models : [],
+    };
+  }
+}
+
+function persistWorkingModel(config, model, models = config?.models) {
   if (!config?.isRuntimeConfig || !model || model === config.model) {
     return;
   }
@@ -153,7 +191,7 @@ function persistWorkingModel(config, model) {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
       model,
-      models: config.models,
+      models,
     });
   } catch {
     // Persisting the recovered model is best-effort only.
@@ -220,25 +258,54 @@ async function requestChatCompletion({ messages, temperature = 0.85 }) {
   const candidateModels = [config.model, ...getFallbackModels(config)].filter(
     (model, index, list) => model && list.indexOf(model) === index,
   );
+  const attemptedModels = new Set();
   let lastError = null;
+  let refreshedDynamicFallbacks = false;
+  let activeModels = config.models;
 
-  for (const model of candidateModels) {
+  while (candidateModels.length) {
+    const model = candidateModels.shift();
+    if (!model || attemptedModels.has(model)) {
+      continue;
+    }
+
+    attemptedModels.add(model);
+
     try {
+      const attemptConfig = {
+        ...config,
+        model,
+        models: activeModels,
+      };
+
       const reply = await requestChatCompletionOnce({
         messages,
         temperature,
-        config: {
-          ...config,
-          model,
-        },
+        config: attemptConfig,
       });
 
-      persistWorkingModel(config, model);
+      persistWorkingModel(config, model, attemptConfig.models);
       return reply;
     } catch (error) {
       lastError = error;
-      const hasFallbackRemaining = model !== candidateModels[candidateModels.length - 1];
-      if (!error?.isRateLimit || !hasFallbackRemaining) {
+      if (!error?.isRateLimit) {
+        throw error;
+      }
+
+      if (!refreshedDynamicFallbacks) {
+        refreshedDynamicFallbacks = true;
+        const dynamicFallback = await getDynamicFallbackModels(config, model);
+        if (dynamicFallback.models.length) {
+          activeModels = dynamicFallback.models;
+        }
+        for (const dynamicModel of dynamicFallback.candidateModels) {
+          if (!attemptedModels.has(dynamicModel) && !candidateModels.includes(dynamicModel)) {
+            candidateModels.push(dynamicModel);
+          }
+        }
+      }
+
+      if (!candidateModels.length) {
         throw error;
       }
     }
@@ -334,26 +401,55 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
   const candidateModels = [config.model, ...getFallbackModels(config)].filter(
     (model, index, list) => model && list.indexOf(model) === index,
   );
+  const attemptedModels = new Set();
   let lastError = null;
+  let refreshedDynamicFallbacks = false;
+  let activeModels = config.models;
 
-  for (const model of candidateModels) {
+  while (candidateModels.length) {
+    const model = candidateModels.shift();
+    if (!model || attemptedModels.has(model)) {
+      continue;
+    }
+
+    attemptedModels.add(model);
+
     try {
+      const attemptConfig = {
+        ...config,
+        model,
+        models: activeModels,
+      };
+
       const reply = await requestChatCompletionStreamOnce({
         messages,
         temperature,
         onToken,
-        config: {
-          ...config,
-          model,
-        },
+        config: attemptConfig,
       });
 
-      persistWorkingModel(config, model);
+      persistWorkingModel(config, model, attemptConfig.models);
       return reply;
     } catch (error) {
       lastError = error;
-      const hasFallbackRemaining = model !== candidateModels[candidateModels.length - 1];
-      if (!error?.isRateLimit || !hasFallbackRemaining) {
+      if (!error?.isRateLimit) {
+        throw error;
+      }
+
+      if (!refreshedDynamicFallbacks) {
+        refreshedDynamicFallbacks = true;
+        const dynamicFallback = await getDynamicFallbackModels(config, model);
+        if (dynamicFallback.models.length) {
+          activeModels = dynamicFallback.models;
+        }
+        for (const dynamicModel of dynamicFallback.candidateModels) {
+          if (!attemptedModels.has(dynamicModel) && !candidateModels.includes(dynamicModel)) {
+            candidateModels.push(dynamicModel);
+          }
+        }
+      }
+
+      if (!candidateModels.length) {
         throw error;
       }
     }
