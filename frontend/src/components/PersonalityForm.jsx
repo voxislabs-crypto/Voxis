@@ -128,6 +128,12 @@ const formStyles = `
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .expression-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .voice-slider {
     width: 100%;
     accent-color: var(--accent);
@@ -333,6 +339,10 @@ const formStyles = `
       grid-template-columns: 1fr;
     }
 
+    .expression-grid {
+      grid-template-columns: 1fr;
+    }
+
     .checkbox-row {
       padding-top: 0;
     }
@@ -369,6 +379,10 @@ const initialForm = {
   voiceRate: 1,
   preferredVoice: "alloy",
   providerModel: "gpt-4o-mini-tts",
+  expressionCalmness: 0.5,
+  expressionIntensity: 0.5,
+  expressionBlinkRate: 0.5,
+  expressionGazeDrift: 0.5,
 };
 
 function Tip({ text }) {
@@ -445,6 +459,12 @@ export default function PersonalityForm({ onCreated, onError }) {
             preferredVoice: form.preferredVoice,
             providerVoice: form.preferredVoice,
             providerModel: form.providerModel,
+          },
+          expressionProfile: {
+            calmness: Number(form.expressionCalmness),
+            intensity: Number(form.expressionIntensity),
+            blinkRate: Number(form.expressionBlinkRate),
+            gazeDrift: Number(form.expressionGazeDrift),
           },
         }),
       });
@@ -762,6 +782,74 @@ export default function PersonalityForm({ onCreated, onError }) {
             <small>
               How strongly this character reacts emotionally to messages. 1.0 = trait-driven defaults.
               Lower = stoic, higher = volatile. Overrides the automatic trait stack when not 1.0.
+            </small>
+          </div>
+
+          <div className="field full">
+            <label>Expression profile</label>
+            <div className="expression-grid">
+              <div className="field">
+                <label htmlFor="expressionCalmness">Calmness: {Number(form.expressionCalmness).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="expressionCalmness"
+                  name="expressionCalmness"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.expressionCalmness}
+                  onChange={updateField}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="expressionIntensity">Intensity: {Number(form.expressionIntensity).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="expressionIntensity"
+                  name="expressionIntensity"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.expressionIntensity}
+                  onChange={updateField}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="expressionBlinkRate">Blink rate: {Number(form.expressionBlinkRate).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="expressionBlinkRate"
+                  name="expressionBlinkRate"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.expressionBlinkRate}
+                  onChange={updateField}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="expressionGazeDrift">Gaze drift: {Number(form.expressionGazeDrift).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="expressionGazeDrift"
+                  name="expressionGazeDrift"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.expressionGazeDrift}
+                  onChange={updateField}
+                />
+              </div>
+            </div>
+            <small>
+              Tune personality-specific expressiveness. Lower calmness = twitchier motion. Higher intensity = stronger emotional contrast.
             </small>
           </div>
 

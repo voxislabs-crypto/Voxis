@@ -702,6 +702,7 @@ export default function ChatWindow({
                     speaking={Boolean(liveReply)}
                     mode={activeMode || "scientist"}
                     personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
+                    expressionProfile={personality.expressionProfile}
                   />
                   <span>{personality.name}</span>
                 </span>

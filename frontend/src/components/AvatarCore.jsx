@@ -306,11 +306,22 @@ export default function AvatarCore({
   speaking = false,
   mode = "scientist",
   personalitySeed = "",
+  expressionProfile,
   size = "default",
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [animState, setAnimState] = useState("idle");
   const recoverTimerRef = useRef(null);
+
+  const expression = useMemo(() => {
+    const profile = expressionProfile && typeof expressionProfile === "object" ? expressionProfile : {};
+    return {
+      calmness: clamp(Number(profile.calmness), 0, 1) || 0.5,
+      intensity: clamp(Number(profile.intensity), 0, 1) || 0.5,
+      blinkRate: clamp(Number(profile.blinkRate), 0, 1) || 0.5,
+      gazeDrift: clamp(Number(profile.gazeDrift), 0, 1) || 0.5,
+    };
+  }, [expressionProfile]);
 
   const targetState = useMemo(
     () => resolveTargetState({ phase, speaking }),
@@ -347,8 +358,12 @@ export default function AvatarCore({
   }, [targetState]);
 
   useEffect(() => {
-    const intensity = clamp(0.18 + Math.abs(Number(arousal) || 0) * 0.55, 0.2, 0.85);
-    const intervalMs = speaking ? 520 : 1250;
+    const intensity = clamp(
+      0.12 + Math.abs(Number(arousal) || 0) * (0.4 + expression.intensity * 0.5) + expression.gazeDrift * 0.18,
+      0.18,
+      1,
+    );
+    const intervalMs = speaking ? Math.max(340, 680 - expression.gazeDrift * 260) : Math.max(720, 1500 - expression.gazeDrift * 420);
 
     const interval = window.setInterval(() => {
       if (["intent", "reply", "generation"].includes(phase)) {
@@ -362,13 +377,13 @@ export default function AvatarCore({
     }, intervalMs);
 
     return () => window.clearInterval(interval);
-  }, [arousal, phase, speaking]);
+  }, [arousal, expression.gazeDrift, expression.intensity, phase, speaking]);
 
   const mood = useMemo(() => {
     const v = clamp(Number(valence) || 0, -1, 1);
     const a = clamp(Number(arousal) || 0, -1, 1);
 
-    const eyeOpen = 10 + a * 4 - Math.max(0, -v) * 3;
+    const eyeOpen = 8 + expression.calmness * 4 + a * (2.2 + expression.intensity * 2.8) - Math.max(0, -v) * 3;
     const browTilt = clamp(-v * 8 + (phase === "intent" ? 4 : 0), -9, 9);
     const aura = phase === "generation"
       ? "rgba(255, 159, 74, 0.42)"
@@ -382,8 +397,9 @@ export default function AvatarCore({
       aura,
       mode: resolveExpressionMode({ valence: v, arousal: a, phase, animState }),
       rim: phase === "reply" ? "rgba(255, 128, 196, 0.72)" : "rgba(192, 82, 255, 0.48)",
+      blinkDuration: `${(8.2 - expression.blinkRate * 4.8).toFixed(2)}s`,
     };
-  }, [animState, arousal, phase, valence]);
+  }, [animState, arousal, expression.blinkRate, expression.calmness, expression.intensity, phase, valence]);
 
   const preset = useMemo(
     () => resolvePersonaPreset(personalitySeed, mode),
@@ -412,8 +428,8 @@ export default function AvatarCore({
         <path className="brow" d={`M 26 ${32 + mood.browTilt} Q 35 ${26 + mood.browTilt} 43 ${32 + mood.browTilt}`} />
         <path className="brow" d={`M 57 ${32 - mood.browTilt} Q 65 ${26 - mood.browTilt} 74 ${32 - mood.browTilt}`} />
 
-        <ellipse className="eye" cx="34" cy="48" rx="10" ry={mood.eyeOpen} />
-        <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} />
+        <ellipse className="eye" cx="34" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
+        <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
         <circle className="pupil" cx={36 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
         <circle className="pupil" cx={64 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
       </svg>

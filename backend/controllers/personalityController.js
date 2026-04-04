@@ -94,6 +94,25 @@ function sanitizeCreativeContext(value) {
   return VALID_CREATIVE_CONTEXTS.has(str) ? str : "default";
 }
 
+function clamp01(value, fallback = 0.5) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return fallback;
+  }
+
+  return Math.min(1, Math.max(0, n));
+}
+
+function sanitizeExpressionProfile(input) {
+  const profile = input && typeof input === "object" ? input : {};
+  return {
+    calmness: clamp01(profile.calmness, 0.5),
+    intensity: clamp01(profile.intensity, 0.5),
+    blinkRate: clamp01(profile.blinkRate, 0.5),
+    gazeDrift: clamp01(profile.gazeDrift, 0.5),
+  };
+}
+
 export function generateSystemPrompt({
   name,
   description,
@@ -152,6 +171,7 @@ export function createPersonalityHandler(req, res, next) {
     const values = sanitizeItems(req.body.values);
     const creativeContext = sanitizeCreativeContext(req.body.creativeContext);
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
+    const expressionProfile = sanitizeExpressionProfile(req.body.expressionProfile);
     const moodSensitivity = Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0));
     const moodBaseline = moodFromLabel(mood);
     const moodState = { ...moodBaseline };
@@ -196,6 +216,7 @@ export function createPersonalityHandler(req, res, next) {
       moodBaseline,
       moodState,
       moodSensitivity,
+      expressionProfile,
       ownerId: req.voxisUser?.id ?? null,
     });
 

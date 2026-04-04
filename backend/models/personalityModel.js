@@ -48,6 +48,12 @@ function normalizeRow(row) {
     moodBaseline: parseJsonObject(row.moodBaseline, {}),
     moodState: parseJsonObject(row.moodState, {}),
     moodSensitivity: typeof row.moodSensitivity === "number" ? row.moodSensitivity : 1.0,
+    expressionProfile: parseJsonObject(row.expressionProfile, {
+      calmness: 0.5,
+      intensity: 0.5,
+      blinkRate: 0.5,
+      gazeDrift: 0.5,
+    }),
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
@@ -83,6 +89,7 @@ export function createPersonality(personality) {
       moodBaseline,
       moodState,
       moodSensitivity,
+      expressionProfile,
       ownerId
     )
     VALUES (
@@ -106,6 +113,7 @@ export function createPersonality(personality) {
       @moodBaseline,
       @moodState,
       @moodSensitivity,
+      @expressionProfile,
       @ownerId
     )
   `);
@@ -125,6 +133,7 @@ export function createPersonality(personality) {
     moodBaseline: JSON.stringify(personality.moodBaseline || {}),
     moodState: JSON.stringify(personality.moodState || {}),
     moodSensitivity: typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
+    expressionProfile: JSON.stringify(personality.expressionProfile || {}),
     ownerId: personality.ownerId || null,
   });
 
@@ -139,7 +148,7 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, ownerId
+          moodSensitivity, expressionProfile, ownerId
         FROM personalities
         WHERE ownerId = ?
         ORDER BY id DESC
@@ -150,7 +159,7 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, ownerId
+          moodSensitivity, expressionProfile, ownerId
         FROM personalities
         ORDER BY id DESC
       `);
@@ -167,7 +176,7 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, ownerId
+          moodSensitivity, expressionProfile, ownerId
         FROM personalities
         WHERE id = ? AND ownerId = ?
       `)
@@ -177,7 +186,7 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, ownerId
+          moodSensitivity, expressionProfile, ownerId
         FROM personalities
         WHERE id = ?
       `);
