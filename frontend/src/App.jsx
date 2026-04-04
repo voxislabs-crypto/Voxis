@@ -352,6 +352,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
 
   const { isSignedIn, isLoaded } = useAuth();
@@ -630,6 +631,16 @@ export default function App() {
 
     setStatus({ type: "", message: "" });
     setIsSending(true);
+    setLiveChatState((current) => ({
+      ...current,
+      [personalityId]: {
+        phase: "queued",
+        debug: null,
+        reply: "",
+        finalReceived: false,
+        seq: (current[personalityId]?.seq || 0) + 1,
+      },
+    }));
     setChatLogs((current) => ({
       ...current,
       [personalityId]: [
@@ -649,35 +660,146 @@ export default function App() {
           userId: selectedUserId,
           mode: selectedMode,
           message,
+          streamDebug: true,
         }),
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      let data = null;
+
+      if (contentType.includes("application/x-ndjson") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalCommitted = false;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+              continue;
+            }
+
+            const event = JSON.parse(trimmed);
+            if (event.type === "debug") {
+              setLiveChatState((current) => ({
+                ...current,
+                [personalityId]: {
+                  ...(current[personalityId] || {}),
+                  phase: event.phase,
+                  debug: event.debug,
+                  seq: (current[personalityId]?.seq || 0) + 1,
+                },
+              }));
+            } else if (event.type === "token") {
+              setLiveChatState((current) => ({
+                ...current,
+                [personalityId]: {
+                  ...(current[personalityId] || {}),
+                  phase: event.phase || "generation",
+                  debug: event.debug || current[personalityId]?.debug || null,
+                  reply: event.reply || "",
+                  seq: (current[personalityId]?.seq || 0) + 1,
+                },
+              }));
+            } else if (event.type === "error") {
+              throw new Error(event.error || "Failed to send chat message.");
+            } else if (event.type === "final") {
+              data = event;
+              if (!finalCommitted) {
+                setChatLogs((current) => ({
+                  ...current,
+                  [personalityId]: [
+                    ...(current[personalityId] || []),
+                    { role: "assistant", content: event.reply, debug: event.debug || null },
+                  ],
+                }));
+
+                if (event.moodState || event.moodLabel) {
+                  setPersonalities((current) =>
+                    current.map((p) =>
+                      p.id === personalityId
+                        ? { ...p, moodState: event.moodState, moodLabel: event.moodLabel }
+                        : p
+                    )
+                  );
+                }
+
+                if (event.policy) {
+                  setChatPolicy(event.policy);
+                }
+
+                setLiveChatState((current) => ({
+                  ...current,
+                  [personalityId]: {
+                    ...(current[personalityId] || {}),
+                    phase: "reply-complete",
+                    debug: event.debug || current[personalityId]?.debug || null,
+                    reply: "",
+                    finalReceived: true,
+                    seq: (current[personalityId]?.seq || 0) + 1,
+                  },
+                }));
+                setIsSending(false);
+                finalCommitted = true;
+              }
+            } else if (event.type === "done") {
+              setLiveChatState((current) => ({
+                ...current,
+                [personalityId]: null,
+              }));
+            }
+          }
+
+          if (done) {
+            break;
+          }
+        }
+      } else {
+        data = await response.json();
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to send chat message.");
+        throw new Error(data?.error || "Failed to send chat message.");
       }
 
-      setChatLogs((current) => ({
-        ...current,
-        [personalityId]: [
-          ...(current[personalityId] || []),
-          { role: "assistant", content: data.reply, debug: data.debug || null },
-        ],
-      }));
-
-      if (data.moodState || data.moodLabel) {
-        setPersonalities((current) =>
-          current.map((p) =>
-            p.id === personalityId
-              ? { ...p, moodState: data.moodState, moodLabel: data.moodLabel }
-              : p
-          )
-        );
+      if (!data) {
+        throw new Error("Chat stream ended before a final payload was received.");
       }
 
-      if (data.policy) {
-        setChatPolicy(data.policy);
+      if (!contentType.includes("application/x-ndjson")) {
+        setChatLogs((current) => ({
+          ...current,
+          [personalityId]: [
+            ...(current[personalityId] || []),
+            { role: "assistant", content: data.reply, debug: data.debug || null },
+          ],
+        }));
+
+        if (data.moodState || data.moodLabel) {
+          setPersonalities((current) =>
+            current.map((p) =>
+              p.id === personalityId
+                ? { ...p, moodState: data.moodState, moodLabel: data.moodLabel }
+                : p
+            )
+          );
+        }
+
+        if (data.policy) {
+          setChatPolicy(data.policy);
+        }
+
+        setLiveChatState((current) => ({
+          ...current,
+          [personalityId]: null,
+        }));
       }
     } catch (error) {
       setChatLogs((current) => ({
@@ -688,6 +810,10 @@ export default function App() {
         type: "error",
         message: error.message || "Failed to send chat message.",
       });
+      setLiveChatState((current) => ({
+        ...current,
+        [personalityId]: null,
+      }));
     } finally {
       setIsSending(false);
     }
@@ -987,6 +1113,10 @@ export default function App() {
                   <ChatWindow
                     personality={selectedPersonality}
                     messages={chatLogs[selectedId] || []}
+                    liveDebug={liveChatState[selectedId]?.debug || null}
+                    livePhase={liveChatState[selectedId]?.phase || ""}
+                    liveSeq={liveChatState[selectedId]?.seq || 0}
+                    liveReply={liveChatState[selectedId]?.reply || ""}
                     activeMode={chatPolicy?.activeMode || selectedMode}
                     neuralProfile={selectedUserProfile || chatPolicy}
                     isLoadingMessages={isLoadingMessages}

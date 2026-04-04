@@ -31,7 +31,12 @@ export default function NeuralCoreSvgScene({
   setFocusNode,
   citationIssue,
   citationValid,
+  livePhaseBurst,
 }) {
+  const showWaveform = ["generation", "reply", "reply-complete"].includes(livePhaseBurst);
+  const showMemoryBloom = ["memory", "memory-write", "user-memory-write"].includes(livePhaseBurst);
+  const showIntentTrail = livePhaseBurst === "intent";
+
   return (
     <div
       className={`neural-scene-camera${compact ? " compact" : ""}`}
@@ -91,7 +96,13 @@ export default function NeuralCoreSvgScene({
 
       <svg className="neural-links" viewBox="0 0 100 100" preserveAspectRatio="none">
         <line x1={scene.core.x} y1={scene.core.y} x2={scene.memory.x} y2={scene.memory.y} className={memoryCount ? "active" : ""} />
-        <line x1={scene.core.x} y1={scene.core.y} x2={scene.intent.x} y2={scene.intent.y} className={hasIntent ? "active" : ""} />
+        <line
+          x1={scene.core.x}
+          y1={scene.core.y}
+          x2={scene.intent.x}
+          y2={scene.intent.y}
+          className={(hasIntent || livePhaseBurst === "intent") ? "active" : ""}
+        />
         <line
           x1={scene.core.x}
           y1={scene.core.y}
@@ -118,6 +129,12 @@ export default function NeuralCoreSvgScene({
             className="active"
           />
         ))}
+        {showIntentTrail ? (
+          <path
+            d={`M ${scene.intent.x} ${scene.intent.y} Q ${(scene.intent.x + scene.core.x) / 2} ${scene.intent.y - 6} ${scene.core.x} ${scene.core.y}`}
+            className="neural-steering-trail"
+          />
+        ) : null}
       </svg>
 
       <button
@@ -148,6 +165,26 @@ export default function NeuralCoreSvgScene({
         />
       ) : null}
 
+      {livePhaseBurst === "mood" ? (
+        <div
+          className="neural-ripple repair"
+          style={{ left: `${scene.core.x}%`, top: `${scene.core.y}%`, width: `${coreSize + 68}px`, height: `${coreSize + 68}px` }}
+        />
+      ) : null}
+
+      {showMemoryBloom ? (
+        <>
+          <div
+            className={`neural-bloom-ring${livePhaseBurst === "memory-write" ? " memory-write" : ""}`}
+            style={{ left: `${scene.core.x}%`, top: `${scene.core.y}%`, width: `${coreSize + 92}px`, height: `${coreSize + 92}px` }}
+          />
+          <div
+            className={`neural-bloom-ring${livePhaseBurst === "memory-write" ? " memory-write" : ""}`}
+            style={{ left: `${scene.memory.x}%`, top: `${scene.memory.y}%`, width: compact ? "122px" : "138px", height: compact ? "122px" : "138px", animationDelay: "90ms" }}
+          />
+        </>
+      ) : null}
+
       {reconditioningActive ? (
         <div
           className="neural-ripple recondition"
@@ -167,6 +204,7 @@ export default function NeuralCoreSvgScene({
             ? "radial-gradient(circle at 30% 30%, rgba(255, 223, 118, 0.95), rgba(198, 142, 38, 0.96))"
             : "radial-gradient(circle at 30% 30%, rgba(255, 190, 104, 0.92), rgba(172, 104, 34, 0.94))",
           opacity: memoryCount ? 1 : 0.6,
+          boxShadow: livePhaseBurst === "memory" ? "0 0 28px rgba(255, 194, 92, 0.72)" : undefined,
         }}
         onClick={() => setFocusNode("memory")}
         aria-pressed={focusNode === "memory"}
@@ -187,6 +225,7 @@ export default function NeuralCoreSvgScene({
             ? "radial-gradient(circle at 30% 30%, rgba(154, 238, 191, 0.95), rgba(52, 154, 112, 0.96))"
             : "radial-gradient(circle at 30% 30%, rgba(255, 142, 90, 0.92), rgba(176, 64, 22, 0.94))",
           opacity: hasIntent ? 1 : 0.58,
+          boxShadow: livePhaseBurst === "intent" ? "0 0 28px rgba(255, 150, 96, 0.72)" : undefined,
         }}
         onClick={() => setFocusNode("intent")}
         aria-pressed={focusNode === "intent"}
@@ -194,6 +233,18 @@ export default function NeuralCoreSvgScene({
         <span className="neural-label">{kidsMode ? "Idea" : "Intent"}</span>
         <span className="neural-sub">{kidsMode ? (hasIntent ? "Bright!" : "Listening") : (hasIntent ? "active" : "idle")}</span>
       </button>
+
+      {showWaveform ? (
+        <div className="neural-wave-bars" aria-hidden="true">
+          {[24, 38, 28, 44, 20, 34, 26].map((height, index) => (
+            <span
+              key={`wave-${index}`}
+              className="neural-wave-bar"
+              style={{ height: `${height}px`, animationDelay: `${index * 70}ms` }}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <button
         type="button"

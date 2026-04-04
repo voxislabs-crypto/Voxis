@@ -132,6 +132,37 @@ const chatStyles = `
     border-bottom-left-radius: 6px;
   }
 
+  .message-bubble.live {
+    border-style: dashed;
+    border-color: rgba(0, 240, 255, 0.28);
+    background:
+      linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(160, 32, 240, 0.10)),
+      rgba(10, 18, 34, 0.92);
+    box-shadow: 0 0 32px rgba(0, 200, 255, 0.12);
+  }
+
+  .live-phase {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #93ecff;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .live-phase::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #00f0ff;
+    box-shadow: 0 0 16px rgba(0, 240, 255, 0.8);
+    animation: livePulse 1.1s ease-in-out infinite;
+  }
+
   .debug-panel {
     margin-top: 10px;
     padding: 12px;
@@ -313,6 +344,12 @@ const chatStyles = `
       padding-top: 0;
     }
   }
+
+  @keyframes livePulse {
+    0% { transform: scale(0.85); opacity: 0.55; }
+    50% { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(0.85); opacity: 0.55; }
+  }
 `;
 
 function resolvePerformanceTier(profile, mode, prefersReducedMotion) {
@@ -331,6 +368,10 @@ function resolvePerformanceTier(profile, mode, prefersReducedMotion) {
 export default function ChatWindow({
   personality,
   messages,
+  liveDebug,
+  livePhase,
+  liveSeq,
+  liveReply,
   activeMode,
   neuralProfile,
   isLoadingMessages,
@@ -368,16 +409,18 @@ export default function ChatWindow({
     [messages],
   );
 
+  const displayDebug = liveDebug || latestAssistantDebug;
+
   const performanceTier = useMemo(
     () => resolvePerformanceTier(neuralProfile, activeMode, prefersReducedMotion),
     [neuralProfile, activeMode, prefersReducedMotion],
   );
 
   const neuralSignal = useMemo(() => {
-    const mood = latestAssistantDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 };
-    const memoryActive = ((latestAssistantDebug?.memoryInjected || []).length + (latestAssistantDebug?.userMemoryRetrieved || []).length) > 0;
-    const intentActive = Boolean(latestAssistantDebug?.goal?.goal);
-    const identityActive = Boolean(latestAssistantDebug?.flags?.reconditioned);
+    const mood = displayDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 };
+    const memoryActive = ((displayDebug?.memoryInjected || []).length + (displayDebug?.userMemoryRetrieved || []).length) > 0;
+    const intentActive = Boolean(displayDebug?.goal?.goal);
+    const identityActive = Boolean(displayDebug?.flags?.reconditioned);
 
     return {
       valence: Number(mood?.valence || 0),
@@ -386,7 +429,7 @@ export default function ChatWindow({
       intentActive,
       identityActive,
     };
-  }, [latestAssistantDebug, personality?.moodState]);
+  }, [displayDebug, personality?.moodState]);
 
   useEffect(() => {
     if (!personality) {
@@ -594,7 +637,9 @@ export default function ChatWindow({
           <NeuralCore
             personality={personality}
             mode={activeMode || "scientist"}
-            latestDebug={latestAssistantDebug}
+            latestDebug={displayDebug}
+            livePhase={livePhase}
+            liveSeq={liveSeq}
             performanceTier={performanceTier}
             voiceNarrationEnabled={Boolean(neuralProfile?.voiceNarrationEnabled)}
           />
@@ -736,17 +781,29 @@ export default function ChatWindow({
             {isLoadingMessages ? (
               <div className="empty-chat">Loading persisted conversation history...</div>
             ) : messages.length ? (
-              messages.map((message, index) => (
-                <div key={`${message.role}-${index}`} className={`message-bubble ${message.role}`}>
-                  <span className="message-role">
-                    {message.role === "assistant" ? personality.name : "You"}
-                  </span>
-                  {message.content}
-                  {debugMode && message.role === "assistant" && message.debug ? (
-                    <pre className="debug-panel">{JSON.stringify(message.debug, null, 2)}</pre>
-                  ) : null}
-                </div>
-              ))
+              <>
+                {messages.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`message-bubble ${message.role}`}>
+                    <span className="message-role">
+                      {message.role === "assistant" ? personality.name : "You"}
+                    </span>
+                    {message.content}
+                    {debugMode && message.role === "assistant" && message.debug ? (
+                      <pre className="debug-panel">{JSON.stringify(message.debug, null, 2)}</pre>
+                    ) : null}
+                  </div>
+                ))}
+                {(isSending || livePhase) && (displayDebug || liveReply) ? (
+                  <div className="message-bubble assistant live">
+                    <span className="message-role">{personality.name}</span>
+                    <span className="live-phase">{livePhase || "processing"}</span>
+                    {liveReply || "Neural Core is updating live for this turn before the reply lands."}
+                    {debugMode ? (
+                      <pre className="debug-panel">{JSON.stringify(displayDebug, null, 2)}</pre>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="empty-chat">
                 No conversation yet. Send the first message and Voxis will inject the stored

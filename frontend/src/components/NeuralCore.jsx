@@ -393,6 +393,50 @@ const neuralStyles = `
     animation: neuralRepairRipple 2.2s ease-out infinite;
   }
 
+  .neural-bloom-ring {
+    position: absolute;
+    border-radius: 999px;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(255, 197, 95, 0.52);
+    box-shadow: 0 0 26px rgba(255, 173, 86, 0.28);
+    animation: neuralBloom 960ms cubic-bezier(0.16, 0.84, 0.24, 1) forwards;
+  }
+
+  .neural-bloom-ring.memory-write {
+    border-color: rgba(255, 220, 160, 0.62);
+    box-shadow: 0 0 28px rgba(255, 217, 150, 0.34);
+  }
+
+  .neural-steering-trail {
+    fill: none;
+    stroke: rgba(255, 165, 104, 0.92);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-dasharray: 6 6;
+    filter: drop-shadow(0 0 10px rgba(255, 151, 92, 0.54));
+    animation: neuralTrail 900ms linear infinite;
+  }
+
+  .neural-wave-bars {
+    position: absolute;
+    left: 50%;
+    bottom: 18%;
+    display: flex;
+    gap: 5px;
+    align-items: flex-end;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  .neural-wave-bar {
+    width: 5px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 166, 92, 0.95), rgba(0, 240, 255, 0.92));
+    box-shadow: 0 0 18px rgba(0, 240, 255, 0.3);
+    animation: neuralWave 760ms ease-in-out infinite;
+  }
+
   .neural-assistive {
     position: absolute;
     left: 14px;
@@ -455,6 +499,21 @@ const neuralStyles = `
     0% { opacity: 0.18; transform: scale(0.82); }
     50% { opacity: 0.98; transform: scale(1.14); }
     100% { opacity: 0.18; transform: scale(0.82); }
+  }
+
+  @keyframes neuralBloom {
+    0% { opacity: 0.82; transform: translate(-50%, -50%) scale(0.72); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.34); }
+  }
+
+  @keyframes neuralTrail {
+    to { stroke-dashoffset: -24; }
+  }
+
+  @keyframes neuralWave {
+    0% { transform: scaleY(0.35); opacity: 0.42; }
+    50% { transform: scaleY(1); opacity: 1; }
+    100% { transform: scaleY(0.35); opacity: 0.42; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -754,6 +813,8 @@ export default function NeuralCore({
   personality,
   mode = "scientist",
   latestDebug,
+  livePhase = "",
+  liveSeq = 0,
   performanceTier: requestedPerformanceTier,
   voiceNarrationEnabled = false,
 }) {
@@ -761,6 +822,7 @@ export default function NeuralCore({
   const [expanded, setExpanded] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
   const [tick, setTick] = useState(0);
+  const [phaseBurst, setPhaseBurst] = useState("");
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const performanceTier = resolvePerformanceTier(requestedPerformanceTier, mode, prefersReducedMotion);
@@ -817,6 +879,19 @@ export default function NeuralCore({
       }
     };
   }, [enabled, performanceTier]);
+
+  useEffect(() => {
+    if (!livePhase) {
+      return;
+    }
+
+    setPhaseBurst(livePhase);
+    const timeoutId = window.setTimeout(() => {
+      setPhaseBurst("");
+    }, 900);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [livePhase, liveSeq]);
 
   const mood = latestDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 };
   const valence = Number(mood?.valence || 0);
@@ -1074,6 +1149,7 @@ export default function NeuralCore({
               setFocusNode={setFocusNode}
               citationIssue={citationIssue}
               citationValid={citationValid}
+              livePhaseBurst={phaseBurst}
             />
 
             <div className="neural-legend">

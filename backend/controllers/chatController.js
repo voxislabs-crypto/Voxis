@@ -14,6 +14,7 @@ import {
 } from "../models/memoryModel.js";
 import {
   generateChatCompletion,
+  generateChatCompletionStream,
   buildPersonaPromptPackage,
   buildPersonaAnchor,
   extractMemoryFacts,
@@ -63,7 +64,69 @@ function getReconditionEvery(creativeContext) {
 const MEMORY_MAX = 50;
 const MEMORY_RETRIEVAL_LIMIT = 5;
 
+function createChatStream(res, enabled) {
+  let opened = false;
+  let closed = false;
+
+  const open = () => {
+    if (!enabled || opened) {
+      return;
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("X-Accel-Buffering", "no");
+    opened = true;
+  };
+
+  res.on("close", () => {
+    closed = true;
+  });
+
+  return {
+    enabled,
+    write(type, payload = {}) {
+      if (!enabled || closed || res.writableEnded) {
+        return;
+      }
+
+      open();
+      res.write(`${JSON.stringify({ type, ...payload })}\n`);
+    },
+    close(type, payload = {}) {
+      if (!enabled || closed || res.writableEnded) {
+        return;
+      }
+
+      open();
+      res.write(`${JSON.stringify({ type, ...payload })}\n`);
+      res.end();
+      closed = true;
+    },
+    fail(error) {
+      if (!enabled || closed || res.writableEnded) {
+        return false;
+      }
+
+      open();
+      res.write(`${JSON.stringify({
+        type: "error",
+        error: error.message || "Chat request failed.",
+      })}\n`);
+      res.end();
+      closed = true;
+      return true;
+    },
+    hasOpened() {
+      return opened;
+    },
+  };
+}
+
 export async function chatHandler(req, res, next) {
+  const stream = createChatStream(res, req.body.streamDebug === true);
+
   try {
     const personalityId = Number(req.body.personalityId);
     const message = String(req.body.message || "").trim();
@@ -79,6 +142,12 @@ export async function chatHandler(req, res, next) {
     }
 
     const { policy } = resolvePolicyContext({ userId, requestedMode });
+    const streamedDebugData = {
+      policy,
+      flags: {
+        streaming: stream.enabled,
+      },
+    };
 
     const personality = getPersonalityById(personalityId);
 
@@ -166,6 +235,16 @@ export async function chatHandler(req, res, next) {
 
     // Persist synchronously before the LLM call so mood influences this response.
     updateMoodState(personalityId, newMood);
+    streamedDebugData.mood = {
+      before: currentMood,
+      after: newMood,
+      label: moodLabel,
+      adjudication: moodStep.diagnostics,
+    };
+    stream.write("debug", {
+      phase: "mood",
+      debug: streamedDebugData,
+    });
 
     // Fetch long-term memory facts and build the dynamic, memory-enriched system prompt.
     const memoryFacts = await getRelevantPersonalityMemory(
@@ -178,6 +257,29 @@ export async function chatHandler(req, res, next) {
       : [];
     const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message);
     const systemPrompt = promptPackage.prompt;
+    streamedDebugData.goal = promptPackage.activeGoal;
+    streamedDebugData.memoryRetrieved = memoryFacts.map((memory) => ({
+      content: memory.content,
+      importance: memory.importance,
+      type: memory.importance >= 9 ? "anchor" : "context",
+      memoryType: memory.memoryType,
+    }));
+    streamedDebugData.userMemoryRetrieved = userMemoryFacts.map((memory) => ({
+      content: memory.content,
+      importance: memory.importance,
+      memoryType: memory.memoryType,
+    }));
+    streamedDebugData.memoryInjected = (promptPackage.debug?.injectedMemories || []).map((memory) => ({
+      content: memory.content,
+      importance: memory.importance,
+      memoryType: memory.memoryType,
+      injectedAs: memory.injectedAs,
+    }));
+    streamedDebugData.prompt = promptPackage.debug;
+    stream.write("debug", {
+      phase: "memory",
+      debug: streamedDebugData,
+    });
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -213,9 +315,37 @@ export async function chatHandler(req, res, next) {
       messages.push({ role: "system", content: moodFragment });
     }
 
+    streamedDebugData.flags = {
+      ...streamedDebugData.flags,
+      reconditioned: shouldRecondition,
+      moodFragmentInjected: Boolean(moodFragment),
+      historyMessages: history.length,
+    };
+    stream.write("debug", {
+      phase: promptPackage.activeGoal?.goal ? "intent" : "prompt",
+      debug: streamedDebugData,
+    });
+
     messages.push({ role: "user", content: message });
 
-    let reply = await generateChatCompletion(messages);
+    stream.write("debug", {
+      phase: "generation",
+      debug: streamedDebugData,
+    });
+
+    let reply = "";
+    if (stream.enabled) {
+      reply = await generateChatCompletionStream(messages, async (delta, accumulated) => {
+        stream.write("token", {
+          phase: "generation",
+          delta,
+          reply: accumulated,
+          debug: streamedDebugData,
+        });
+      });
+    } else {
+      reply = await generateChatCompletion(messages);
+    }
     let scientistValidation = null;
     let scientistRepairAttempted = false;
 
@@ -279,10 +409,19 @@ export async function chatHandler(req, res, next) {
       };
     }
 
-    setImmediate(() => {
-      backfillMissingMemoryEmbeddings(personalityId).catch(() => {
-        // Backfill is best-effort and should never impact chat flow.
-      });
+    streamedDebugData.scientist = scientistValidation
+      ? {
+          validation: scientistValidation,
+          repairAttempted: scientistRepairAttempted,
+          sourceCount: Array.isArray(personality?.researchSources)
+            ? personality.researchSources.length
+            : 0,
+        }
+      : null;
+    streamedDebugData.kids = kidsReadability;
+    stream.write("debug", {
+      phase: "reply",
+      debug: streamedDebugData,
     });
 
     createChatMessage({
@@ -300,8 +439,158 @@ export async function chatHandler(req, res, next) {
       mode: policy.activeMode,
     });
 
-    // Async memory extraction — fires after the response is returned so it never
-    // adds latency to the user-facing request. Failures are silently swallowed.
+    const debugData = {
+      goal: promptPackage.activeGoal,
+      policy,
+      mood: {
+        before: currentMood,
+        after: newMood,
+        label: moodLabel,
+        adjudication: moodStep.diagnostics,
+      },
+      memoryRetrieved: memoryFacts.map((memory) => ({
+        content: memory.content,
+        importance: memory.importance,
+        type: memory.importance >= 9 ? "anchor" : "context",
+        memoryType: memory.memoryType,
+      })),
+      userMemoryRetrieved: userMemoryFacts.map((memory) => ({
+        content: memory.content,
+        importance: memory.importance,
+        memoryType: memory.memoryType,
+      })),
+      memoryInjected: (promptPackage.debug?.injectedMemories || []).map((memory) => ({
+        content: memory.content,
+        importance: memory.importance,
+        memoryType: memory.memoryType,
+        injectedAs: memory.injectedAs,
+      })),
+      scientist: scientistValidation
+        ? {
+            validation: scientistValidation,
+            repairAttempted: scientistRepairAttempted,
+            sourceCount: Array.isArray(personality?.researchSources)
+              ? personality.researchSources.length
+              : 0,
+          }
+        : null,
+      kids: kidsReadability,
+      prompt: promptPackage.debug,
+      flags: {
+        reconditioned: shouldRecondition,
+        moodFragmentInjected: Boolean(moodFragment),
+        historyMessages: history.length,
+      },
+    };
+
+    const responsePayload = {
+      reply,
+      isAI: true,
+      moodState: newMood,
+      moodLabel,
+      policy,
+      debug: debugData,
+    };
+
+    if (stream.enabled) {
+      stream.write("final", responsePayload);
+
+      backfillMissingMemoryEmbeddings(personalityId).catch(() => {
+        // Backfill is best-effort and should never impact chat flow.
+      });
+
+      try {
+        const newFacts = await extractMemoryFacts({
+          personality,
+          recentMessages: [
+            { role: "user", content: message },
+            { role: "assistant", content: reply },
+          ],
+          existingFacts: memoryFacts,
+        });
+
+        for (const fact of newFacts) {
+          await upsertMemoryFactWithEmbedding(
+            personalityId,
+            fact.content,
+            fact.memoryType,
+            fact.importance,
+          );
+        }
+
+        if (newFacts.length > 0) {
+          pruneMemory(personalityId, MEMORY_MAX);
+        }
+
+        stream.write("debug", {
+          phase: "memory-write",
+          debug: {
+            ...debugData,
+            memoryExtracted: newFacts.map((fact) => ({
+              content: fact.content,
+              importance: fact.importance,
+              memoryType: fact.memoryType,
+            })),
+          },
+        });
+      } catch {
+        stream.write("debug", {
+          phase: "memory-write",
+          debug: {
+            ...debugData,
+            memoryExtracted: [],
+            flags: {
+              ...debugData.flags,
+              memoryExtractionFailed: true,
+            },
+          },
+        });
+      }
+
+      if (policy.userId) {
+        try {
+          const inferredUserMemories = extractUserMemoriesFromMessage(message);
+          for (const memory of inferredUserMemories) {
+            await upsertUserMemoryWithEmbedding(
+              policy.userId,
+              memory.content,
+              memory.memoryType,
+              memory.importance,
+            );
+          }
+
+          stream.write("debug", {
+            phase: "user-memory-write",
+            debug: {
+              ...debugData,
+              userMemoryExtracted: inferredUserMemories,
+            },
+          });
+        } catch {
+          stream.write("debug", {
+            phase: "user-memory-write",
+            debug: {
+              ...debugData,
+              userMemoryExtracted: [],
+              flags: {
+                ...debugData.flags,
+                userMemoryExtractionFailed: true,
+              },
+            },
+          });
+        }
+      }
+
+      stream.close("done", { ok: true });
+      return;
+    }
+
+    setImmediate(() => {
+      backfillMissingMemoryEmbeddings(personalityId).catch(() => {
+        // Backfill is best-effort and should never impact chat flow.
+      });
+    });
+
     setImmediate(async () => {
       try {
         const newFacts = await extractMemoryFacts({
@@ -348,59 +637,12 @@ export async function chatHandler(req, res, next) {
       });
     }
 
-    const debugData = {
-      goal: promptPackage.activeGoal,
-      policy,
-      mood: {
-        before: currentMood,
-        after: newMood,
-        label: moodLabel,
-        adjudication: moodStep.diagnostics,
-      },
-      memoryRetrieved: memoryFacts.map((memory) => ({
-        content: memory.content,
-        importance: memory.importance,
-        type: memory.importance >= 9 ? "anchor" : "context",
-        memoryType: memory.memoryType,
-      })),
-      userMemoryRetrieved: userMemoryFacts.map((memory) => ({
-        content: memory.content,
-        importance: memory.importance,
-        memoryType: memory.memoryType,
-      })),
-      memoryInjected: (promptPackage.debug?.injectedMemories || []).map((memory) => ({
-        content: memory.content,
-        importance: memory.importance,
-        memoryType: memory.memoryType,
-        injectedAs: memory.injectedAs,
-      })),
-      scientist: scientistValidation
-        ? {
-            validation: scientistValidation,
-            repairAttempted: scientistRepairAttempted,
-            sourceCount: Array.isArray(personality?.researchSources)
-              ? personality.researchSources.length
-              : 0,
-          }
-        : null,
-      kids: kidsReadability,
-      prompt: promptPackage.debug,
-      flags: {
-        reconditioned: shouldRecondition,
-        moodFragmentInjected: Boolean(moodFragment),
-        historyMessages: history.length,
-      },
-    };
-
-    return res.json({
-      reply,
-      isAI: true,
-      moodState: newMood,
-      moodLabel,
-      policy,
-      debug: debugData,
-    });
+    return res.json(responsePayload);
   } catch (error) {
+    if (stream.fail(error)) {
+      return;
+    }
+
     return next(error);
   }
 }

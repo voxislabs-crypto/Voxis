@@ -104,6 +104,117 @@ async function requestChatCompletion({ messages, temperature = 0.85 }) {
   return content.trim();
 }
 
+function parseStreamChunk(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed || !trimmed.startsWith("data:")) {
+    return null;
+  }
+
+  const payload = trimmed.slice(5).trim();
+  if (!payload || payload === "[DONE]") {
+    return { done: true };
+  }
+
+  try {
+    return { done: false, data: JSON.parse(payload) };
+  } catch {
+    return null;
+  }
+}
+
+async function requestChatCompletionStream({ messages, temperature = 0.85, onToken }) {
+  const { baseUrl, model, apiKey } = getLlmConfig();
+
+  if (!apiKey && baseUrl === DEFAULT_BASE_URL) {
+    const error = new Error(
+      "LLM_API_KEY is missing. Copy backend/.env.example to backend/.env and provide an API key or a custom OpenAI-compatible base URL.",
+    );
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(`LLM request failed with ${response.status}: ${errorText}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  if (!response.body) {
+    const error = new Error("LLM streaming response did not include a readable body.");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const lines = event.split("\n");
+      for (const line of lines) {
+        const parsed = parseStreamChunk(line);
+        if (!parsed) {
+          continue;
+        }
+
+        if (parsed.done) {
+          return content.trim();
+        }
+
+        const delta = parsed.data?.choices?.[0]?.delta?.content;
+        if (!delta) {
+          continue;
+        }
+
+        content += delta;
+        if (typeof onToken === "function") {
+          await onToken(delta, content);
+        }
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (!content.trim()) {
+    const error = new Error("LLM stream completed without any message content.");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return content.trim();
+}
+
 function extractJsonObject(text) {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) {
@@ -305,6 +416,10 @@ function buildGoalPrompt(activeGoal) {
 
 export async function generateChatCompletion(messages) {
   return requestChatCompletion({ messages, temperature: 0.85 });
+}
+
+export async function generateChatCompletionStream(messages, onToken) {
+  return requestChatCompletionStream({ messages, temperature: 0.85, onToken });
 }
 
 export async function adjudicateMoodShift({
