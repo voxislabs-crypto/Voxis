@@ -869,15 +869,13 @@ export default function App() {
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
           {showSignUp ? (
             <SignUp
-              routing="path"
-              path="/sign-up"
+              routing="virtual"
               signInUrl="/sign-in"
               forceRedirectUrl="/"
             />
           ) : (
             <SignIn
-              routing="path"
-              path="/sign-in"
+              routing="virtual"
               signUpUrl="/sign-up"
               forceRedirectUrl="/"
             />
