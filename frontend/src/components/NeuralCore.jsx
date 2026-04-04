@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import NeuralCoreRenderer from "./neuralCore/NeuralCoreRenderer.jsx";
+import AvatarCore from "./AvatarCore.jsx";
 
 const neuralStyles = `
   .neural-hud {
@@ -91,6 +92,12 @@ const neuralStyles = `
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: #8ddfff;
+  }
+
+  .neural-title-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .neural-close {
@@ -1082,7 +1089,16 @@ export default function NeuralCore({
         <div className={`neural-overlay ${kidsMode ? "kids" : "scientist"}`}>
           <div className="neural-topbar">
             <h4 className="neural-title">
-              {kidsMode ? "Friend Brain" : "Voxis Neural Core"}
+              <span className="neural-title-wrap">
+                <AvatarCore
+                  size="compact"
+                  valence={valence}
+                  arousal={arousal}
+                  phase={phaseBurst || ""}
+                  speaking={["generation", "reply", "reply-complete"].includes(phaseBurst)}
+                />
+                <span>{kidsMode ? "Friend Brain" : "Voxis Neural Core"}</span>
+              </span>
             </h4>
             <button type="button" className="neural-close" onClick={() => setExpanded(false)}>
               Close

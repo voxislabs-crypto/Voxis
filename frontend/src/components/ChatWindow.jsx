@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import NeuralCore from "./NeuralCore.jsx";
+import AvatarCore from "./AvatarCore.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 
 const chatStyles = `
@@ -48,6 +49,12 @@ const chatStyles = `
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .header-avatar-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .mood-dot {
@@ -452,6 +459,11 @@ export default function ChatWindow({
     };
   }, [displayDebug, personality?.moodState]);
 
+  const avatarMood = useMemo(
+    () => displayDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 },
+    [displayDebug, personality?.moodState],
+  );
+
   useEffect(() => {
     if (!personality) {
       return;
@@ -667,21 +679,30 @@ export default function ChatWindow({
           <div className="chat-header">
             <div className="chat-header-top">
               <h3>
-                {personality.moodState && (
-                  <span
-                    className="mood-dot"
-                    title={personality.moodLabel || ""}
-                    style={{
-                      background:
-                        personality.moodState.valence > 0.2
-                          ? "#4ade80"
-                          : personality.moodState.valence < -0.2
-                          ? "#f87171"
-                          : "#fbbf24",
-                    }}
+                <span className="header-avatar-wrap">
+                  {personality.moodState && (
+                    <span
+                      className="mood-dot"
+                      title={personality.moodLabel || ""}
+                      style={{
+                        background:
+                          personality.moodState.valence > 0.2
+                            ? "#4ade80"
+                            : personality.moodState.valence < -0.2
+                            ? "#f87171"
+                            : "#fbbf24",
+                      }}
+                    />
+                  )}
+                  <AvatarCore
+                    size="compact"
+                    valence={avatarMood.valence}
+                    arousal={avatarMood.arousal}
+                    phase={livePhase}
+                    speaking={Boolean(liveReply)}
                   />
-                )}
-                {personality.name}
+                  <span>{personality.name}</span>
+                </span>
               </h3>
               <button type="button" className="debug-toggle" onClick={() => setDebugMode((value) => !value)}>
                 {debugMode ? "Hide Debug" : "Show Debug"}
