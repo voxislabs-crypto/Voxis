@@ -15,6 +15,7 @@ import {
 import {
   generateChatCompletion,
   generateChatCompletionStream,
+  buildCompactPersonaSystemPrompt,
   buildPersonaPromptPackage,
   buildPersonaAnchor,
   extractMemoryFacts,
@@ -46,6 +47,13 @@ import {
   buildUserMemoryPromptSection,
   extractUserMemoriesFromMessage,
 } from "../services/userMemoryService.js";
+import {
+  buildRateLimitFallbackReply,
+  buildRateLimitNotice,
+  buildRateLimitRetryMessages,
+  isRateLimitError,
+  sanitizeRateLimitedMessage,
+} from "../services/rateLimitRecoveryService.js";
 
 // Reconditioning cadence: antagonist/dark contexts drift faster, so we anchor more often.
 const RECONDITION_CADENCE = {
@@ -132,6 +140,119 @@ function createChatStream(res, enabled) {
       return opened;
     },
   };
+}
+
+async function generateReplyWithRecovery({
+  stream,
+  messages,
+  message,
+  history,
+  personality,
+  memoryFacts,
+  policyPrompt,
+  moodFragment,
+  streamedDebugData,
+}) {
+  try {
+    if (stream.enabled) {
+      const reply = await generateChatCompletionStream(messages, async (delta, accumulated) => {
+        stream.write("token", {
+          phase: "generation",
+          delta,
+          reply: accumulated,
+          debug: streamedDebugData,
+        });
+      });
+
+      return {
+        reply,
+        rateLimit: null,
+        usedFallbackReply: false,
+      };
+    }
+
+    return {
+      reply: await generateChatCompletion(messages),
+      rateLimit: null,
+      usedFallbackReply: false,
+    };
+  } catch (error) {
+    if (!isRateLimitError(error)) {
+      throw error;
+    }
+
+    const sanitizedUserMessage = sanitizeRateLimitedMessage(message);
+    const rateLimit = {
+      hit: true,
+      initialError: error.message || "Rate limit hit.",
+      retryAttempted: true,
+      retrySucceeded: false,
+      fallbackDelivered: false,
+      sanitizedUserMessage,
+      sanitizedChanged: sanitizedUserMessage !== message,
+      retryHistoryMessages: Math.min(history.length, 2),
+    };
+
+    streamedDebugData.rateLimit = rateLimit;
+    stream.write("debug", {
+      phase: "rate-limit",
+      debug: streamedDebugData,
+    });
+
+    console.warn("Chat generation rate-limited; retrying with reduced prompt.", {
+      providerStatus: error.providerStatus || error.statusCode || null,
+      model: error.model || null,
+      sanitizedChanged: rateLimit.sanitizedChanged,
+    });
+
+    const retryMessages = buildRateLimitRetryMessages({
+      compactSystemPrompt: buildCompactPersonaSystemPrompt(personality, memoryFacts),
+      policyPrompt,
+      moodFragment,
+      history,
+      sanitizedUserMessage,
+    });
+    rateLimit.retryMessageCount = retryMessages.length;
+
+    try {
+      const retryReply = await generateChatCompletion(retryMessages);
+      rateLimit.retrySucceeded = true;
+      streamedDebugData.rateLimit = rateLimit;
+      stream.write("debug", {
+        phase: "rate-limit-retry",
+        debug: streamedDebugData,
+      });
+
+      return {
+        reply: `${buildRateLimitNotice({ sanitizedUserMessage, retrySucceeded: true })}${retryReply}`.trim(),
+        rateLimit,
+        usedFallbackReply: false,
+      };
+    } catch (retryError) {
+      if (!isRateLimitError(retryError)) {
+        throw retryError;
+      }
+
+      rateLimit.finalError = retryError.message || "Rate-limited on reduced retry.";
+      rateLimit.fallbackDelivered = true;
+      streamedDebugData.rateLimit = rateLimit;
+      stream.write("debug", {
+        phase: "rate-limit-fallback",
+        debug: streamedDebugData,
+      });
+
+      console.warn("Chat rate-limit recovery exhausted; returning fallback reply.", {
+        providerStatus: retryError.providerStatus || retryError.statusCode || null,
+        model: retryError.model || null,
+      });
+
+      return {
+        reply: buildRateLimitFallbackReply({ sanitizedUserMessage }),
+        rateLimit,
+        usedFallbackReply: true,
+      };
+    }
+  }
 }
 
 export async function chatHandler(req, res, next) {
@@ -343,23 +464,24 @@ export async function chatHandler(req, res, next) {
       debug: streamedDebugData,
     });
 
-    let reply = "";
-    if (stream.enabled) {
-      reply = await generateChatCompletionStream(messages, async (delta, accumulated) => {
-        stream.write("token", {
-          phase: "generation",
-          delta,
-          reply: accumulated,
-          debug: streamedDebugData,
-        });
-      });
-    } else {
-      reply = await generateChatCompletion(messages);
-    }
+    const generation = await generateReplyWithRecovery({
+      stream,
+      messages,
+      message,
+      history,
+      personality,
+      memoryFacts,
+      policyPrompt: buildModePolicyPrompt(policy),
+      moodFragment,
+      streamedDebugData,
+    });
+    let reply = generation.reply;
+    const rateLimit = generation.rateLimit;
+    const usedFallbackReply = generation.usedFallbackReply;
     let scientistValidation = null;
     let scientistRepairAttempted = false;
 
-    if (policy.activeMode === "scientist") {
+    if (policy.activeMode === "scientist" && !usedFallbackReply) {
       const availableSources = Array.isArray(personality?.researchSources)
         ? personality.researchSources.filter((source) => source && typeof source === "object").slice(0, 8)
         : [];
@@ -429,6 +551,7 @@ export async function chatHandler(req, res, next) {
         }
       : null;
     streamedDebugData.kids = kidsReadability;
+    streamedDebugData.rateLimit = rateLimit;
     stream.write("debug", {
       phase: "reply",
       debug: streamedDebugData,
@@ -485,11 +608,14 @@ export async function chatHandler(req, res, next) {
           }
         : null,
       kids: kidsReadability,
+      rateLimit,
       prompt: promptPackage.debug,
       flags: {
         reconditioned: shouldRecondition,
         moodFragmentInjected: Boolean(moodFragment),
         historyMessages: history.length,
+        rateLimitRecovered: Boolean(rateLimit?.retrySucceeded),
+        rateLimitFallbackDelivered: Boolean(rateLimit?.fallbackDelivered),
       },
     };
 
