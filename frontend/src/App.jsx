@@ -355,6 +355,36 @@ export default function App() {
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
 
+  function parseSseEvent(chunk) {
+    const lines = String(chunk || "").split("\n");
+    let eventName = "message";
+    const dataLines = [];
+
+    for (const line of lines) {
+      if (!line || line.startsWith(":")) {
+        continue;
+      }
+
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim() || "message";
+        continue;
+      }
+
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+
+    if (!dataLines.length) {
+      return null;
+    }
+
+    return {
+      type: eventName,
+      payload: JSON.parse(dataLines.join("\n")),
+    };
+  }
+
   const { isSignedIn, isLoaded } = useAuth();
   const authFetch = useAuthFetch();
 
@@ -667,7 +697,7 @@ export default function App() {
       const contentType = response.headers.get("content-type") || "";
       let data = null;
 
-      if (contentType.includes("application/x-ndjson") && response.body) {
+      if (contentType.includes("text/event-stream") && response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -677,62 +707,63 @@ export default function App() {
           const { value, done } = await reader.read();
           buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+          const events = buffer.split("\n\n");
+          buffer = events.pop() || "";
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) {
+          for (const rawEvent of events) {
+            const parsed = parseSseEvent(rawEvent);
+            if (!parsed) {
               continue;
             }
 
-            const event = JSON.parse(trimmed);
-            if (event.type === "debug") {
+            const { type, payload } = parsed;
+
+            if (type === "debug") {
               setLiveChatState((current) => ({
                 ...current,
                 [personalityId]: {
                   ...(current[personalityId] || {}),
-                  phase: event.phase,
-                  debug: event.debug,
+                  phase: payload.phase,
+                  debug: payload.debug,
                   seq: (current[personalityId]?.seq || 0) + 1,
                 },
               }));
-            } else if (event.type === "token") {
+            } else if (type === "token") {
               setLiveChatState((current) => ({
                 ...current,
                 [personalityId]: {
                   ...(current[personalityId] || {}),
-                  phase: event.phase || "generation",
-                  debug: event.debug || current[personalityId]?.debug || null,
-                  reply: event.reply || "",
+                  phase: payload.phase || "generation",
+                  debug: payload.debug || current[personalityId]?.debug || null,
+                  reply: payload.reply || "",
                   seq: (current[personalityId]?.seq || 0) + 1,
                 },
               }));
-            } else if (event.type === "error") {
-              throw new Error(event.error || "Failed to send chat message.");
-            } else if (event.type === "final") {
-              data = event;
+            } else if (type === "error") {
+              throw new Error(payload.error || "Failed to send chat message.");
+            } else if (type === "final") {
+              data = payload;
               if (!finalCommitted) {
                 setChatLogs((current) => ({
                   ...current,
                   [personalityId]: [
                     ...(current[personalityId] || []),
-                    { role: "assistant", content: event.reply, debug: event.debug || null },
+                    { role: "assistant", content: payload.reply, debug: payload.debug || null },
                   ],
                 }));
 
-                if (event.moodState || event.moodLabel) {
+                if (payload.moodState || payload.moodLabel) {
                   setPersonalities((current) =>
                     current.map((p) =>
                       p.id === personalityId
-                        ? { ...p, moodState: event.moodState, moodLabel: event.moodLabel }
+                        ? { ...p, moodState: payload.moodState, moodLabel: payload.moodLabel }
                         : p
                     )
                   );
                 }
 
-                if (event.policy) {
-                  setChatPolicy(event.policy);
+                if (payload.policy) {
+                  setChatPolicy(payload.policy);
                 }
 
                 setLiveChatState((current) => ({
@@ -740,7 +771,7 @@ export default function App() {
                   [personalityId]: {
                     ...(current[personalityId] || {}),
                     phase: "reply-complete",
-                    debug: event.debug || current[personalityId]?.debug || null,
+                    debug: payload.debug || current[personalityId]?.debug || null,
                     reply: "",
                     finalReceived: true,
                     seq: (current[personalityId]?.seq || 0) + 1,
@@ -749,7 +780,7 @@ export default function App() {
                 setIsSending(false);
                 finalCommitted = true;
               }
-            } else if (event.type === "done") {
+            } else if (type === "done") {
               setLiveChatState((current) => ({
                 ...current,
                 [personalityId]: null,
@@ -773,7 +804,7 @@ export default function App() {
         throw new Error("Chat stream ended before a final payload was received.");
       }
 
-      if (!contentType.includes("application/x-ndjson")) {
+      if (!contentType.includes("text/event-stream")) {
         setChatLogs((current) => ({
           ...current,
           [personalityId]: [

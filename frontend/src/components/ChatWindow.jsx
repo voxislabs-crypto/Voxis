@@ -410,6 +410,27 @@ export default function ChatWindow({
   );
 
   const displayDebug = liveDebug || latestAssistantDebug;
+  const pendingAssistantMessage = useMemo(() => {
+    if (!isSending && !liveReply) {
+      return null;
+    }
+
+    return {
+      role: "assistant",
+      content: liveReply || "",
+      debug: displayDebug,
+      live: true,
+      phase: livePhase,
+    };
+  }, [displayDebug, livePhase, liveReply]);
+
+  const renderedMessages = useMemo(() => {
+    if (!pendingAssistantMessage) {
+      return messages;
+    }
+
+    return [...messages, pendingAssistantMessage];
+  }, [messages, pendingAssistantMessage]);
 
   const performanceTier = useMemo(
     () => resolvePerformanceTier(neuralProfile, activeMode, prefersReducedMotion),
@@ -780,29 +801,26 @@ export default function ChatWindow({
 
             {isLoadingMessages ? (
               <div className="empty-chat">Loading persisted conversation history...</div>
-            ) : messages.length ? (
+            ) : renderedMessages.length ? (
               <>
-                {messages.map((message, index) => (
-                  <div key={`${message.role}-${index}`} className={`message-bubble ${message.role}`}>
+                {renderedMessages.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`message-bubble ${message.role}${message.live ? " live" : ""}`}>
                     <span className="message-role">
                       {message.role === "assistant" ? personality.name : "You"}
                     </span>
-                    {message.content}
+                    {message.live ? (
+                      <>
+                        <span className="live-phase">{message.phase || "processing"}</span>
+                        {message.content || "Thinking..."}
+                      </>
+                    ) : (
+                      message.content
+                    )}
                     {debugMode && message.role === "assistant" && message.debug ? (
                       <pre className="debug-panel">{JSON.stringify(message.debug, null, 2)}</pre>
                     ) : null}
                   </div>
                 ))}
-                {(isSending || livePhase) && (displayDebug || liveReply) ? (
-                  <div className="message-bubble assistant live">
-                    <span className="message-role">{personality.name}</span>
-                    <span className="live-phase">{livePhase || "processing"}</span>
-                    {liveReply || "Neural Core is updating live for this turn before the reply lands."}
-                    {debugMode ? (
-                      <pre className="debug-panel">{JSON.stringify(displayDebug, null, 2)}</pre>
-                    ) : null}
-                  </div>
-                ) : null}
               </>
             ) : (
               <div className="empty-chat">

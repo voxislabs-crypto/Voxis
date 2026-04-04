@@ -68,15 +68,26 @@ function createChatStream(res, enabled) {
   let opened = false;
   let closed = false;
 
+  const formatEvent = (name, payload = {}) => {
+    const normalizedName = String(name || "message").trim() || "message";
+    const data = JSON.stringify(payload);
+    return `event: ${normalizedName}\ndata: ${data}\n\n`;
+  };
+
   const open = () => {
     if (!enabled || opened) {
       return;
     }
 
     res.status(200);
-    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+    res.write(": stream-open\n\n");
     opened = true;
   };
 
@@ -92,7 +103,7 @@ function createChatStream(res, enabled) {
       }
 
       open();
-      res.write(`${JSON.stringify({ type, ...payload })}\n`);
+      res.write(formatEvent(type, payload));
     },
     close(type, payload = {}) {
       if (!enabled || closed || res.writableEnded) {
@@ -100,7 +111,7 @@ function createChatStream(res, enabled) {
       }
 
       open();
-      res.write(`${JSON.stringify({ type, ...payload })}\n`);
+      res.write(formatEvent(type, payload));
       res.end();
       closed = true;
     },
@@ -110,10 +121,9 @@ function createChatStream(res, enabled) {
       }
 
       open();
-      res.write(`${JSON.stringify({
-        type: "error",
+      res.write(formatEvent("error", {
         error: error.message || "Chat request failed.",
-      })}\n`);
+      }));
       res.end();
       closed = true;
       return true;
