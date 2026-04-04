@@ -33,6 +33,20 @@ export async function requireAuth(req, res, next) {
     req.voxisUser = voxisUser;
     return next();
   } catch (error) {
+    const message = String(error?.message || "");
+    const likelyAuthVerificationError =
+      /clerk|jwt|token|secret key|verify|session/i.test(message) ||
+      error?.status === 401 ||
+      error?.statusCode === 401;
+
+    if (likelyAuthVerificationError) {
+      console.error("[Auth] Clerk verification failed", {
+        message,
+        code: error?.code || null,
+      });
+      return res.status(401).json({ error: "Authentication verification failed." });
+    }
+
     return next(error);
   }
 }

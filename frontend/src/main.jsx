@@ -9,6 +9,16 @@ const clerkPubKey =
   import.meta.env.VITE_NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
   "";
 
+const clerkKeyPrefix = clerkPubKey
+  ? clerkPubKey.startsWith("pk_live_")
+    ? "pk_live"
+    : clerkPubKey.startsWith("pk_test_")
+    ? "pk_test"
+    : "pk_unknown"
+  : "missing";
+
+console.info(`[Voxis] Clerk publishable key status: ${clerkKeyPrefix}`);
+
 if (!clerkPubKey) {
   ReactDOM.createRoot(document.getElementById("root")).render(
     <React.StrictMode>
