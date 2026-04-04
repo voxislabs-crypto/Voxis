@@ -4,7 +4,17 @@ import { createUser, getUserByClerkId } from "../models/userModel.js";
 // Verifies the Clerk JWT on every request that uses this middleware.
 // On success, attaches req.clerkUserId (string) and req.voxisUser (the local DB record).
 // Auto-provisions a Voxis user row on first sign-in.
-export const clerkVerify = clerkMiddleware();
+const clerkPublishableKey =
+  process.env.CLERK_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+  "";
+
+const clerkSecretKey = process.env.CLERK_SECRET_KEY || "";
+
+export const clerkVerify = clerkMiddleware({
+  publishableKey: clerkPublishableKey || undefined,
+  secretKey: clerkSecretKey || undefined,
+});
 
 export async function requireAuth(req, res, next) {
   try {
