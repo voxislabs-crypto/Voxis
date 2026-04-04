@@ -47,7 +47,7 @@ npm run dev
 
 Then:
 
-- Open `http://localhost:5173`
+- Open `http://localhost:3100`
 - Create a personality
 - Start chatting
 - Toggle the debug panel in chat to inspect mood, memory, intent, and prompt-budget behavior per turn
@@ -237,14 +237,93 @@ YouTube transcript ingestion is best-effort — if captions cannot be retrieved,
 npm run dev
 ```
 
-- Backend: `http://localhost:3001`
-- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3101`
+- Frontend: `http://localhost:3100`
 
 **Run services individually:**
 
 ```bash
 npm run dev --workspace backend
 npm run dev --workspace frontend
+```
+
+## Ubuntu Server Deploy (Nginx + PM2)
+
+Voxis includes scripts to set up a fresh Ubuntu server and keep deploys clean.
+
+First-time setup on your server:
+
+```bash
+git clone https://github.com/voxislabs-crypto/Voxis.git
+cd Voxis
+bash deploy/setup-ubuntu.sh
+```
+
+Optional setup variables:
+
+```bash
+SERVER_NAME=your-domain.com APP_DIR=/opt/voxis BRANCH=clean-main bash deploy/setup-ubuntu.sh
+```
+
+What this script does:
+
+- Installs Node.js, Nginx, and PM2
+- Clones or updates the repo
+- Installs dependencies and builds the frontend
+- Runs backend on PM2 (port `3101`)
+- Configures Nginx to serve frontend and proxy API routes
+
+Deploy updates later:
+
+```bash
+cd /opt/voxis
+bash deploy/update-app.sh
+```
+
+Database-safe deploy (backup first):
+
+```bash
+bash deploy/update-app.sh --backup-db
+```
+
+Full clean reset (dangerous; wipes SQLite DB files):
+
+```bash
+bash deploy/update-app.sh --backup-db --reset-db
+```
+
+Subdomain setup example (`voxis.voxislabs.com`):
+
+1. Create a DNS `A` record:
+  - Host: `voxis`
+  - Value: your server public IPv4
+2. Wait for DNS to propagate.
+3. Run setup with explicit server name:
+
+```bash
+SERVER_NAME=voxis.voxislabs.com APP_DIR=/opt/voxis BRANCH=clean-main bash deploy/setup-ubuntu.sh
+```
+
+Enable HTTPS (Let's Encrypt):
+
+```bash
+DOMAIN=voxis.voxislabs.com EMAIL=you@voxislabs.com bash deploy/enable-ssl.sh
+```
+
+For a sibling app (for example `merlin.voxislabs.com`), deploy Merlin as a separate Nginx site and PM2 app with its own app directory and process name.
+
+Merlin Nginx template:
+
+```bash
+sudo cp deploy/nginx-merlin.template.conf /etc/nginx/sites-available/merlin
+sudo ln -sfn /etc/nginx/sites-available/merlin /etc/nginx/sites-enabled/merlin
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Server sanity checks:
+
+```bash
+bash deploy/check-stack.sh voxis.voxislabs.com
 ```
 
 ---

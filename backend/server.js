@@ -9,7 +9,7 @@ import userRoutes from "./routes/userRoutes.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
 
 const app = express();
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || 3101);
 
 app.use(
   cors({
