@@ -108,6 +108,7 @@ function fallbackProviders() {
 export default function LlmSettingsPanel({ onStatus }) {
   const authFetch = useAuthFetch();
   const [providers, setProviders] = useState([]);
+  const [savedProviders, setSavedProviders] = useState([]);
   const [provider, setProvider] = useState("openai");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -123,6 +124,25 @@ export default function LlmSettingsPanel({ onStatus }) {
     () => providers.find((candidate) => candidate.id === provider) || null,
     [providers, provider],
   );
+
+  const selectedSavedCredential = useMemo(() => {
+    const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/$/, "");
+    const byExactBaseUrl = savedProviders.find(
+      (candidate) =>
+        candidate.provider === provider &&
+        String(candidate.baseUrl || "").trim().replace(/\/$/, "") === normalizedBaseUrl,
+    );
+
+    if (byExactBaseUrl) {
+      return byExactBaseUrl;
+    }
+
+    return (
+      savedProviders.find(
+        (candidate) => candidate.provider === provider && !String(candidate.baseUrl || "").trim(),
+      ) || null
+    );
+  }, [baseUrl, provider, savedProviders]);
 
   useEffect(() => {
     void initialize();
@@ -161,12 +181,14 @@ export default function LlmSettingsPanel({ onStatus }) {
 
       if (settingsData.connected) {
         setConnected(settingsData);
+        setSavedProviders(settingsData.savedProviders || []);
         setProvider(settingsData.provider || providerList[0]?.id || "openai");
         setBaseUrl(settingsData.baseUrl || "");
         setAvailableModels(settingsData.models || []);
         setModel(settingsData.model || "");
       } else {
         setConnected(null);
+        setSavedProviders(settingsData.savedProviders || []);
         setProvider(providerList[0]?.id || "openai");
         setAvailableModels([]);
         setModel("");
@@ -219,8 +241,8 @@ export default function LlmSettingsPanel({ onStatus }) {
       return;
     }
 
-    if (!apiKey.trim()) {
-      onStatus?.({ type: "error", message: "API key is required." });
+    if (!apiKey.trim() && !selectedSavedCredential?.keyHint) {
+      onStatus?.({ type: "error", message: "API key is required unless a saved key already exists for this provider." });
       return;
     }
 
@@ -251,11 +273,15 @@ export default function LlmSettingsPanel({ onStatus }) {
       }
 
       setConnected(data);
+      setSavedProviders(data.savedProviders || []);
       setAvailableModels(data.models || []);
       setModel(data.model || "");
+      setApiKey("");
       onStatus?.({
         type: "success",
-        message: `Connected ${data.providerName || data.provider} with ${data.model || "no model selected"}.`,
+        message: apiKey.trim()
+          ? `Connected ${data.providerName || data.provider} and saved the updated key.`
+          : `Connected ${data.providerName || data.provider} using the saved key.`,
       });
     } catch (error) {
       onStatus?.({ type: "error", message: error.message || "Failed to connect provider." });
@@ -286,6 +312,7 @@ export default function LlmSettingsPanel({ onStatus }) {
       }
 
       setConnected(data);
+      setSavedProviders(data.savedProviders || []);
       onStatus?.({ type: "success", message: `Active model switched to ${nextModel}.` });
     } catch (error) {
       onStatus?.({ type: "error", message: error.message || "Failed to apply model." });
@@ -306,10 +333,11 @@ export default function LlmSettingsPanel({ onStatus }) {
       }
 
       setConnected(null);
+      setSavedProviders(data.savedProviders || []);
       setAvailableModels([]);
       setModel("");
       setApiKey("");
-      onStatus?.({ type: "success", message: "Disconnected runtime LLM provider." });
+      onStatus?.({ type: "success", message: "Disconnected runtime LLM provider. Saved keys remain available for later reconnects." });
     } catch (error) {
       onStatus?.({ type: "error", message: error.message || "Failed to disconnect provider." });
     } finally {
@@ -323,7 +351,7 @@ export default function LlmSettingsPanel({ onStatus }) {
       <h3>Runtime LLM Settings</h3>
       <p>
         Choose a provider first, add credentials, then connect and select a model.
-        Auto-detect is optional and only helps prefill provider/model.
+        Auto-detect is optional and only helps prefill provider/model. Saved keys stay on the server for later sessions.
       </p>
 
       <div className="llm-grid">
@@ -351,9 +379,12 @@ export default function LlmSettingsPanel({ onStatus }) {
             autoComplete="off"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder="Paste provider key"
+            placeholder={selectedSavedCredential?.keyHint ? "Saved key on file. Enter a new key only to replace it." : "Paste provider key"}
             disabled={isLoading || isConnecting}
           />
+          {selectedSavedCredential?.keyHint ? (
+            <p>Saved key on file: {selectedSavedCredential.keyHint}</p>
+          ) : null}
         </div>
 
         <div className="llm-field">

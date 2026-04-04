@@ -1,7 +1,10 @@
 import {
   clearLlmRuntimeConfig,
   getLlmRuntimeConfig,
+  getSavedLlmCredential,
+  getSavedLlmCredentials,
   setLlmRuntimeConfig,
+  upsertSavedLlmCredential,
 } from "../models/settingsModel.js";
 import {
   detectProviderByApiKey,
@@ -19,6 +22,13 @@ function maskApiKey(apiKey) {
 }
 
 function toPublicConfig(config) {
+  const savedProviders = getSavedLlmCredentials().map((credential) => ({
+    provider: credential.provider,
+    baseUrl: credential.baseUrl,
+    keyHint: maskApiKey(credential.apiKey),
+    updatedAt: credential.updatedAt || "",
+  }));
+
   if (!config) {
     return {
       connected: false,
@@ -28,6 +38,7 @@ function toPublicConfig(config) {
       models: [],
       keyHint: "",
       connectedAt: "",
+      savedProviders,
     };
   }
 
@@ -39,6 +50,7 @@ function toPublicConfig(config) {
     models: config.models || [],
     keyHint: maskApiKey(config.apiKey),
     connectedAt: config.connectedAt || "",
+    savedProviders,
   };
 }
 
@@ -63,16 +75,19 @@ export function listLlmProvidersHandler(_req, res) {
 export async function connectLlmSettingsHandler(req, res, next) {
   try {
     const provider = String(req.body?.provider || "").trim();
-    const apiKey = String(req.body?.apiKey || "").trim();
     const baseUrl = String(req.body?.baseUrl || "").trim();
     const requestedModel = String(req.body?.model || "").trim();
+    const suppliedApiKey = String(req.body?.apiKey || "").trim();
 
     if (!provider) {
       return res.status(400).json({ error: "provider is required." });
     }
 
+    const savedCredential = getSavedLlmCredential({ provider, baseUrl });
+    const apiKey = suppliedApiKey || savedCredential?.apiKey || "";
+
     if (!apiKey) {
-      return res.status(400).json({ error: "apiKey is required." });
+      return res.status(400).json({ error: "apiKey is required unless a saved key already exists for this provider." });
     }
 
     const connected = await fetchProviderModels({
@@ -92,6 +107,12 @@ export async function connectLlmSettingsHandler(req, res, next) {
       apiKey,
       model: selectedModel,
       models: connected.models,
+    });
+
+    upsertSavedLlmCredential({
+      provider: connected.provider,
+      baseUrl: connected.baseUrl,
+      apiKey,
     });
 
     return res.json({

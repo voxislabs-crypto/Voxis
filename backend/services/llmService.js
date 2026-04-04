@@ -1,5 +1,10 @@
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o-mini";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_HEADERS = {
+  "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER || "https://localhost",
+  "X-Title": process.env.OPENROUTER_APP_TITLE || "Voxis",
+};
 const DEFAULT_PERSONA_PROMPT_CHAR_BUDGET = Number(process.env.PERSONA_PROMPT_CHAR_BUDGET || 6500);
 const CONTEXT_BUDGET_ENV_KEYS = {
   default: "PERSONA_PROMPT_CHAR_BUDGET_DEFAULT",
@@ -8,22 +13,28 @@ const CONTEXT_BUDGET_ENV_KEYS = {
   morally_complex: "PERSONA_PROMPT_CHAR_BUDGET_MORALLY_COMPLEX",
   tragic_villain: "PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN",
 };
-import { getLlmRuntimeConfig } from "../models/settingsModel.js";
+import { getLlmRuntimeConfig, setLlmRuntimeConfig } from "../models/settingsModel.js";
 
 function getLlmConfig() {
   const runtime = getLlmRuntimeConfig();
   if (runtime?.apiKey && runtime?.baseUrl) {
     return {
+      provider: runtime.provider || "",
       baseUrl: runtime.baseUrl.replace(/\/$/, ""),
       model: runtime.model || DEFAULT_MODEL,
       apiKey: runtime.apiKey,
+      models: Array.isArray(runtime.models) ? runtime.models : [],
+      isRuntimeConfig: true,
     };
   }
 
   return {
+    provider: "",
     baseUrl: (process.env.LLM_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, ""),
     model: process.env.LLM_MODEL || DEFAULT_MODEL,
     apiKey: process.env.LLM_API_KEY || "",
+    models: [],
+    isRuntimeConfig: false,
   };
 }
 
@@ -56,8 +67,101 @@ export function isMoodAdjudicationEnabled() {
   return process.env.MOOD_ADJUDICATION_ENABLED !== "false" && isLlmConfigured();
 }
 
-async function requestChatCompletion({ messages, temperature = 0.85 }) {
-  const { baseUrl, model, apiKey } = getLlmConfig();
+function isOpenRouterConfig({ provider = "", baseUrl = "" } = {}) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/$/, "");
+  return normalizedProvider === "openrouter" || normalizedBaseUrl === OPENROUTER_BASE_URL;
+}
+
+function buildLlmHeaders({ provider, baseUrl, apiKey }) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (isOpenRouterConfig({ provider, baseUrl })) {
+    Object.assign(headers, OPENROUTER_HEADERS);
+  }
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
+}
+
+async function createLlmRequestError(response, model) {
+  const errorText = await response.text();
+  let providerPayload = null;
+
+  try {
+    providerPayload = JSON.parse(errorText);
+  } catch {
+    providerPayload = null;
+  }
+
+  const providerMessage =
+    providerPayload?.error?.metadata?.raw ||
+    providerPayload?.error?.message ||
+    errorText ||
+    `Provider returned ${response.status}.`;
+
+  const error = new Error(`LLM request failed with ${response.status}: ${providerMessage}`);
+  error.statusCode = response.status === 429 ? 429 : 502;
+  error.providerStatus = response.status;
+  error.providerPayload = providerPayload;
+  error.model = model;
+  error.isRateLimit = response.status === 429;
+  return error;
+}
+
+function getFallbackModels(config) {
+  const currentModel = String(config?.model || "").trim();
+  const models = Array.isArray(config?.models) ? config.models.filter((model) => model?.id) : [];
+  if (!currentModel || models.length <= 1) {
+    return [];
+  }
+
+  const currentEntry = models.find((candidate) => candidate.id === currentModel);
+  const currentIsFree = currentEntry?.isFree;
+
+  const sameTier = [];
+  const otherTier = [];
+
+  for (const candidate of models) {
+    if (!candidate?.id || candidate.id === currentModel) {
+      continue;
+    }
+
+    if (typeof currentIsFree === "boolean" && candidate.isFree === currentIsFree) {
+      sameTier.push(candidate.id);
+    } else {
+      otherTier.push(candidate.id);
+    }
+  }
+
+  return [...sameTier, ...otherTier];
+}
+
+function persistWorkingModel(config, model) {
+  if (!config?.isRuntimeConfig || !model || model === config.model) {
+    return;
+  }
+
+  try {
+    setLlmRuntimeConfig({
+      provider: config.provider,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model,
+      models: config.models,
+    });
+  } catch {
+    // Persisting the recovered model is best-effort only.
+  }
+}
+
+async function requestChatCompletionOnce({ messages, temperature = 0.85, config }) {
+  const { baseUrl, model, apiKey, provider } = config;
 
   if (!apiKey && baseUrl === DEFAULT_BASE_URL) {
     const error = new Error(
@@ -67,17 +171,9 @@ async function requestChatCompletion({ messages, temperature = 0.85 }) {
     throw error;
   }
 
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers,
+    headers: buildLlmHeaders({ provider, baseUrl, apiKey }),
     body: JSON.stringify({
       model,
       messages,
@@ -86,10 +182,7 @@ async function requestChatCompletion({ messages, temperature = 0.85 }) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    const error = new Error(`LLM request failed with ${response.status}: ${errorText}`);
-    error.statusCode = 502;
-    throw error;
+    throw await createLlmRequestError(response, model);
   }
 
   const data = await response.json();
@@ -122,8 +215,40 @@ function parseStreamChunk(line) {
   }
 }
 
-async function requestChatCompletionStream({ messages, temperature = 0.85, onToken }) {
-  const { baseUrl, model, apiKey } = getLlmConfig();
+async function requestChatCompletion({ messages, temperature = 0.85 }) {
+  const config = getLlmConfig();
+  const candidateModels = [config.model, ...getFallbackModels(config)].filter(
+    (model, index, list) => model && list.indexOf(model) === index,
+  );
+  let lastError = null;
+
+  for (const model of candidateModels) {
+    try {
+      const reply = await requestChatCompletionOnce({
+        messages,
+        temperature,
+        config: {
+          ...config,
+          model,
+        },
+      });
+
+      persistWorkingModel(config, model);
+      return reply;
+    } catch (error) {
+      lastError = error;
+      const hasFallbackRemaining = model !== candidateModels[candidateModels.length - 1];
+      if (!error?.isRateLimit || !hasFallbackRemaining) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function requestChatCompletionStreamOnce({ messages, temperature = 0.85, onToken, config }) {
+  const { baseUrl, model, apiKey, provider } = config;
 
   if (!apiKey && baseUrl === DEFAULT_BASE_URL) {
     const error = new Error(
@@ -133,17 +258,9 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
     throw error;
   }
 
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers,
+    headers: buildLlmHeaders({ provider, baseUrl, apiKey }),
     body: JSON.stringify({
       model,
       messages,
@@ -153,10 +270,7 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    const error = new Error(`LLM request failed with ${response.status}: ${errorText}`);
-    error.statusCode = 502;
-    throw error;
+    throw await createLlmRequestError(response, model);
   }
 
   if (!response.body) {
@@ -213,6 +327,39 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
   }
 
   return content.trim();
+}
+
+async function requestChatCompletionStream({ messages, temperature = 0.85, onToken }) {
+  const config = getLlmConfig();
+  const candidateModels = [config.model, ...getFallbackModels(config)].filter(
+    (model, index, list) => model && list.indexOf(model) === index,
+  );
+  let lastError = null;
+
+  for (const model of candidateModels) {
+    try {
+      const reply = await requestChatCompletionStreamOnce({
+        messages,
+        temperature,
+        onToken,
+        config: {
+          ...config,
+          model,
+        },
+      });
+
+      persistWorkingModel(config, model);
+      return reply;
+    } catch (error) {
+      lastError = error;
+      const hasFallbackRemaining = model !== candidateModels[candidateModels.length - 1];
+      if (!error?.isRateLimit || !hasFallbackRemaining) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 function extractJsonObject(text) {
@@ -553,17 +700,9 @@ export async function generateEmbedding(input) {
     return null;
   }
 
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
   const response = await fetch(`${baseUrl}/embeddings`, {
     method: "POST",
-    headers,
+    headers: buildLlmHeaders({ baseUrl, apiKey }),
     body: JSON.stringify({
       model,
       input: text,
