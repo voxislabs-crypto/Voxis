@@ -1096,6 +1096,8 @@ export default function NeuralCore({
                   arousal={arousal}
                   phase={phaseBurst || ""}
                   speaking={["generation", "reply", "reply-complete"].includes(phaseBurst)}
+                  mode={mode}
+                  personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                 />
                 <span>{kidsMode ? "Friend Brain" : "Voxis Neural Core"}</span>
               </span>

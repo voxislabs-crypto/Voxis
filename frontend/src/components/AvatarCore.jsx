@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const avatarStyles = `
   .avatar-core {
@@ -60,6 +60,26 @@ const avatarStyles = `
   .avatar-core.exp-surge {
     --eye: #99fdff;
     --wave: #ff9b57;
+  }
+
+  .avatar-core.persona-sentinel {
+    --eye: #5ed3ff;
+    --wave: #8a49ff;
+  }
+
+  .avatar-core.persona-wisp {
+    --eye: #86f6ff;
+    --wave: #ff70cf;
+  }
+
+  .avatar-core.persona-oracle {
+    --eye: #79dfff;
+    --wave: #b56eff;
+  }
+
+  .avatar-core.persona-echo {
+    --eye: #66f2ff;
+    --wave: #ff8b62;
   }
 
   .avatar-core.compact {
@@ -183,6 +203,26 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function hashSeed(input) {
+  const text = String(input || "voxis");
+  let hash = 0;
+
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+
+  return hash;
+}
+
+function resolvePersonaPreset(seed, mode) {
+  if (mode === "kids") {
+    return "wisp";
+  }
+
+  const presets = ["sentinel", "oracle", "echo", "wisp"];
+  return presets[hashSeed(seed) % presets.length];
+}
+
 function resolveExpressionMode({ valence, arousal, phase }) {
   if (["intent", "generation", "reply"].includes(phase)) {
     return "surge";
@@ -208,8 +248,30 @@ export default function AvatarCore({
   arousal = 0,
   phase = "",
   speaking = false,
+  mode = "scientist",
+  personalitySeed = "",
   size = "default",
 }) {
+  const [gaze, setGaze] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const intensity = clamp(0.18 + Math.abs(Number(arousal) || 0) * 0.55, 0.2, 0.85);
+    const intervalMs = speaking ? 520 : 1250;
+
+    const interval = window.setInterval(() => {
+      if (["intent", "reply", "generation"].includes(phase)) {
+        setGaze({ x: clamp(0.52 * intensity, -0.9, 0.9), y: clamp(-0.16 * intensity, -0.5, 0.5) });
+        return;
+      }
+
+      const targetX = ((Math.random() * 2) - 1) * intensity;
+      const targetY = ((Math.random() * 2) - 1) * intensity * 0.58;
+      setGaze({ x: targetX, y: targetY });
+    }, intervalMs);
+
+    return () => window.clearInterval(interval);
+  }, [arousal, phase, speaking]);
+
   const mood = useMemo(() => {
     const v = clamp(Number(valence) || 0, -1, 1);
     const a = clamp(Number(arousal) || 0, -1, 1);
@@ -231,12 +293,20 @@ export default function AvatarCore({
     };
   }, [arousal, phase, valence]);
 
+  const preset = useMemo(
+    () => resolvePersonaPreset(personalitySeed, mode),
+    [mode, personalitySeed],
+  );
+
+  const pupilOffsetX = clamp(gaze.x * 2.3, -2.2, 2.2);
+  const pupilOffsetY = clamp(gaze.y * 1.8, -1.6, 1.6);
+
   const speakingWave = speaking || ["generation", "reply", "reply-complete"].includes(phase);
   const waveClass = speakingWave ? (phase === "intent" || phase === "mood" ? "burst" : "") : "idle";
 
   return (
     <div
-      className={`avatar-core exp-${mood.mode} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
+      className={`avatar-core exp-${mood.mode} persona-${preset} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
       style={{ "--aura": mood.aura, "--rim": mood.rim }}
       aria-hidden="true"
     >
@@ -248,8 +318,8 @@ export default function AvatarCore({
 
         <ellipse className="eye" cx="34" cy="48" rx="10" ry={mood.eyeOpen} />
         <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} />
-        <circle className="pupil" cx="36" cy="48" r="2.2" />
-        <circle className="pupil" cx="64" cy="48" r="2.2" />
+        <circle className="pupil" cx={36 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
+        <circle className="pupil" cx={64 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
       </svg>
 
       <div className={`avatar-wave ${waveClass}`.trim()}>

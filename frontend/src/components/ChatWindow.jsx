@@ -700,6 +700,8 @@ export default function ChatWindow({
                     arousal={avatarMood.arousal}
                     phase={livePhase}
                     speaking={Boolean(liveReply)}
+                    mode={activeMode || "scientist"}
+                    personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                   />
                   <span>{personality.name}</span>
                 </span>
