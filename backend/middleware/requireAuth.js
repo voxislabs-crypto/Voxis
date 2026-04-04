@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { clerkMiddleware, getAuth } from "@clerk/express";
 import { createUser, getUserByClerkId } from "../models/userModel.js";
 
@@ -10,6 +11,25 @@ const clerkPublishableKey =
   "";
 
 const clerkSecretKey = process.env.CLERK_SECRET_KEY || "";
+
+console.info("[Auth] Clerk env", {
+  publishableKeyPresent: Boolean(clerkPublishableKey),
+  publishableKeyPrefix: clerkPublishableKey
+    ? clerkPublishableKey.startsWith("pk_live_")
+      ? "pk_live"
+      : clerkPublishableKey.startsWith("pk_test_")
+      ? "pk_test"
+      : "pk_unknown"
+    : "missing",
+  secretKeyPresent: Boolean(clerkSecretKey),
+  secretKeyPrefix: clerkSecretKey
+    ? clerkSecretKey.startsWith("sk_live_")
+      ? "sk_live"
+      : clerkSecretKey.startsWith("sk_test_")
+      ? "sk_test"
+      : "sk_unknown"
+    : "missing",
+});
 
 export const clerkVerify = clerkMiddleware({
   publishableKey: clerkPublishableKey || undefined,
