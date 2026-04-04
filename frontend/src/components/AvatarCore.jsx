@@ -37,6 +37,31 @@ const avatarStyles = `
     filter: blur(1px);
   }
 
+  .avatar-core.exp-calm {
+    --eye: #58eaff;
+    --wave: #b652ff;
+  }
+
+  .avatar-core.exp-bright {
+    --eye: #8af7ff;
+    --wave: #ff6fc9;
+  }
+
+  .avatar-core.exp-focused {
+    --eye: #63dbff;
+    --wave: #9f4dff;
+  }
+
+  .avatar-core.exp-tense {
+    --eye: #52b8ff;
+    --wave: #7f41ff;
+  }
+
+  .avatar-core.exp-surge {
+    --eye: #99fdff;
+    --wave: #ff9b57;
+  }
+
   .avatar-core.compact {
     --size: 50px;
   }
@@ -67,6 +92,8 @@ const avatarStyles = `
     stroke: var(--eye);
     stroke-width: 1.8;
     filter: drop-shadow(0 0 7px rgba(48, 236, 255, 0.6));
+    transform-origin: center;
+    animation: avatarBlink 6.6s ease-in-out infinite;
   }
 
   .avatar-face .pupil {
@@ -145,10 +172,35 @@ const avatarStyles = `
     45% { transform: scaleY(1); opacity: 1; }
     100% { transform: scaleY(0.34); opacity: 0.42; }
   }
+
+  @keyframes avatarBlink {
+    0%, 46%, 49%, 100% { transform: scaleY(1); }
+    47%, 48% { transform: scaleY(0.08); }
+  }
 `;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function resolveExpressionMode({ valence, arousal, phase }) {
+  if (["intent", "generation", "reply"].includes(phase)) {
+    return "surge";
+  }
+
+  if (valence >= 0.4 && arousal >= 0.15) {
+    return "bright";
+  }
+
+  if (valence <= -0.25 || arousal >= 0.75) {
+    return "tense";
+  }
+
+  if (Math.abs(valence) < 0.18 && arousal < 0.22) {
+    return "calm";
+  }
+
+  return "focused";
 }
 
 export default function AvatarCore({
@@ -174,6 +226,7 @@ export default function AvatarCore({
       eyeOpen,
       browTilt,
       aura,
+      mode: resolveExpressionMode({ valence: v, arousal: a, phase }),
       rim: phase === "reply" ? "rgba(255, 128, 196, 0.72)" : "rgba(192, 82, 255, 0.48)",
     };
   }, [arousal, phase, valence]);
@@ -183,7 +236,7 @@ export default function AvatarCore({
 
   return (
     <div
-      className={`avatar-core ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
+      className={`avatar-core exp-${mood.mode} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
       style={{ "--aura": mood.aura, "--rim": mood.rim }}
       aria-hidden="true"
     >

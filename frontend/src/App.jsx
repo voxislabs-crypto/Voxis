@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAuth, UserButton, SignIn } from "@clerk/react";
+import { useAuth, UserButton, SignIn, SignUp } from "@clerk/react";
 
 import { useAuthFetch } from "./hooks/useAuthFetch.js";
 import PersonalityForm from "./components/PersonalityForm.jsx";
@@ -402,6 +402,14 @@ export default function App() {
     () => (selectedUserId ? userProfiles[selectedUserId] || null : null),
     [selectedUserId, userProfiles],
   );
+
+  const authPath = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "/";
+    }
+
+    return window.location.pathname || "/";
+  }, []);
 
   const allowedModes = useMemo(() => {
     if (!selectedUser) {
@@ -853,11 +861,27 @@ export default function App() {
   if (!isLoaded) return null;
 
   if (!isSignedIn) {
+    const showSignUp = authPath === "/sign-up";
+
     return (
       <>
         <style>{appStyles}</style>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
-          <SignIn />
+          {showSignUp ? (
+            <SignUp
+              routing="path"
+              path="/sign-up"
+              signInUrl="/sign-in"
+              forceRedirectUrl="/"
+            />
+          ) : (
+            <SignIn
+              routing="path"
+              path="/sign-in"
+              signUpUrl="/sign-up"
+              forceRedirectUrl="/"
+            />
+          )}
         </div>
       </>
     );
