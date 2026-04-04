@@ -58,6 +58,14 @@ fi
 echo "[4/6] Installing dependencies"
 npm --prefix "$APP_DIR" install
 
+if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$APP_DIR/frontend/.env" 2>/dev/null; then
+  echo
+  echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set in $APP_DIR/frontend/.env"
+  echo "Edit the file and add your Clerk publishable key, then re-run this script."
+  echo "  nano $APP_DIR/frontend/.env"
+  exit 1
+fi
+
 echo "[5/6] Building frontend"
 npm --prefix "$APP_DIR" run build
 

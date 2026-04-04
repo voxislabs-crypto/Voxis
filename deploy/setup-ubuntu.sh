@@ -72,6 +72,26 @@ else
   fi
 fi
 
+echo "[6b/9] Preparing frontend environment"
+if [[ ! -f "$APP_DIR/frontend/.env" ]]; then
+  cp "$APP_DIR/frontend/.env.example" "$APP_DIR/frontend/.env"
+  echo
+  echo "IMPORTANT: frontend/.env was created from the example."
+  echo "You must set VITE_CLERK_PUBLISHABLE_KEY before the build will work:"
+  echo "  nano $APP_DIR/frontend/.env"
+  echo "Get your key from: https://dashboard.clerk.com → API Keys → Publishable key"
+  echo "Then re-run this script or run: bash deploy/update-app.sh"
+  echo
+fi
+
+if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$APP_DIR/frontend/.env" 2>/dev/null; then
+  echo
+  echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set in $APP_DIR/frontend/.env"
+  echo "Edit the file and add your Clerk publishable key, then re-run this script."
+  echo "  nano $APP_DIR/frontend/.env"
+  exit 1
+fi
+
 echo "[7/9] Building frontend"
 npm --prefix "$APP_DIR" run build
 
