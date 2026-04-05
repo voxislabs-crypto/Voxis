@@ -285,6 +285,18 @@ What this script does:
 - Runs backend on PM2 (port `3101`)
 - Configures Nginx to serve frontend and proxy API routes
 
+Install local Piper TTS + curated voices on Ubuntu/DigitalOcean:
+
+```bash
+sudo bash deploy/install-piper.sh
+```
+
+Optional Piper install variables:
+
+```bash
+sudo APP_DIR=/opt/voxis DEFAULT_MODEL=en_US-amy-medium SET_ENGINE=piper bash deploy/install-piper.sh
+```
+
 Deploy updates later:
 
 ```bash
@@ -659,6 +671,8 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 - `engine: "auto"` -> Piper when configured, otherwise cloud
 
 `voiceProfile` now supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+
+For Ubuntu servers, `deploy/install-piper.sh` installs Piper in `/opt/piper-venv`, downloads curated voices to `/opt/piper/models`, and updates `backend/.env` defaults (`PIPER_COMMAND`, `PIPER_MODEL_PATH`, `TTS_ENGINE`).
 
 ---
 
