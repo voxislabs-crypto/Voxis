@@ -415,6 +415,8 @@ export default function ChatWindow({
   const [debugMode, setDebugMode] = useState(true);
   const lastGeneratedRef = useRef("");
   const lastNarrationRef = useRef("");
+  const messageListRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const latestAssistantMessage = useMemo(
@@ -562,6 +564,31 @@ export default function ChatWindow({
     voiceProfile.autoplay,
     voiceProfile.enabled,
   ]);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) {
+      return;
+    }
+
+    messageList.scrollTop = messageList.scrollHeight;
+    shouldAutoScrollRef.current = true;
+  }, [personality?.id]);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList || !shouldAutoScrollRef.current) {
+      return;
+    }
+
+    messageList.scrollTop = messageList.scrollHeight;
+  }, [renderedMessages, liveReply, liveSeq]);
+
+  function handleMessageListScroll(event) {
+    const target = event.currentTarget;
+    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < 48;
+  }
 
   function updateVoiceField(name, value) {
     setVoiceProfile((current) => ({
@@ -779,7 +806,7 @@ export default function ChatWindow({
             {audioUrl ? <audio id="voxis-audio-player" className="audio-player" controls src={audioUrl} /> : null}
           </div>
 
-          <div className="message-list">
+          <div className="message-list" ref={messageListRef} onScroll={handleMessageListScroll}>
             {performanceTier !== "light" ? (
               <svg className="chat-neural-bg" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <line x1="48" y1="40" x2="24" y2="20" className={neuralSignal.memoryActive ? "active" : ""} />
