@@ -7,6 +7,18 @@ const KIDS_UNSAFE_PATTERNS = [
   /\b(hack|ddos|malware|virus)\b/i,
 ];
 
+const SCIENTIST_STRUCTURE_CUES = [
+  /\b(explain|analy[sz]e|evaluate|compare|contrast|reason|derive)\b/i,
+  /\b(evidence|source|citation|prove|proof|data|study|studies)\b/i,
+  /\b(uncertainty|confidence|trade[\s-]?off|hypothesis|estimate)\b/i,
+  /\b(why|how|what\s+evidence|what\s+supports)\b/i,
+];
+
+const CASUAL_CHARACTER_CUES = [
+  /\b(roleplay|stay\s+in\s+character|act\s+like|say\s+hi|greet|tease|banter)\b/i,
+  /\b(pretend|joke|riff|improv|funny|chaotic)\b/i,
+];
+
 function normalizeWhitespace(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
@@ -124,6 +136,23 @@ export function simplifyKidsReplyByAge(text, ageBand = "child") {
 function hasScientistSection(reply, sectionName) {
   const pattern = new RegExp(`(^|\\n)(\\d+\\)\\s*)?${sectionName}\\b`, "i");
   return pattern.test(String(reply || ""));
+}
+
+export function shouldEnforceScientistStructure(message) {
+  const text = normalizeWhitespace(message).toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  if (CASUAL_CHARACTER_CUES.some((pattern) => pattern.test(text))) {
+    return false;
+  }
+
+  if (SCIENTIST_STRUCTURE_CUES.some((pattern) => pattern.test(text))) {
+    return true;
+  }
+
+  return text.length > 120 && /\?$/.test(text);
 }
 
 export function validateScientistReply(reply, { citationRequired = false } = {}) {

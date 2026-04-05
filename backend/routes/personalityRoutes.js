@@ -4,6 +4,7 @@ import {
   createPersonalityHandler,
   getPersonalityHandler,
   listPersonalitiesHandler,
+  updatePersonalityHandler,
   updateVoiceProfileHandler,
 } from "../controllers/personalityController.js";
 import { runHarnessHandler } from "../controllers/harnessController.js";
@@ -24,6 +25,7 @@ router.post("/personality", requireAuth, createPersonalityHandler);
 router.post("/research-profile", requireAuth, researchProfileHandler);
 router.get("/personalities", requireAuth, listPersonalitiesHandler);
 router.get("/personality/:id", requireAuth, getPersonalityHandler);
+router.put("/personality/:id", requireAuth, updatePersonalityHandler);
 router.post("/personality/:id/harness", requireAuth, runHarnessHandler);
 router.get("/personality/:id/messages", requireAuth, chatHistoryHandler);
 router.get("/personality/:id/memory", requireAuth, listMemoryHandler);

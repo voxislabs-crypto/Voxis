@@ -36,6 +36,7 @@ import {
   buildScientistRepairPrompt,
   detectKidsUnsafeInput,
   simplifyKidsReplyByAge,
+  shouldEnforceScientistStructure,
   validateScientistCitationRanges,
   validateScientistReply,
 } from "../services/modeResponseService.js";
@@ -420,7 +421,11 @@ export async function chatHandler(req, res, next) {
     // Policy context is injected as a high-priority system instruction so
     // age/mode constraints are enforced even when user prompts conflict.
     messages.push({ role: "system", content: buildModePolicyPrompt(policy) });
-    const scientistContract = buildScientistEvidencePrompt(policy, personality);
+    const enforceScientistStructure =
+      policy.activeMode === "scientist" ? shouldEnforceScientistStructure(message) : false;
+    const scientistContract = buildScientistEvidencePrompt(policy, personality, {
+      enforceStructure: enforceScientistStructure,
+    });
     if (scientistContract) {
       messages.push({ role: "system", content: scientistContract });
     }
@@ -481,7 +486,7 @@ export async function chatHandler(req, res, next) {
     let scientistValidation = null;
     let scientistRepairAttempted = false;
 
-    if (policy.activeMode === "scientist" && !usedFallbackReply) {
+    if (policy.activeMode === "scientist" && !usedFallbackReply && enforceScientistStructure) {
       const availableSources = Array.isArray(personality?.researchSources)
         ? personality.researchSources.filter((source) => source && typeof source === "object").slice(0, 8)
         : [];
@@ -545,11 +550,21 @@ export async function chatHandler(req, res, next) {
       ? {
           validation: scientistValidation,
           repairAttempted: scientistRepairAttempted,
+          enforceStructure: enforceScientistStructure,
           sourceCount: Array.isArray(personality?.researchSources)
             ? personality.researchSources.length
             : 0,
         }
-      : null;
+      : policy.activeMode === "scientist"
+        ? {
+            validation: null,
+            repairAttempted: false,
+            enforceStructure: enforceScientistStructure,
+            sourceCount: Array.isArray(personality?.researchSources)
+              ? personality.researchSources.length
+              : 0,
+          }
+        : null;
     streamedDebugData.kids = kidsReadability;
     streamedDebugData.rateLimit = rateLimit;
     stream.write("debug", {
@@ -602,11 +617,21 @@ export async function chatHandler(req, res, next) {
         ? {
             validation: scientistValidation,
             repairAttempted: scientistRepairAttempted,
+            enforceStructure: enforceScientistStructure,
             sourceCount: Array.isArray(personality?.researchSources)
               ? personality.researchSources.length
               : 0,
           }
-        : null,
+        : policy.activeMode === "scientist"
+          ? {
+              validation: null,
+              repairAttempted: false,
+              enforceStructure: enforceScientistStructure,
+              sourceCount: Array.isArray(personality?.researchSources)
+                ? personality.researchSources.length
+                : 0,
+            }
+          : null,
       kids: kidsReadability,
       rateLimit,
       prompt: promptPackage.debug,

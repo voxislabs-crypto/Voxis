@@ -640,7 +640,7 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 ### Server-Side TTS
 
-`POST /tts` accepts `{text, voiceProfile}` and calls the configured TTS provider. `voiceProfile` carries the per-character settings saved in the personality: provider model, voice name, pitch, and rate. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+`POST /personality/:id/tts` accepts `{text, voiceProfile}` and calls the configured TTS provider for that character. `voiceProfile` carries the per-character settings saved in the personality: provider model, voice name, pitch, and rate. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
 
 ---
 
@@ -768,6 +768,7 @@ Implementation roadmap for dual scientist and kids experiences, age-based policy
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/users` | List user profiles for mode and age policy selection |
+| `GET` | `/me` | Get the currently signed-in Voxis user resolved from the Clerk token |
 | `POST` | `/users` | Create a user profile (display name, age band, default mode) |
 | `GET` | `/users/:id/profile` | Get one user's policy profile |
 | `PUT` | `/users/:id/profile` | Update one user's policy profile |
@@ -780,15 +781,15 @@ Implementation roadmap for dual scientist and kids experiences, age-based policy
 | `GET` | `/personality/:id` | Get one personality |
 | `POST` | `/personality/:id/harness` | Run adversarial evaluation for a personality and return a scored report |
 | `PUT` | `/personality/:id` | Update a personality |
-| `DELETE` | `/personality/:id` | Delete a personality |
 | `GET` | `/personality/:id/messages` | Get chat history for a personality |
 | `GET` | `/personality/:id/memory` | Get all memory facts for a personality |
 | `POST` | `/personality/:id/memory/backfill` | Backfill missing embeddings for that personality's stored memories |
+| `PATCH` | `/personality/:id/voice` | Update only the saved voice profile for a personality |
 | `PUT` | `/memory/:memoryId` | Edit a memory fact (content, memoryType, importance) |
 | `DELETE` | `/memory/:memoryId` | Delete a memory fact |
 | `POST` | `/chat` | Send a message; supports `userId` + `mode`, applies age-gated policy, and returns `{reply, isAI, moodState, moodLabel, policy, debug}` |
-| `POST` | `/research` | Run the research pipeline for a query + URL list |
-| `POST` | `/tts` | Generate TTS audio for a text string |
+| `POST` | `/research-profile` | Run the profile research/synthesis pipeline for a character query + optional URL list |
+| `POST` | `/personality/:id/tts` | Generate TTS audio for a text string using a personality's voice profile |
 | `GET` | `/settings/llm` | Get runtime LLM connection state and selected model |
 | `GET` | `/settings/llm/providers` | List supported provider presets for the provider-first UI |
 | `POST` | `/settings/llm/connect` | Connect selected provider and fetch available models |

@@ -207,6 +207,57 @@ export function updatePersonalityVoiceProfile(id, voiceProfile) {
   return getPersonalityById(id);
 }
 
+export function updatePersonality(id, personality) {
+  const statement = db.prepare(`
+    UPDATE personalities
+    SET
+      name = @name,
+      description = @description,
+      traits = @traits,
+      quirks = @quirks,
+      mood = @mood,
+      systemPrompt = @systemPrompt,
+      sourceQuery = @sourceQuery,
+      sourceUrls = @sourceUrls,
+      researchSummary = @researchSummary,
+      speechStyle = @speechStyle,
+      notablePhrases = @notablePhrases,
+      researchSources = @researchSources,
+      voiceProfile = @voiceProfile,
+      behaviorRules = @behaviorRules,
+      goals = @goals,
+      coreValues = @coreValues,
+      creativeContext = @creativeContext,
+      moodBaseline = @moodBaseline,
+      moodState = @moodState,
+      moodSensitivity = @moodSensitivity,
+      expressionProfile = @expressionProfile
+    WHERE id = @id
+  `);
+
+  statement.run({
+    id,
+    ...personality,
+    traits: JSON.stringify(personality.traits || []),
+    quirks: JSON.stringify(personality.quirks || []),
+    sourceUrls: JSON.stringify(personality.sourceUrls || []),
+    notablePhrases: JSON.stringify(personality.notablePhrases || []),
+    researchSources: JSON.stringify(personality.researchSources || []),
+    voiceProfile: JSON.stringify(personality.voiceProfile || {}),
+    behaviorRules: JSON.stringify(personality.behaviorRules || []),
+    goals: JSON.stringify(personality.goals || []),
+    coreValues: JSON.stringify(personality.values || []),
+    creativeContext: personality.creativeContext || "default",
+    moodBaseline: JSON.stringify(personality.moodBaseline || {}),
+    moodState: JSON.stringify(personality.moodState || {}),
+    moodSensitivity:
+      typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
+    expressionProfile: JSON.stringify(personality.expressionProfile || {}),
+  });
+
+  return getPersonalityById(id);
+}
+
 export function updateMoodState(id, moodState) {
   db.prepare(`UPDATE personalities SET moodState = ? WHERE id = ?`).run(
     JSON.stringify(moodState),

@@ -348,6 +348,7 @@ export default function App() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [activeView, setActiveView] = useState("builder");
+  const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -613,6 +614,17 @@ export default function App() {
     setStatus({
       type: "success",
       message: `${personality.name} is ready. Start the conversation on the chat page.`,
+    });
+  }
+
+  function handlePersonalityUpdated(personality) {
+    setPersonalities((current) =>
+      current.map((item) => (item.id === personality.id ? personality : item)),
+    );
+    setSelectedId(personality.id);
+    setStatus({
+      type: "success",
+      message: `${personality.name} was updated.`,
     });
   }
 
@@ -988,12 +1000,38 @@ export default function App() {
             <div className="main-content">
               {activeView === "builder" ? (
                 <>
-                  <h2 className="section-heading">Shape a new personality</h2>
+                  <h2 className="section-heading">
+                    {builderMode === "edit" ? "Refine an existing personality" : "Shape a new personality"}
+                  </h2>
                   <p className="section-copy">
-                    Start with a character name and optional source URLs, pull research into the
-                    form, then save a profile with voice settings and a stronger system prompt.
+                    {builderMode === "edit"
+                      ? "Load the selected character into the form, tune behavior and voice, then save updates in place."
+                      : "Start with a character name and optional source URLs, pull research into the form, then save a profile with voice settings and a stronger system prompt."}
                   </p>
-                  <PersonalityForm onCreated={handlePersonalityCreated} onError={setStatus} personalities={personalities} />
+                  <div className="meta-row" style={{ marginBottom: 12 }}>
+                    <button
+                      type="button"
+                      className={`tab ${builderMode === "create" ? "active" : ""}`}
+                      onClick={() => setBuilderMode("create")}
+                    >
+                      Create New
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab ${builderMode === "edit" ? "active" : ""}`}
+                      onClick={() => setBuilderMode("edit")}
+                      disabled={!selectedPersonality}
+                    >
+                      Edit Selected
+                    </button>
+                  </div>
+                  <PersonalityForm
+                    onCreated={handlePersonalityCreated}
+                    onUpdated={handlePersonalityUpdated}
+                    onError={setStatus}
+                    personalities={personalities}
+                    editingPersonality={builderMode === "edit" ? selectedPersonality : null}
+                  />
                 </>
               ) : activeView === "journal" ? (
                 <MemoryJournal personality={selectedPersonality} />

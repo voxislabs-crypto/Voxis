@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEffect } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import AvatarCore from "./AvatarCore.jsx";
 
@@ -431,7 +432,70 @@ const initialForm = {
   expressionIntensity: 0.5,
   expressionBlinkRate: 0.5,
   expressionGazeDrift: 0.5,
+  resetMoodState: false,
 };
+
+function toCommaList(items) {
+  return (Array.isArray(items) ? items : []).filter(Boolean).join(", ");
+}
+
+function toLineList(items) {
+  return (Array.isArray(items) ? items : []).filter(Boolean).join("\n");
+}
+
+function mapPersonalityToForm(personality) {
+  if (!personality) {
+    return { ...initialForm };
+  }
+
+  const voiceProfile = personality.voiceProfile || {};
+  const expressionProfile = personality.expressionProfile || {};
+
+  return {
+    name: personality.name || "",
+    description: personality.description || "",
+    traits: toCommaList(personality.traits),
+    quirks: toCommaList(personality.quirks),
+    mood: personality.mood || "",
+    creativeContext: personality.creativeContext || "default",
+    behaviorRules: toLineList(personality.behaviorRules),
+    goals: toCommaList(personality.goals),
+    values: toCommaList(personality.values),
+    moodSensitivity: String(Number(personality.moodSensitivity ?? 1.0)),
+    sourceQuery: personality.sourceQuery || "",
+    sourceUrls: toLineList(personality.sourceUrls),
+    researchSummary: personality.researchSummary || "",
+    speechStyle: personality.speechStyle || "",
+    notablePhrases: toCommaList(personality.notablePhrases),
+    voiceEnabled: voiceProfile.enabled !== false,
+    voiceAutoplay: Boolean(voiceProfile.autoplay),
+    voicePitch: String(Number(voiceProfile.pitch ?? 1)),
+    voiceRate: String(Number(voiceProfile.rate ?? 1)),
+    preferredVoice: voiceProfile.preferredVoice || voiceProfile.providerVoice || "alloy",
+    providerModel: voiceProfile.providerModel || "gpt-4o-mini-tts",
+    expressionPreset: String(expressionProfile.preset || "auto"),
+    expressionCalmness: String(Number(expressionProfile.calmness ?? 0.5)),
+    expressionIntensity: String(Number(expressionProfile.intensity ?? 0.5)),
+    expressionBlinkRate: String(Number(expressionProfile.blinkRate ?? 0.5)),
+    expressionGazeDrift: String(Number(expressionProfile.gazeDrift ?? 0.5)),
+    resetMoodState: false,
+  };
+}
+
+function mapResearchSourcesForEdit(researchSources) {
+  return (Array.isArray(researchSources) ? researchSources : []).map((source, index) => ({
+    id: String(source?.id || `source-${index + 1}`),
+    title: String(source?.title || "Untitled source"),
+    url: String(source?.url || ""),
+    sourceType: String(source?.sourceType || "web"),
+    text: String(source?.text || ""),
+    score: Number(source?.score) || 0,
+    rank: Number(source?.rank) || index + 1,
+    transcriptAvailable: Boolean(source?.transcriptAvailable),
+    reasons: Array.isArray(source?.reasons) ? source.reasons : [],
+    selected: true,
+  }));
+}
 
 function Tip({ text }) {
   return (
@@ -456,7 +520,13 @@ function splitLineSeparated(value) {
     .filter(Boolean);
 }
 
-export default function PersonalityForm({ onCreated, onError, personalities = [] }) {
+export default function PersonalityForm({
+  onCreated,
+  onUpdated,
+  onError,
+  personalities = [],
+  editingPersonality = null,
+}) {
   const authFetch = useAuthFetch();
   const [form, setForm] = useState(initialForm);
   const [copySourceId, setCopySourceId] = useState("");
@@ -466,6 +536,31 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
   const [researchSources, setResearchSources] = useState([]);
   const [previewPhase, setPreviewPhase] = useState("idle");
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
+  const isEditing = Boolean(editingPersonality?.id);
+
+  useEffect(() => {
+    if (!editingPersonality) {
+      setForm({ ...initialForm });
+      setResearchResult(null);
+      setResearchSources([]);
+      setCopySourceId("");
+      return;
+    }
+
+    setForm(mapPersonalityToForm(editingPersonality));
+    setResearchResult(
+      editingPersonality.researchSummary
+        ? {
+            researchSummary: editingPersonality.researchSummary,
+            traits: editingPersonality.traits || [],
+            quirks: editingPersonality.quirks || [],
+            sources: editingPersonality.researchSources || [],
+          }
+        : null,
+    );
+    setResearchSources(mapResearchSourcesForEdit(editingPersonality.researchSources));
+    setCopySourceId("");
+  }, [editingPersonality]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -480,8 +575,12 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
     setIsSaving(true);
 
     try {
-      const response = await authFetch("/personality", {
-        method: "POST",
+      const endpoint = isEditing
+        ? `/personality/${editingPersonality.id}`
+        : "/personality";
+
+      const response = await authFetch(endpoint, {
+        method: isEditing ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -518,6 +617,7 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
             blinkRate: Number(form.expressionBlinkRate),
             gazeDrift: Number(form.expressionGazeDrift),
           },
+          resetMoodState: Boolean(form.resetMoodState),
         }),
       });
 
@@ -527,16 +627,22 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
         throw new Error(data.error || "Failed to save personality.");
       }
 
-      onCreated(data);
+      if (isEditing) {
+        onUpdated?.(data);
+      } else {
+        onCreated?.(data);
+      }
       onError({ type: "", message: "" });
-      setForm(initialForm);
-      setCopySourceId("");
-      setResearchResult(null);
-      setResearchSources([]);
+      if (!isEditing) {
+        setForm(initialForm);
+        setCopySourceId("");
+        setResearchResult(null);
+        setResearchSources([]);
+      }
     } catch (error) {
       onError({
         type: "error",
-        message: error.message || "Failed to save personality.",
+        message: error.message || (isEditing ? "Failed to update personality." : "Failed to save personality."),
       });
     } finally {
       setIsSaving(false);
@@ -657,6 +763,18 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
           </span>
           <span className="workflow-required-note">Fields marked <span className="required-star">*</span> are required</span>
         </div>
+
+        {isEditing ? (
+          <div className="workflow-banner" style={{ marginTop: 12 }}>
+            <span className="workflow-step">
+              <span className="workflow-num">Edit</span>
+              Updating: <strong style={{ marginLeft: 4 }}>{editingPersonality?.name}</strong>
+            </span>
+            <span className="workflow-required-note">
+              Save updates to immediately retune this character.
+            </span>
+          </div>
+        ) : null}
         <div className="creator-grid">
           <div className="field">
             <label htmlFor="name">
@@ -683,6 +801,22 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
               onChange={updateField}
             />
           </div>
+
+          {isEditing ? (
+            <label className="checkbox-row" style={{ paddingTop: 36 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(form.resetMoodState)}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    resetMoodState: event.target.checked,
+                  }))
+                }
+              />
+              Reset live mood state to the updated mood baseline
+            </label>
+          ) : null}
 
           <div className="field">
             <label htmlFor="creativeContext">
@@ -1175,7 +1309,13 @@ export default function PersonalityForm({ onCreated, onError, personalities = []
             </button>
             <span style={{ display: "inline-block", width: 10 }} />
             <button className="primary-button" type="submit" disabled={isSaving}>
-              {isSaving ? "Saving Personality..." : "Save Personality"}
+              {isSaving
+                ? isEditing
+                  ? "Updating Personality..."
+                  : "Saving Personality..."
+                : isEditing
+                  ? "Update Personality"
+                  : "Save Personality"}
             </button>
           </div>
         </div>

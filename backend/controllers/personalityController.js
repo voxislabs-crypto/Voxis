@@ -2,6 +2,7 @@ import {
   createPersonality,
   getAllPersonalities,
   getPersonalityById,
+  updatePersonality,
   updatePersonalityVoiceProfile,
 } from "../models/personalityModel.js";
 import { moodFromLabel } from "../services/moodEngine.js";
@@ -255,6 +256,122 @@ export function updateVoiceProfileHandler(req, res, next) {
       personalityId,
       sanitizeVoiceProfile(req.body.voiceProfile),
     );
+
+    return res.json(updated);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function updatePersonalityHandler(req, res, next) {
+  try {
+    const personalityId = Number(req.params.id);
+    const ownerId = req.voxisUser?.id ?? null;
+
+    if (!Number.isInteger(personalityId)) {
+      return res.status(400).json({ error: "A valid personality id is required." });
+    }
+
+    const existing = getPersonalityById(personalityId, ownerId);
+
+    if (!existing) {
+      return res.status(404).json({ error: "Personality not found." });
+    }
+
+    const name = String(req.body.name ?? existing.name ?? "").trim();
+    const description = String(req.body.description ?? existing.description ?? "").trim();
+    const mood = String(req.body.mood ?? existing.mood ?? "calm").trim() || "calm";
+    const traits = req.body.traits !== undefined ? sanitizeItems(req.body.traits) : existing.traits;
+    const quirks = req.body.quirks !== undefined ? sanitizeItems(req.body.quirks) : existing.quirks;
+    const sourceQuery = String(req.body.sourceQuery ?? existing.sourceQuery ?? name).trim();
+    const researchSources =
+      req.body.researchSources !== undefined
+        ? sanitizeResearchSources(req.body.researchSources)
+        : sanitizeResearchSources(existing.researchSources);
+    const sourceUrls = researchSources.length
+      ? researchSources.map((source) => source.url)
+      : req.body.sourceUrls !== undefined
+        ? sanitizeSourceUrls(req.body.sourceUrls)
+        : sanitizeSourceUrls(existing.sourceUrls);
+    const researchSummary = String(req.body.researchSummary ?? existing.researchSummary ?? "").trim();
+    const speechStyle = String(req.body.speechStyle ?? existing.speechStyle ?? "").trim();
+    const notablePhrases =
+      req.body.notablePhrases !== undefined
+        ? sanitizeItems(req.body.notablePhrases)
+        : sanitizeItems(existing.notablePhrases);
+    const behaviorRules =
+      req.body.behaviorRules !== undefined
+        ? sanitizeItems(req.body.behaviorRules)
+        : sanitizeItems(existing.behaviorRules);
+    const goals = req.body.goals !== undefined ? sanitizeItems(req.body.goals) : sanitizeItems(existing.goals);
+    const values =
+      req.body.values !== undefined ? sanitizeItems(req.body.values) : sanitizeItems(existing.values);
+    const creativeContext =
+      req.body.creativeContext !== undefined
+        ? sanitizeCreativeContext(req.body.creativeContext)
+        : sanitizeCreativeContext(existing.creativeContext);
+    const voiceProfile =
+      req.body.voiceProfile !== undefined
+        ? sanitizeVoiceProfile(req.body.voiceProfile)
+        : sanitizeVoiceProfile(existing.voiceProfile);
+    const expressionProfile =
+      req.body.expressionProfile !== undefined
+        ? sanitizeExpressionProfile(req.body.expressionProfile)
+        : sanitizeExpressionProfile(existing.expressionProfile);
+    const moodSensitivity =
+      req.body.moodSensitivity !== undefined
+        ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
+        : Math.min(3.0, Math.max(0.1, Number(existing.moodSensitivity) || 1.0));
+    const moodBaseline = moodFromLabel(mood);
+    const shouldResetMoodState = Boolean(req.body.resetMoodState);
+    const moodState = shouldResetMoodState
+      ? { ...moodBaseline }
+      : existing?.moodState && typeof existing.moodState === "object"
+        ? existing.moodState
+        : { ...moodBaseline };
+
+    if (!name) {
+      return res.status(400).json({ error: "Name is required." });
+    }
+
+    if (!description) {
+      return res.status(400).json({ error: "Description is required." });
+    }
+
+    const systemPrompt = generateSystemPrompt({
+      name,
+      description,
+      traits,
+      quirks,
+      mood,
+      speechStyle,
+      notablePhrases,
+      researchSummary,
+    });
+
+    const updated = updatePersonality(personalityId, {
+      name,
+      description,
+      traits,
+      quirks,
+      mood,
+      systemPrompt,
+      sourceQuery,
+      sourceUrls,
+      researchSummary,
+      speechStyle,
+      notablePhrases,
+      researchSources,
+      voiceProfile,
+      behaviorRules,
+      goals,
+      values,
+      creativeContext,
+      moodBaseline,
+      moodState,
+      moodSensitivity,
+      expressionProfile,
+    });
 
     return res.json(updated);
   } catch (error) {

@@ -910,6 +910,74 @@ function bullets(arr) {
     : "- None specified";
 }
 
+const EXPRESSIVE_VOICE_PATTERNS = [
+  /\b(bubbly|playful|chaotic|hyperactive|mischief|whimsy|energetic|excited)\b/i,
+  /\b(sing-?song|tease|taunt|tangent|sparkle|party|silly|quirky)\b/i,
+  /!{1,}/,
+];
+
+const FORMAL_VOICE_PATTERNS = [
+  /\b(formal|clinical|academic|scholarly|measured|protocol|technical|evidence-first)\b/i,
+  /\b(structured|methodical|analytical|objective|detached)\b/i,
+];
+
+function buildVoiceGuardrails({
+  name,
+  speechStyle,
+  notablePhrases,
+  traits,
+  quirks,
+  mood,
+}) {
+  const voiceContext = [
+    speechStyle,
+    ...(Array.isArray(traits) ? traits : []),
+    ...(Array.isArray(quirks) ? quirks : []),
+    ...(Array.isArray(notablePhrases) ? notablePhrases : []),
+    mood,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const isExpressive = EXPRESSIVE_VOICE_PATTERNS.some((pattern) => pattern.test(voiceContext));
+  const isFormal = FORMAL_VOICE_PATTERNS.some((pattern) => pattern.test(voiceContext));
+  const samplePhrases = (Array.isArray(notablePhrases) ? notablePhrases : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const guardrails = [
+    `Speak as ${name} in a consistent, lived voice; embody the persona instead of describing it.`,
+    "Default to natural in-character prose, not assistant meta-explanations or protocol narration.",
+    "Avoid rigid numbered sections, citations, and report formatting unless the user explicitly asks for analysis format.",
+  ];
+
+  if (isExpressive) {
+    guardrails.push(
+      "Bias toward short-to-medium lines, energetic punctuation, playful interjections, and occasional tangents while still answering the user.",
+    );
+    guardrails.push(
+      "Do not flatten into polite neutral helper tone; keep the persona's spontaneous emotional color visible in every turn.",
+    );
+  } else if (isFormal) {
+    guardrails.push(
+      "Maintain a composed voice, but stay conversational and character-first before any structured analysis.",
+    );
+  } else {
+    guardrails.push(
+      "Keep cadence and diction aligned with the stored speech style and quirks on every reply.",
+    );
+  }
+
+  if (samplePhrases.length) {
+    guardrails.push(
+      `Naturally weave in signature phrasing when it fits: ${samplePhrases.join(" | ")}.`,
+    );
+  }
+
+  return guardrails.map((line) => `- ${line}`).join("\n");
+}
+
 export function buildPersonaPromptPackage(personality, memoryFacts = [], queryText = "") {
   const {
     name,
@@ -966,6 +1034,15 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     220,
     (omittedCount) => `- ${omittedCount} additional phrases omitted for prompt budget.`,
   ).join("\n");
+
+  const voiceGuardrails = buildVoiceGuardrails({
+    name,
+    speechStyle,
+    notablePhrases,
+    traits,
+    quirks,
+    mood,
+  });
 
   const valuesSection = fitLinesWithinBudget(
     (values || []).map((item) => `- ${item}`),
@@ -1027,6 +1104,9 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
       ? `\nPhrases you use naturally:\n${notablePhraseSection}`
       : "",
     "",
+    "== VOICE GUARDRAILS ==",
+    voiceGuardrails,
+    "",
     "== VALUES & MOTIVATIONS ==",
     `Values:\n${valuesSection}`,
     `\nGoals:\n${goalsSection}`,
@@ -1078,6 +1158,9 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
           total: Array.isArray(quirks) ? quirks.length : 0,
           used: quirkSection.split("\n").filter(Boolean).length,
           approxTokens: estimateTokenCount(quirkSection),
+        },
+        voiceGuardrails: {
+          approxTokens: estimateTokenCount(voiceGuardrails),
         },
         values: {
           total: Array.isArray(values) ? values.length : 0,

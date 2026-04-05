@@ -137,7 +137,7 @@ export function buildModePolicyPrompt(policy) {
   ].join("\n");
 }
 
-export function buildScientistEvidencePrompt(policy, personality) {
+export function buildScientistEvidencePrompt(policy, personality, { enforceStructure = true } = {}) {
   if (policy.activeMode !== "scientist") {
     return "";
   }
@@ -159,8 +159,22 @@ export function buildScientistEvidencePrompt(policy, personality) {
     : "- No research sources attached to this personality.";
 
   const citationInstruction = policy.citationRequired
-    ? "Citations are required: reference supporting sources as [S#] in the answer and evidence sections."
+    ? enforceStructure
+      ? "Citations are required: reference supporting sources as [S#] in the answer and evidence sections."
+      : "When making factual claims, cite supporting sources as [S#] where applicable."
     : "Include citations when useful, but they are optional in this mode.";
+
+  if (!enforceStructure) {
+    return [
+      "== SCIENTIST EVIDENCE GUIDANCE ==",
+      "Keep the character's natural voice and cadence primary.",
+      "Use evidence-grounded reasoning only where factual claims are made.",
+      citationInstruction,
+      "If evidence is unavailable, state that limitation briefly without breaking character.",
+      "Available sources:",
+      sourceLines,
+    ].join("\n");
+  }
 
   return [
     "== SCIENTIST OUTPUT CONTRACT ==",
