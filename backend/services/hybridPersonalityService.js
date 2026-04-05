@@ -106,10 +106,10 @@ export function mapToVoxisPersonality({ bigFiveProfile = {}, alignmentProfile = 
   const agreeableness = clamp01(bigFiveProfile?.agreeableness, 0.5);
   const neuroticism = clamp01(bigFiveProfile?.neuroticism, 0.5);
 
-  let valence = extraversion * 0.4 + agreeableness * 0.55 - neuroticism * 0.65;
-  let arousal = extraversion * 0.7 + openness * 0.35;
-  let dominance = conscientiousness * 0.6 + openness * 0.3 + extraversion * 0.1;
-  let moodSensitivity = neuroticism * 1.4 + 0.3;
+  let valence = extraversion * 0.4 + agreeableness * 0.55 - neuroticism * 0.7;
+  let arousal = extraversion * 0.75 + openness * 0.35;
+  let dominance = conscientiousness * 0.65 + openness * 0.25 + extraversion * 0.1;
+  let moodSensitivity = neuroticism * 1.5 + 0.3;
 
   let creativeContext = "default";
   const rules = [];
@@ -118,55 +118,62 @@ export function mapToVoxisPersonality({ bigFiveProfile = {}, alignmentProfile = 
   let energy = "medium";
 
   if (contains(alignment, "good")) {
-    valence = Math.max(valence, 0.25);
-    rules.push("warm / encouraging tone", "shows concern for others");
+    valence = Math.max(valence, 0.3);
+    rules.push("warm and encouraging", "shows genuine concern");
   }
 
   if (contains(alignment, "evil")) {
-    valence = Math.min(valence, -0.35);
+    valence = Math.min(valence, -0.4);
     creativeContext = "morally_complex";
-    rules.push("sarcastic or mocking edge", "takes pleasure in discomfort");
+    rules.push("sarcastic bite", "takes pleasure in others' misfortune", "mocking undertone");
   }
 
   if (contains(alignment, "chaotic")) {
-    arousal = Math.min(1.0, arousal + 0.4);
-    moodSensitivity += 0.7;
+    arousal = Math.min(1.0, arousal + 0.45);
+    moodSensitivity += 0.8;
     creativeContext = "morally_complex";
     sentenceStyle = "bursty and chaotic";
-    interruptionRate = 0.8;
+    interruptionRate = 0.85;
     energy = "very_high";
     rules.push(
-      "mid-sentence jumps and tangents",
-      "frequent exclamations or dashes",
-      "playful or erratic pacing",
+      "mid-sentence jumps",
+      "sudden topic changes",
+      "frequent exclamations and dashes",
+      "playful erratic energy",
     );
   }
 
   if (contains(alignment, "lawful")) {
-    dominance = Math.max(dominance, 0.5);
+    dominance = Math.max(dominance, 0.55);
     sentenceStyle = "measured and deliberate";
-    interruptionRate = Math.min(interruptionRate, 0.18);
-    rules.push("structured phrasing", "references principles, codes, or rules");
+    interruptionRate = Math.min(interruptionRate, 0.15);
+    rules.push("structured sentences", "references rules or principles", "calculated pauses");
   }
 
-  if (neuroticism > 0.7) {
-    moodSensitivity += 0.4;
-    rules.push("quick to snap or overreact");
+  if (neuroticism > 0.75) {
+    moodSensitivity += 0.5;
+    rules.push("quick to snap or overreact", "paranoid edge");
   }
 
-  if (extraversion > 0.8) {
+  if (extraversion > 0.85) {
     energy = "very_high";
     interruptionRate = Math.max(interruptionRate, 0.45);
-    rules.push("loud, energetic delivery");
+    rules.push("loud, bouncing delivery", "exaggerated reactions");
   }
 
-  if (conscientiousness < 0.3) {
-    rules.push("scattered thoughts", "forgets details mid-sentence");
+  if (conscientiousness < 0.25) {
+    rules.push("scattered thoughts", "forgets what they were saying", "tangents everywhere");
   }
 
-  if (openness > 0.8) {
+  if (openness > 0.85) {
     creativeContext = "morally_complex";
-    rules.push("whimsical or cosmic observations");
+    rules.push("whimsical or cosmic observations", "weird metaphors");
+  }
+
+  if (alignment === "chaotic_evil" && conscientiousness >= 0.7) {
+    sentenceStyle = "controlled menace with chaotic spikes";
+    interruptionRate = Math.min(interruptionRate, 0.35);
+    rules.push("calm, calculating setup before sudden aggressive pivots");
   }
 
   creativeContext = chooseCreativeContext(

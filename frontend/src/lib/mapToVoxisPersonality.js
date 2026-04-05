@@ -62,10 +62,10 @@ export function mapToVoxisPersonality({ bigFiveProfile = {}, alignmentProfile = 
     ? String(alignmentProfile?.alignment || "true_neutral").trim().toLowerCase()
     : "true_neutral";
 
-  let valence = E * 0.4 + A * 0.55 - N * 0.65;
-  let arousal = E * 0.7 + O * 0.35;
-  let dominance = C * 0.6 + O * 0.3 + E * 0.1;
-  let moodSensitivity = N * 1.4 + 0.3;
+  let valence = E * 0.4 + A * 0.55 - N * 0.7;
+  let arousal = E * 0.75 + O * 0.35;
+  let dominance = C * 0.65 + O * 0.25 + E * 0.1;
+  let moodSensitivity = N * 1.5 + 0.3;
 
   let creativeContext = "default";
   const rules = [];
@@ -74,55 +74,62 @@ export function mapToVoxisPersonality({ bigFiveProfile = {}, alignmentProfile = 
   let energy = "medium";
 
   if (contains(alignmentKey, "good")) {
-    valence = Math.max(valence, 0.25);
-    rules.push("warm / encouraging tone", "shows concern for others");
+    valence = Math.max(valence, 0.3);
+    rules.push("warm and encouraging", "shows genuine concern");
   }
 
   if (contains(alignmentKey, "evil")) {
-    valence = Math.min(valence, -0.35);
+    valence = Math.min(valence, -0.4);
     creativeContext = "morally_complex";
-    rules.push("sarcastic or mocking edge", "takes pleasure in discomfort");
+    rules.push("sarcastic bite", "takes pleasure in others' misfortune", "mocking undertone");
   }
 
   if (contains(alignmentKey, "chaotic")) {
-    arousal = Math.min(1.0, arousal + 0.4);
-    moodSensitivity += 0.7;
+    arousal = Math.min(1.0, arousal + 0.45);
+    moodSensitivity += 0.8;
     creativeContext = "morally_complex";
     sentenceStyle = "bursty and chaotic";
-    interruptionRate = 0.8;
+    interruptionRate = 0.85;
     energy = "very_high";
     rules.push(
-      "mid-sentence jumps and tangents",
-      "frequent exclamations or dashes",
-      "playful or erratic pacing",
+      "mid-sentence jumps",
+      "sudden topic changes",
+      "frequent exclamations and dashes",
+      "playful erratic energy",
     );
   }
 
   if (contains(alignmentKey, "lawful")) {
-    dominance = Math.max(dominance, 0.5);
+    dominance = Math.max(dominance, 0.55);
     sentenceStyle = "measured and deliberate";
-    interruptionRate = Math.min(interruptionRate, 0.18);
-    rules.push("structured phrasing", "references principles, codes, or rules");
+    interruptionRate = Math.min(interruptionRate, 0.15);
+    rules.push("structured sentences", "references rules or principles", "calculated pauses");
   }
 
-  if (N > 0.7) {
-    moodSensitivity += 0.4;
-    rules.push("quick to snap or overreact");
+  if (N > 0.75) {
+    moodSensitivity += 0.5;
+    rules.push("quick to snap or overreact", "paranoid edge");
   }
 
-  if (E > 0.8) {
+  if (E > 0.85) {
     energy = "very_high";
     interruptionRate = Math.max(interruptionRate, 0.45);
-    rules.push("loud, energetic delivery");
+    rules.push("loud, bouncing delivery", "exaggerated reactions");
   }
 
-  if (C < 0.3) {
-    rules.push("scattered thoughts", "forgets details mid-sentence");
+  if (C < 0.25) {
+    rules.push("scattered thoughts", "forgets what they were saying", "tangents everywhere");
   }
 
-  if (O > 0.8) {
+  if (O > 0.85) {
     creativeContext = "morally_complex";
-    rules.push("whimsical or cosmic observations");
+    rules.push("whimsical or cosmic observations", "weird metaphors");
+  }
+
+  if (alignmentKey === "chaotic_evil" && C >= 0.7) {
+    sentenceStyle = "controlled menace with chaotic spikes";
+    interruptionRate = Math.min(interruptionRate, 0.35);
+    rules.push("calm, calculating setup before sudden aggressive pivots");
   }
 
   creativeContext = chooseCreativeContext(alignmentKey, { openness: O, conscientiousness: C, neuroticism: N }, creativeContext);

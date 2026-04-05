@@ -705,6 +705,8 @@ The character pipeline now supports a layered personality model with graphical i
 - **Hybrid Tuning Preview card** (`HybridPreview.jsx`) — a live panel that recomputes VAD baseline (Valence/Arousal/Dominance), mood sensitivity, suggested creative context, and expression rules from the current Big Five × alignment combination. Hovering alignment cells temporarily previews alternate mappings before commit.
 - **Apply Mapped Tuning action** (`PersonalityForm.jsx`) — one-click copy of mapper output into editable fields (`creativeContext`, `moodSensitivity`, `expressionStyle`) so creators can iterate quickly instead of hand-transcribing the preview.
 - **Refined nonlinear mapper** — the shared mapper now uses stronger Big Five coefficients plus alignment overlays (Good/Evil/Chaotic/Lawful) and trait-aware expression rule synthesis so opposing archetypes separate more clearly in both preview and runtime behavior.
+  - Chaotic Good + high E/O + low C now trends toward kinetic, playful, tangent-heavy expression.
+  - Chaotic Evil + high C now trends toward controlled menace with sharp chaotic spikes rather than generic chaotic chatter.
 
 These values are persisted in the personality record and injected into the runtime prompt package, so they remain compatible with existing memory retrieval, VAD mood updates, goal selection, and prompt budgeting.
 

@@ -32,7 +32,7 @@ describe("hybridPersonalityService", () => {
       alignmentProfile: villain.alignmentProfile,
     });
 
-    expect(tuning.moodBaseline.valence).toBeLessThan(0);
+    expect(tuning.moodBaseline.valence).toBeLessThanOrEqual(-0.4);
     expect(tuning.moodBaseline.dominance).toBeGreaterThan(0);
     expect(tuning.creativeContext).toMatch(/morally_complex|tragic_villain|narrative_antagonist/);
     expect(tuning.expressionStyle.sentenceStyle.length).toBeGreaterThan(0);
@@ -68,7 +68,8 @@ describe("hybridPersonalityService", () => {
     expect(zoeTuning.moodBaseline.valence).toBeGreaterThan(villainTuning.moodBaseline.valence);
     expect(zoeTuning.moodSensitivity).toBeGreaterThan(1);
     expect(villainTuning.moodSensitivity).toBeGreaterThan(1);
-    expect(zoeTuning.expressionStyle.rules).toContain("mid-sentence jumps and tangents");
-    expect(villainTuning.expressionStyle.rules).toContain("takes pleasure in discomfort");
+    expect(zoeTuning.expressionStyle.rules).toContain("playful erratic energy");
+    expect(villainTuning.expressionStyle.rules).toContain("takes pleasure in others' misfortune");
+    expect(villainTuning.expressionStyle.sentenceStyle).toContain("controlled menace");
   });
 });
