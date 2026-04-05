@@ -704,6 +704,7 @@ The character pipeline now supports a layered personality model with graphical i
 - **3×3 Alignment grid** (`AlignmentGrid.jsx`) — replaces the dropdown. Click any cell to select and auto-enable the alignment overlay. Cells are color-coded by row: teal for Good, indigo for Neutral, rose for Evil, with a glow effect on the selected cell.
 - **Hybrid Tuning Preview card** (`HybridPreview.jsx`) — a live panel that recomputes VAD baseline (Valence/Arousal/Dominance), mood sensitivity, suggested creative context, and expression rules from the current Big Five × alignment combination. Hovering alignment cells temporarily previews alternate mappings before commit.
 - **Apply Mapped Tuning action** (`PersonalityForm.jsx`) — one-click copy of mapper output into editable fields (`creativeContext`, `moodSensitivity`, `expressionStyle`) so creators can iterate quickly instead of hand-transcribing the preview.
+- **Refined nonlinear mapper** — the shared mapper now uses stronger Big Five coefficients plus alignment overlays (Good/Evil/Chaotic/Lawful) and trait-aware expression rule synthesis so opposing archetypes separate more clearly in both preview and runtime behavior.
 
 These values are persisted in the personality record and injected into the runtime prompt package, so they remain compatible with existing memory retrieval, VAD mood updates, goal selection, and prompt budgeting.
 
@@ -777,6 +778,7 @@ Current rollout scope:
 - See [docs/HYBRID_PERSONALITY_MAPPING.md](docs/HYBRID_PERSONALITY_MAPPING.md) for the structured Big Five + alignment mapping table, archetype expression rules, and ready-to-test payload examples.
 - Canonical mapping logic is `mapToVoxisPersonality` in [backend/services/hybridPersonalityService.js](backend/services/hybridPersonalityService.js), with matching frontend preview logic in [frontend/src/lib/mapToVoxisPersonality.js](frontend/src/lib/mapToVoxisPersonality.js).
 - Backend auto-application can be activated per request with `autoTuneHybrid: true`.
+- Recommended calibration pass: compare extreme archetypes (e.g., Chaotic Good Zoe vs Chaotic Evil Villain) and tune coefficients until VAD, sensitivity, context, and expression rules all diverge in a way that feels narratively distinct.
 
 ---
 

@@ -51,4 +51,24 @@ describe("hybridPersonalityService", () => {
 
     expect(fromCanonical).toEqual(fromLegacy);
   });
+
+  it("creates clear contrast between Zoe and Villain archetypes", () => {
+    const zoe = TEST_PERSONALITIES.find((item) => item.id === "zoe_test");
+    const villain = TEST_PERSONALITIES.find((item) => item.id === "villain_silly");
+
+    const zoeTuning = mapToVoxisPersonality({
+      bigFiveProfile: zoe.bigFiveProfile,
+      alignmentProfile: zoe.alignmentProfile,
+    });
+    const villainTuning = mapToVoxisPersonality({
+      bigFiveProfile: villain.bigFiveProfile,
+      alignmentProfile: villain.alignmentProfile,
+    });
+
+    expect(zoeTuning.moodBaseline.valence).toBeGreaterThan(villainTuning.moodBaseline.valence);
+    expect(zoeTuning.moodSensitivity).toBeGreaterThan(1);
+    expect(villainTuning.moodSensitivity).toBeGreaterThan(1);
+    expect(zoeTuning.expressionStyle.rules).toContain("mid-sentence jumps and tangents");
+    expect(villainTuning.expressionStyle.rules).toContain("takes pleasure in discomfort");
+  });
 });
