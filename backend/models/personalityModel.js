@@ -1,6 +1,10 @@
 import db from "../db/db.js";
 
 function parseJsonArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed : [];
@@ -10,6 +14,10 @@ function parseJsonArray(value) {
 }
 
 function parseJsonObject(value, fallback = {}) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback;
@@ -55,6 +63,26 @@ function normalizeRow(row) {
       blinkRate: 0.5,
       gazeDrift: 0.5,
     }),
+    bigFiveProfile: parseJsonObject(row.bigFiveProfile, {
+      openness: 0.5,
+      conscientiousness: 0.5,
+      extraversion: 0.5,
+      agreeableness: 0.5,
+      neuroticism: 0.5,
+    }),
+    alignmentProfile: parseJsonObject(row.alignmentProfile, {
+      enabled: false,
+      alignment: "true_neutral",
+    }),
+    expressionStyle: (() => {
+      const style = parseJsonObject(row.expressionStyle, {});
+      return {
+        sentenceStyle: String(style.sentenceStyle || "").trim(),
+        interruptionRate: Number(style.interruptionRate) || 0.3,
+        energy: String(style.energy || "medium").trim() || "medium",
+        rules: parseJsonArray(style.rules),
+      };
+    })(),
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
@@ -91,6 +119,9 @@ export function createPersonality(personality) {
       moodState,
       moodSensitivity,
       expressionProfile,
+      bigFiveProfile,
+      alignmentProfile,
+      expressionStyle,
       ownerId
     )
     VALUES (
@@ -115,6 +146,9 @@ export function createPersonality(personality) {
       @moodState,
       @moodSensitivity,
       @expressionProfile,
+      @bigFiveProfile,
+      @alignmentProfile,
+      @expressionStyle,
       @ownerId
     )
   `);
@@ -135,6 +169,9 @@ export function createPersonality(personality) {
     moodState: JSON.stringify(personality.moodState || {}),
     moodSensitivity: typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
     expressionProfile: JSON.stringify(personality.expressionProfile || {}),
+    bigFiveProfile: JSON.stringify(personality.bigFiveProfile || {}),
+    alignmentProfile: JSON.stringify(personality.alignmentProfile || {}),
+    expressionStyle: JSON.stringify(personality.expressionStyle || {}),
     ownerId: personality.ownerId || null,
   });
 
@@ -149,7 +186,7 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
         FROM personalities
         WHERE ownerId = ?
         ORDER BY id DESC
@@ -160,7 +197,7 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
         FROM personalities
         ORDER BY id DESC
       `);
@@ -177,7 +214,7 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
         FROM personalities
         WHERE id = ? AND ownerId = ?
       `)
@@ -187,7 +224,7 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
         FROM personalities
         WHERE id = ?
       `);
@@ -231,7 +268,10 @@ export function updatePersonality(id, personality) {
       moodBaseline = @moodBaseline,
       moodState = @moodState,
       moodSensitivity = @moodSensitivity,
-      expressionProfile = @expressionProfile
+      expressionProfile = @expressionProfile,
+      bigFiveProfile = @bigFiveProfile,
+      alignmentProfile = @alignmentProfile,
+      expressionStyle = @expressionStyle
     WHERE id = @id
   `);
 
@@ -253,6 +293,9 @@ export function updatePersonality(id, personality) {
     moodSensitivity:
       typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
     expressionProfile: JSON.stringify(personality.expressionProfile || {}),
+    bigFiveProfile: JSON.stringify(personality.bigFiveProfile || {}),
+    alignmentProfile: JSON.stringify(personality.alignmentProfile || {}),
+    expressionStyle: JSON.stringify(personality.expressionStyle || {}),
   });
 
   return getPersonalityById(id);

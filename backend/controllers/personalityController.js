@@ -104,6 +104,51 @@ function clamp01(value, fallback = 0.5) {
   return Math.min(1, Math.max(0, n));
 }
 
+const VALID_ALIGNMENTS = new Set([
+  "lawful_good",
+  "neutral_good",
+  "chaotic_good",
+  "lawful_neutral",
+  "true_neutral",
+  "chaotic_neutral",
+  "lawful_evil",
+  "neutral_evil",
+  "chaotic_evil",
+]);
+
+const VALID_EXPRESSION_ENERGY = new Set(["low", "medium", "high", "very_high"]);
+
+function sanitizeBigFiveProfile(input) {
+  const profile = input && typeof input === "object" ? input : {};
+  return {
+    openness: clamp01(profile.openness, 0.5),
+    conscientiousness: clamp01(profile.conscientiousness, 0.5),
+    extraversion: clamp01(profile.extraversion, 0.5),
+    agreeableness: clamp01(profile.agreeableness, 0.5),
+    neuroticism: clamp01(profile.neuroticism, 0.5),
+  };
+}
+
+function sanitizeAlignmentProfile(input) {
+  const profile = input && typeof input === "object" ? input : {};
+  const alignment = String(profile.alignment || "true_neutral").trim().toLowerCase();
+  return {
+    enabled: Boolean(profile.enabled),
+    alignment: VALID_ALIGNMENTS.has(alignment) ? alignment : "true_neutral",
+  };
+}
+
+function sanitizeExpressionStyle(input) {
+  const style = input && typeof input === "object" ? input : {};
+  const energy = String(style.energy || "medium").trim().toLowerCase();
+  return {
+    sentenceStyle: String(style.sentenceStyle || "").trim(),
+    interruptionRate: clamp01(style.interruptionRate, 0.3),
+    energy: VALID_EXPRESSION_ENERGY.has(energy) ? energy : "medium",
+    rules: sanitizeItems(style.rules).slice(0, 12),
+  };
+}
+
 const VALID_EXPRESSION_PRESETS = new Set([
   "auto",
   "sentinel",
@@ -184,6 +229,9 @@ export function createPersonalityHandler(req, res, next) {
     const creativeContext = sanitizeCreativeContext(req.body.creativeContext);
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
     const expressionProfile = sanitizeExpressionProfile(req.body.expressionProfile);
+    const bigFiveProfile = sanitizeBigFiveProfile(req.body.bigFiveProfile);
+    const alignmentProfile = sanitizeAlignmentProfile(req.body.alignmentProfile);
+    const expressionStyle = sanitizeExpressionStyle(req.body.expressionStyle);
     const moodSensitivity = Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0));
     const moodBaseline = moodFromLabel(mood);
     const moodState = { ...moodBaseline };
@@ -229,6 +277,9 @@ export function createPersonalityHandler(req, res, next) {
       moodState,
       moodSensitivity,
       expressionProfile,
+      bigFiveProfile,
+      alignmentProfile,
+      expressionStyle,
       ownerId: req.voxisUser?.id ?? null,
     });
 
@@ -318,6 +369,18 @@ export function updatePersonalityHandler(req, res, next) {
       req.body.expressionProfile !== undefined
         ? sanitizeExpressionProfile(req.body.expressionProfile)
         : sanitizeExpressionProfile(existing.expressionProfile);
+    const bigFiveProfile =
+      req.body.bigFiveProfile !== undefined
+        ? sanitizeBigFiveProfile(req.body.bigFiveProfile)
+        : sanitizeBigFiveProfile(existing.bigFiveProfile);
+    const alignmentProfile =
+      req.body.alignmentProfile !== undefined
+        ? sanitizeAlignmentProfile(req.body.alignmentProfile)
+        : sanitizeAlignmentProfile(existing.alignmentProfile);
+    const expressionStyle =
+      req.body.expressionStyle !== undefined
+        ? sanitizeExpressionStyle(req.body.expressionStyle)
+        : sanitizeExpressionStyle(existing.expressionStyle);
     const moodSensitivity =
       req.body.moodSensitivity !== undefined
         ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
@@ -371,6 +434,9 @@ export function updatePersonalityHandler(req, res, next) {
       moodState,
       moodSensitivity,
       expressionProfile,
+      bigFiveProfile,
+      alignmentProfile,
+      expressionStyle,
     });
 
     return res.json(updated);

@@ -56,6 +56,21 @@ ensureColumn(
   "expressionProfile",
   `TEXT NOT NULL DEFAULT '{"preset":"auto","calmness":0.5,"intensity":0.5,"blinkRate":0.5,"gazeDrift":0.5}'`,
 );
+ensureColumn(
+  "personalities",
+  "bigFiveProfile",
+  `TEXT NOT NULL DEFAULT '{"openness":0.5,"conscientiousness":0.5,"extraversion":0.5,"agreeableness":0.5,"neuroticism":0.5}'`,
+);
+ensureColumn(
+  "personalities",
+  "alignmentProfile",
+  `TEXT NOT NULL DEFAULT '{"enabled":false,"alignment":"true_neutral"}'`,
+);
+ensureColumn(
+  "personalities",
+  "expressionStyle",
+  `TEXT NOT NULL DEFAULT '{"sentenceStyle":"","interruptionRate":0.3,"energy":"medium","rules":[]}'`,
+);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_messages (

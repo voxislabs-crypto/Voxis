@@ -921,6 +921,85 @@ const FORMAL_VOICE_PATTERNS = [
   /\b(structured|methodical|analytical|objective|detached)\b/i,
 ];
 
+const ALIGNMENT_LABELS = {
+  lawful_good: "Lawful Good",
+  neutral_good: "Neutral Good",
+  chaotic_good: "Chaotic Good",
+  lawful_neutral: "Lawful Neutral",
+  true_neutral: "True Neutral",
+  chaotic_neutral: "Chaotic Neutral",
+  lawful_evil: "Lawful Evil",
+  neutral_evil: "Neutral Evil",
+  chaotic_evil: "Chaotic Evil",
+};
+
+const ALIGNMENT_BEHAVIOR_HINTS = {
+  lawful_good: "Prioritize prosocial outcomes with consistent principles and restraint.",
+  neutral_good: "Prioritize helping outcomes while staying flexible about process.",
+  chaotic_good: "Prioritize helping outcomes through improvisation and independence.",
+  lawful_neutral: "Prioritize order, contracts, and procedural consistency over sentiment.",
+  true_neutral: "Preserve balance and context-fit choices without fixed ideological bias.",
+  chaotic_neutral: "Prioritize autonomy and spontaneity over rigid commitments.",
+  lawful_evil: "Pursue self-serving outcomes through control, structure, and calculated discipline.",
+  neutral_evil: "Pursue self-serving outcomes pragmatically with minimal unnecessary spectacle.",
+  chaotic_evil: "Pursue destructive or exploitative impulses through volatility and disruption.",
+};
+
+function formatBigFiveRegister(profile = {}) {
+  const traits = [
+    ["Openness", Number(profile.openness)],
+    ["Conscientiousness", Number(profile.conscientiousness)],
+    ["Extraversion", Number(profile.extraversion)],
+    ["Agreeableness", Number(profile.agreeableness)],
+    ["Neuroticism", Number(profile.neuroticism)],
+  ];
+
+  const lines = traits
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([label, value]) => `- ${label}: ${(Math.min(1, Math.max(0, value)) * 100).toFixed(0)}%`);
+
+  return lines.length ? lines.join("\n") : "- Not specified";
+}
+
+function formatAlignmentOverlay(profile = {}) {
+  if (!profile.enabled) {
+    return null;
+  }
+
+  const alignmentKey = String(profile.alignment || "true_neutral").trim().toLowerCase();
+  const alignmentLabel = ALIGNMENT_LABELS[alignmentKey] || ALIGNMENT_LABELS.true_neutral;
+  const hint = ALIGNMENT_BEHAVIOR_HINTS[alignmentKey] || ALIGNMENT_BEHAVIOR_HINTS.true_neutral;
+
+  return [`- Alignment: ${alignmentLabel}`, `- Moral overlay: ${hint}`].join("\n");
+}
+
+function formatExpressionStyle(style = {}) {
+  const lines = [];
+
+  if (style.sentenceStyle) {
+    lines.push(`- Sentence style: ${style.sentenceStyle}`);
+  }
+
+  if (Number.isFinite(Number(style.interruptionRate))) {
+    lines.push(`- Interruption rate: ${Math.round(Math.min(1, Math.max(0, Number(style.interruptionRate))) * 100)}%`);
+  }
+
+  if (style.energy) {
+    lines.push(`- Energy level: ${style.energy}`);
+  }
+
+  const rules = Array.isArray(style.rules)
+    ? style.rules.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+
+  if (rules.length) {
+    lines.push("- Rules:");
+    lines.push(...rules.map((rule) => `  - ${rule}`));
+  }
+
+  return lines.length ? lines.join("\n") : "- Not specified";
+}
+
 function buildVoiceGuardrails({
   name,
   speechStyle,
@@ -928,6 +1007,7 @@ function buildVoiceGuardrails({
   traits,
   quirks,
   mood,
+  expressionStyle,
 }) {
   const voiceContext = [
     speechStyle,
@@ -975,6 +1055,13 @@ function buildVoiceGuardrails({
     );
   }
 
+  const styleRules = Array.isArray(expressionStyle?.rules)
+    ? expressionStyle.rules.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
+    : [];
+  if (styleRules.length) {
+    guardrails.push(`Follow expression rules when possible: ${styleRules.join(" | ")}.`);
+  }
+
   return guardrails.map((line) => `- ${line}`).join("\n");
 }
 
@@ -990,6 +1077,9 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     values,
     goals,
     mood,
+    bigFiveProfile,
+    alignmentProfile,
+    expressionStyle,
     researchSummary,
     creativeContext = "default",
   } = personality;
@@ -1042,7 +1132,12 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     traits,
     quirks,
     mood,
+    expressionStyle,
   });
+
+  const bigFiveSection = formatBigFiveRegister(bigFiveProfile);
+  const alignmentSection = formatAlignmentOverlay(alignmentProfile);
+  const expressionStyleSection = formatExpressionStyle(expressionStyle);
 
   const valuesSection = fitLinesWithinBudget(
     (values || []).map((item) => `- ${item}`),
@@ -1106,6 +1201,15 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     "",
     "== VOICE GUARDRAILS ==",
     voiceGuardrails,
+    "",
+    "== BIG FIVE REGISTER ==",
+    bigFiveSection,
+    "",
+    alignmentSection ? "== MORAL COMPASS ==" : null,
+    alignmentSection,
+    alignmentSection ? "" : null,
+    "== EXPRESSION STYLE ==",
+    expressionStyleSection,
     "",
     "== VALUES & MOTIVATIONS ==",
     `Values:\n${valuesSection}`,

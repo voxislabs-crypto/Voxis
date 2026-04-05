@@ -432,6 +432,17 @@ const initialForm = {
   expressionIntensity: 0.5,
   expressionBlinkRate: 0.5,
   expressionGazeDrift: 0.5,
+  bigFiveOpenness: 0.5,
+  bigFiveConscientiousness: 0.5,
+  bigFiveExtraversion: 0.5,
+  bigFiveAgreeableness: 0.5,
+  bigFiveNeuroticism: 0.5,
+  alignmentOverlayEnabled: false,
+  alignmentOverlay: "true_neutral",
+  expressionSentenceStyle: "",
+  expressionInterruptionRate: 0.3,
+  expressionEnergy: "medium",
+  expressionRules: "",
   resetMoodState: false,
 };
 
@@ -450,6 +461,9 @@ function mapPersonalityToForm(personality) {
 
   const voiceProfile = personality.voiceProfile || {};
   const expressionProfile = personality.expressionProfile || {};
+  const bigFiveProfile = personality.bigFiveProfile || {};
+  const alignmentProfile = personality.alignmentProfile || {};
+  const expressionStyle = personality.expressionStyle || {};
 
   return {
     name: personality.name || "",
@@ -478,6 +492,17 @@ function mapPersonalityToForm(personality) {
     expressionIntensity: String(Number(expressionProfile.intensity ?? 0.5)),
     expressionBlinkRate: String(Number(expressionProfile.blinkRate ?? 0.5)),
     expressionGazeDrift: String(Number(expressionProfile.gazeDrift ?? 0.5)),
+    bigFiveOpenness: String(Number(bigFiveProfile.openness ?? 0.5)),
+    bigFiveConscientiousness: String(Number(bigFiveProfile.conscientiousness ?? 0.5)),
+    bigFiveExtraversion: String(Number(bigFiveProfile.extraversion ?? 0.5)),
+    bigFiveAgreeableness: String(Number(bigFiveProfile.agreeableness ?? 0.5)),
+    bigFiveNeuroticism: String(Number(bigFiveProfile.neuroticism ?? 0.5)),
+    alignmentOverlayEnabled: Boolean(alignmentProfile.enabled),
+    alignmentOverlay: String(alignmentProfile.alignment || "true_neutral"),
+    expressionSentenceStyle: String(expressionStyle.sentenceStyle || ""),
+    expressionInterruptionRate: String(Number(expressionStyle.interruptionRate ?? 0.3)),
+    expressionEnergy: String(expressionStyle.energy || "medium"),
+    expressionRules: toLineList(expressionStyle.rules),
     resetMoodState: false,
   };
 }
@@ -616,6 +641,23 @@ export default function PersonalityForm({
             intensity: Number(form.expressionIntensity),
             blinkRate: Number(form.expressionBlinkRate),
             gazeDrift: Number(form.expressionGazeDrift),
+          },
+          bigFiveProfile: {
+            openness: Number(form.bigFiveOpenness),
+            conscientiousness: Number(form.bigFiveConscientiousness),
+            extraversion: Number(form.bigFiveExtraversion),
+            agreeableness: Number(form.bigFiveAgreeableness),
+            neuroticism: Number(form.bigFiveNeuroticism),
+          },
+          alignmentProfile: {
+            enabled: Boolean(form.alignmentOverlayEnabled),
+            alignment: form.alignmentOverlay,
+          },
+          expressionStyle: {
+            sentenceStyle: form.expressionSentenceStyle,
+            interruptionRate: Number(form.expressionInterruptionRate),
+            energy: form.expressionEnergy,
+            rules: splitLineSeparated(form.expressionRules),
           },
           resetMoodState: Boolean(form.resetMoodState),
         }),
@@ -977,6 +1019,178 @@ export default function PersonalityForm({
               value={form.values}
               onChange={updateField}
             />
+          </div>
+
+          <div className="field full">
+            <label>Big Five spectrum</label>
+            <div className="expression-grid">
+              <div className="field">
+                <label htmlFor="bigFiveOpenness">Openness: {Number(form.bigFiveOpenness).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="bigFiveOpenness"
+                  name="bigFiveOpenness"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.bigFiveOpenness}
+                  onChange={updateField}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bigFiveConscientiousness">Conscientiousness: {Number(form.bigFiveConscientiousness).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="bigFiveConscientiousness"
+                  name="bigFiveConscientiousness"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.bigFiveConscientiousness}
+                  onChange={updateField}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bigFiveExtraversion">Extraversion: {Number(form.bigFiveExtraversion).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="bigFiveExtraversion"
+                  name="bigFiveExtraversion"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.bigFiveExtraversion}
+                  onChange={updateField}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bigFiveAgreeableness">Agreeableness: {Number(form.bigFiveAgreeableness).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="bigFiveAgreeableness"
+                  name="bigFiveAgreeableness"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.bigFiveAgreeableness}
+                  onChange={updateField}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bigFiveNeuroticism">Neuroticism: {Number(form.bigFiveNeuroticism).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="bigFiveNeuroticism"
+                  name="bigFiveNeuroticism"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.bigFiveNeuroticism}
+                  onChange={updateField}
+                />
+              </div>
+            </div>
+            <small>Use Big Five as the continuous base spectrum for personality behavior.</small>
+          </div>
+
+          <div className="field full">
+            <label>D&amp;D moral overlay</label>
+            <div className="voice-grid">
+              <label className="checkbox-row" style={{ paddingTop: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.alignmentOverlayEnabled)}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      alignmentOverlayEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                Enable alignment overlay
+              </label>
+              <div className="field">
+                <label htmlFor="alignmentOverlay">Alignment</label>
+                <select
+                  id="alignmentOverlay"
+                  name="alignmentOverlay"
+                  value={form.alignmentOverlay}
+                  onChange={updateField}
+                  disabled={!form.alignmentOverlayEnabled}
+                  style={{ padding: "13px 16px", border: "1px solid rgba(0,180,255,0.14)", borderRadius: 16, background: "rgba(6,14,28,0.88)", color: "var(--text)" }}
+                >
+                  <option value="lawful_good">Lawful Good</option>
+                  <option value="neutral_good">Neutral Good</option>
+                  <option value="chaotic_good">Chaotic Good</option>
+                  <option value="lawful_neutral">Lawful Neutral</option>
+                  <option value="true_neutral">True Neutral</option>
+                  <option value="chaotic_neutral">Chaotic Neutral</option>
+                  <option value="lawful_evil">Lawful Evil</option>
+                  <option value="neutral_evil">Neutral Evil</option>
+                  <option value="chaotic_evil">Chaotic Evil</option>
+                </select>
+              </div>
+            </div>
+            <small>Optional overlay for moral framing layered on top of Big Five.</small>
+          </div>
+
+          <div className="field full">
+            <label htmlFor="expressionSentenceStyle">Expression style rules</label>
+            <div className="expression-grid">
+              <div className="field">
+                <label htmlFor="expressionSentenceStyle">Sentence style</label>
+                <input
+                  id="expressionSentenceStyle"
+                  name="expressionSentenceStyle"
+                  placeholder="short bursty chaotic"
+                  value={form.expressionSentenceStyle}
+                  onChange={updateField}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="expressionEnergy">Energy level</label>
+                <select
+                  id="expressionEnergy"
+                  name="expressionEnergy"
+                  value={form.expressionEnergy}
+                  onChange={updateField}
+                  style={{ padding: "13px 16px", border: "1px solid rgba(0,180,255,0.14)", borderRadius: 16, background: "rgba(6,14,28,0.88)", color: "var(--text)" }}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="very_high">Very high</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="expressionInterruptionRate">Interruption rate: {Number(form.expressionInterruptionRate).toFixed(2)}</label>
+                <input
+                  className="voice-slider"
+                  id="expressionInterruptionRate"
+                  name="expressionInterruptionRate"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.expressionInterruptionRate}
+                  onChange={updateField}
+                />
+              </div>
+            </div>
+            <textarea
+              className="compact"
+              id="expressionRules"
+              name="expressionRules"
+              placeholder={"interrupt yourself occasionally\nuse exclamation points frequently\njump topics when excited"}
+              value={form.expressionRules}
+              onChange={updateField}
+            />
+            <small>One line per expression rule. These rules are injected directly into prompt voice guardrails.</small>
           </div>
 
           <div className="field">

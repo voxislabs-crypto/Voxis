@@ -581,7 +581,28 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getCorePalette(valence) {
+function getCorePalette(valence, alignmentProfile) {
+  const alignmentEnabled = Boolean(alignmentProfile?.enabled);
+  const alignment = String(alignmentProfile?.alignment || "").toLowerCase();
+  const goodBias = alignmentEnabled && alignment.includes("good");
+  const evilBias = alignmentEnabled && alignment.includes("evil");
+
+  if (goodBias) {
+    return {
+      inner: "rgba(173, 252, 212, 0.96)",
+      outer: "rgba(46, 166, 138, 0.94)",
+      glow: "rgba(84, 225, 176, 0.54)",
+    };
+  }
+
+  if (evilBias) {
+    return {
+      inner: "rgba(255, 156, 184, 0.94)",
+      outer: "rgba(160, 48, 118, 0.96)",
+      glow: "rgba(230, 86, 160, 0.54)",
+    };
+  }
+
   if (valence >= 0.2) {
     return {
       inner: "rgba(135, 241, 255, 0.96)",
@@ -904,7 +925,7 @@ export default function NeuralCore({
   const valence = Number(mood?.valence || 0);
   const arousal = Number(mood?.arousal || 0);
   const dominance = Number(mood?.dominance || 0);
-  const palette = getCorePalette(valence);
+  const palette = getCorePalette(valence, personality?.alignmentProfile);
   const coreSize = Math.round(98 + clamp(Math.abs(arousal), 0, 1) * 56);
   const glowSize = 26 + clamp(Math.abs(dominance), 0, 1) * 26 + clamp(Math.abs(arousal), 0, 1) * 14;
   const heatGlow = 14 + clamp(Math.abs(arousal), 0, 1) * 30;
@@ -1118,6 +1139,9 @@ export default function NeuralCore({
 
             <div className="neural-status">
               <span className="neural-pill">Performance {performanceTier}</span>
+              {personality?.alignmentProfile?.enabled ? (
+                <span className="neural-pill">Alignment {String(personality.alignmentProfile.alignment || "true_neutral").replaceAll("_", " ")}</span>
+              ) : null}
               {repairActive ? <span className="neural-pill">Thinking... repair pass</span> : null}
               {reconditioningActive ? <span className="neural-pill">Reconditioning ripple active</span> : null}
               {kidsMode && voiceNarrationEnabled ? <span className="neural-pill">Mood narration ready</span> : null}

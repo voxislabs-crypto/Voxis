@@ -31,6 +31,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [Database & Migrations](#database--migrations)
 8. [How It Works — Frontend](#how-it-works--frontend)
   - [Neural Core Mindscape](#neural-core-mindscape)
+  - [Hybrid Personality Controls](#hybrid-personality-controls)
 9. [System Flow (At a Glance)](#system-flow-at-a-glance)
 10. [Demo: The "Oh Shit" Moment](#demo-the-oh-shit-moment)
 11. [Future Directions](#future-directions)
@@ -123,6 +124,9 @@ What this demonstrates in minutes:
 ## What It Does
 
 - Build rich character personalities with a name, description, traits, quirks, mood, behavior rules, goals, core values, and a creative context frame.
+- Tune a continuous Big Five spectrum per character (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism).
+- Optionally apply a D&D-style moral alignment overlay (all 9 alignments) on top of the Big Five spectrum.
+- Configure explicit expression style controls (sentence style, interruption rate, energy, and line-by-line rules) for stronger voice consistency.
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
@@ -138,7 +142,9 @@ What this demonstrates in minutes:
 - Memory retrieval can be upgraded to semantic recall with any OpenAI-compatible embeddings endpoint, so the prompt gets the most relevant facts for the current user turn instead of a flat recency/importance dump.
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
+- The runtime prompt package now includes dedicated sections for Big Five register, optional moral compass overlay, and expression style while preserving memory, mood, and active intent orchestration.
 - Server-side voice output through any OpenAI-compatible TTS endpoint with per-character voice settings.
+- Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
 
 ---
 
@@ -683,8 +689,20 @@ The app shell now also includes a lightweight user profile selector (age band + 
 - Basic: name, description, traits, quirks, mood
 - Narrative: creative context (select), behavior rules (textarea — one rule per line), goals (comma-separated), values (comma-separated)
 - Mood: sensitivity slider (0.1–3.0, step 0.05) — sets `moodSensitivity`; live value shown on the label
+- Hybrid personality: Big Five sliders plus optional D&D alignment overlay
+- Expression style: sentence style, interruption rate, energy level, and explicit per-line speaking rules
 - Voice: speech style, notable phrases, TTS provider/voice/pitch/rate/enabled/autoplay
 - Research: source query, source URL list, ranked source cards with per-source enable/disable
+
+### Hybrid Personality Controls
+
+The character pipeline now supports a layered personality model:
+
+- Big Five baseline provides a continuous spectrum for personality tuning.
+- Optional alignment overlay provides moral framing without forcing discrete-only behavior.
+- Expression style rules harden speaking cadence and reduce generic assistant drift.
+
+These values are persisted in the personality record and injected into the runtime prompt package, so they remain compatible with existing memory retrieval, VAD mood updates, goal selection, and prompt budgeting.
 
 **`PersonalityList.jsx`** renders a card per personality. Each card shows the live `moodLabel` (updated after each chat turn), a `creativeContext` badge when the context is non-default, and counts for traits, quirks, and sources.
 
@@ -717,6 +735,7 @@ Color mapping:
 - High arousal increases amber/orange halo intensity and orb size.
 - Memory anchors stay gold.
 - Reconditioning events emit a white/blue stabilizing ripple.
+- Alignment overlay can bias the orb palette toward benevolent (good) or hostile (evil) tints.
 
 Keyboard controls:
 
