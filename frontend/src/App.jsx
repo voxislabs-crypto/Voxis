@@ -268,6 +268,68 @@ const appStyles = `
     border: 1px solid rgba(0, 200, 120, 0.18);
   }
 
+  .global-toast-stack {
+    position: fixed;
+    right: 16px;
+    bottom: 18px;
+    z-index: 1400;
+    pointer-events: none;
+  }
+
+  .global-toast {
+    min-width: min(420px, calc(100vw - 28px));
+    max-width: min(520px, calc(100vw - 28px));
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 180, 255, 0.24);
+    background: rgba(6, 16, 30, 0.92);
+    color: var(--text);
+    box-shadow: 0 18px 34px rgba(0, 18, 42, 0.44);
+    backdrop-filter: blur(10px);
+    animation: toastSlideIn 200ms ease;
+  }
+
+  .global-toast.added {
+    border-color: rgba(66, 210, 144, 0.34);
+  }
+
+  .global-toast.updated {
+    border-color: rgba(255, 184, 72, 0.34);
+  }
+
+  .global-toast.info {
+    border-color: rgba(0, 180, 255, 0.34);
+  }
+
+  .global-toast.warn {
+    border-color: rgba(255, 184, 72, 0.34);
+  }
+
+  .global-toast.error {
+    border-color: rgba(255, 98, 98, 0.40);
+  }
+
+  .global-toast-title {
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9fe7ff;
+  }
+
+  .global-toast-location {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  .global-toast-body {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: #dbe6f6;
+  }
+
   .section-heading {
     margin: 0 0 8px;
     font-size: 1.8rem;
@@ -329,6 +391,20 @@ const appStyles = `
       padding: 18px 18px 0;
       overflow-x: auto;
     }
+
+    .global-toast-stack {
+      right: 10px;
+      bottom: 12px;
+    }
+
+    .global-toast {
+      min-width: min(94vw, 520px);
+    }
+  }
+
+  @keyframes toastSlideIn {
+    0% { transform: translateY(8px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
   }
 `;
 
@@ -356,6 +432,7 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
+  const [neuralToast, setNeuralToast] = useState(null);
 
   function parseSseEvent(chunk) {
     const lines = String(chunk || "").split("\n");
@@ -386,6 +463,166 @@ export default function App() {
       payload: JSON.parse(dataLines.join("\n")),
     };
   }
+
+  function clipText(text, max = 72) {
+    const normalized = String(text || "").replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return "";
+    }
+    if (normalized.length <= max) {
+      return normalized;
+    }
+    return `${normalized.slice(0, max - 1)}…`;
+  }
+
+  function buildNeuralMemoryToast({ phase, debug, personalityName }) {
+    const personalityLabel = personalityName ? ` · ${personalityName}` : "";
+
+    if (phase === "memory-write") {
+      const extracted = Array.isArray(debug?.memoryExtracted) ? debug.memoryExtracted : [];
+      if (!extracted.length) {
+        return null;
+      }
+      const first = extracted[0];
+      const more = extracted.length > 1 ? ` +${extracted.length - 1} more` : "";
+      return {
+        id: Date.now() + Math.random(),
+        kind: "added",
+        title: `Added: New Memory${personalityLabel}`,
+        location: "Neural Core > Personality Memory",
+        body: `"${clipText(first?.content || "Memory captured")}"${more}`,
+      };
+    }
+
+    if (phase === "user-memory-write") {
+      const extracted = Array.isArray(debug?.userMemoryExtracted) ? debug.userMemoryExtracted : [];
+      if (!extracted.length) {
+        return null;
+      }
+      const first = extracted[0];
+      const more = extracted.length > 1 ? ` +${extracted.length - 1} more` : "";
+      return {
+        id: Date.now() + Math.random(),
+        kind: "updated",
+        title: `Updated: Memory${personalityLabel}`,
+        location: "Neural Core > User Memory",
+        body: `"${clipText(first?.content || "User memory updated")}"${more}`,
+      };
+    }
+
+    if (phase === "mood") {
+      const label = String(debug?.mood?.label || "").trim();
+      const before = debug?.mood?.before;
+      const after = debug?.mood?.after;
+      if (!label && !after) {
+        return null;
+      }
+
+      const beforeSummary = before
+        ? `V:${Number(before.valence || 0).toFixed(2)} A:${Number(before.arousal || 0).toFixed(2)} D:${Number(before.dominance || 0).toFixed(2)}`
+        : "-";
+      const afterSummary = after
+        ? `V:${Number(after.valence || 0).toFixed(2)} A:${Number(after.arousal || 0).toFixed(2)} D:${Number(after.dominance || 0).toFixed(2)}`
+        : "-";
+
+      return {
+        id: Date.now() + Math.random(),
+        kind: "info",
+        title: `Mood Shift${personalityLabel}${label ? ` · ${label}` : ""}`,
+        location: "Neural Core > Mood Engine",
+        body: `${beforeSummary} → ${afterSummary}`,
+      };
+    }
+
+    if (phase === "intent") {
+      const goal = String(debug?.goal?.goal || "").trim();
+      if (!goal) {
+        return null;
+      }
+
+      return {
+        id: Date.now() + Math.random(),
+        kind: "info",
+        title: `Intent Selected${personalityLabel}`,
+        location: "Neural Core > Intent Engine",
+        body: `"${clipText(goal)}"`,
+      };
+    }
+
+    if ((phase === "prompt" || phase === "intent") && debug?.flags?.reconditioned) {
+      return {
+        id: Date.now() + Math.random(),
+        kind: "warn",
+        title: `Reconditioning Triggered${personalityLabel}`,
+        location: "Neural Core > Identity Anchor",
+        body: "Persona anchor injected to reduce drift.",
+      };
+    }
+
+    if (phase === "reply" && debug?.scientist) {
+      const validation = debug.scientist.validation;
+      const repairAttempted = Boolean(debug.scientist.repairAttempted);
+      const violations = Array.isArray(validation?.violations) ? validation.violations : [];
+
+      if (repairAttempted || violations.length > 0) {
+        return {
+          id: Date.now() + Math.random(),
+          kind: violations.length > 0 ? "warn" : "info",
+          title: `Scientist Validation${personalityLabel}`,
+          location: "Neural Core > Evidence Layer",
+          body: violations.length > 0
+            ? `Repair attempted. Issues: ${clipText(violations.join(", "), 92)}`
+            : "Repair pass applied successfully.",
+        };
+      }
+    }
+
+    if (phase === "rate-limit") {
+      return {
+        id: Date.now() + Math.random(),
+        kind: "warn",
+        title: `Rate Limit Hit${personalityLabel}`,
+        location: "Neural Core > Recovery",
+        body: "Primary generation throttled. Retrying with compact prompt.",
+      };
+    }
+
+    if (phase === "rate-limit-retry") {
+      return {
+        id: Date.now() + Math.random(),
+        kind: "info",
+        title: `Rate Limit Recovered${personalityLabel}`,
+        location: "Neural Core > Recovery",
+        body: "Retry succeeded using reduced context.",
+      };
+    }
+
+    if (phase === "rate-limit-fallback") {
+      return {
+        id: Date.now() + Math.random(),
+        kind: "error",
+        title: `Rate Limit Fallback${personalityLabel}`,
+        location: "Neural Core > Recovery",
+        body: "Fallback response delivered after retry exhaustion.",
+      };
+    }
+
+    return null;
+  }
+
+  useEffect(() => {
+    if (!neuralToast) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNeuralToast(null);
+    }, 4200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [neuralToast]);
 
   const { isSignedIn, isLoaded } = useAuth();
   const authFetch = useAuthFetch();
@@ -744,6 +981,15 @@ export default function App() {
             const { type, payload } = parsed;
 
             if (type === "debug") {
+              const toast = buildNeuralMemoryToast({
+                phase: payload.phase,
+                debug: payload.debug,
+                personalityName: selectedPersonality?.name || "",
+              });
+              if (toast) {
+                setNeuralToast(toast);
+              }
+
               setLiveChatState((current) => ({
                 ...current,
                 [personalityId]: {
@@ -905,6 +1151,15 @@ export default function App() {
   return (
     <>
       <style>{appStyles}</style>
+      {neuralToast ? (
+        <div className="global-toast-stack" aria-live="polite" aria-atomic="true">
+          <div className={`global-toast ${neuralToast.kind}`}>
+            <div className="global-toast-title">{neuralToast.title}</div>
+            <div className="global-toast-location">{neuralToast.location}</div>
+            <div className="global-toast-body">{neuralToast.body}</div>
+          </div>
+        </div>
+      ) : null}
       <div className="app-shell">
         <section className="hero">
           <div className="hero-grid">
