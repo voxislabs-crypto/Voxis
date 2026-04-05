@@ -37,10 +37,10 @@ VOICES=(
   en_US-bryce-medium
   en_US-norman-medium
   en_US-john-medium
-  en_US-sara-medium
-  en_US-albert-medium
+  en_US-lessac-low
+  en_US-libritts-high
   en_US-joe-medium
-  en_US-mary-medium
+  en_US-ryan-medium
   en_US-glow-medium
 )
 
@@ -94,15 +94,26 @@ download_voice() {
   json_target="$PIPER_MODELS_DIR/${voice_id}.onnx.json"
 
   if [[ ! -f "$onnx_target" ]]; then
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -L "${base}/${rel}/${voice_id}.onnx")
+    if [[ "$http_code" == "404" ]]; then
+      echo "  ⚠ Voice not found (404)"
+      return 0
+    elif [[ "$http_code" != "200" ]]; then
+      echo "  ⚠ HTTP error $http_code, skipping"
+      return 0
+    fi
     curl -fL "${base}/${rel}/${voice_id}.onnx" -o "$onnx_target"
   else
-    echo "Voice model exists: $onnx_target"
+    echo "  (model exists)"
   fi
 
   if [[ ! -f "$json_target" ]]; then
-    curl -fL "${base}/${rel}/${voice_id}.onnx.json" -o "$json_target"
+    if [[ -f "$onnx_target" ]]; then
+      curl -fL "${base}/${rel}/${voice_id}.onnx.json" -o "$json_target" 2>/dev/null || true
+    fi
   else
-    echo "Voice config exists: $json_target"
+    echo "  (config exists)"
   fi
 }
 
