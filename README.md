@@ -712,8 +712,10 @@ These values are persisted in the personality record and injected into the runti
 
 **`PersonalityList.jsx`** renders a card per personality. Each card shows the live `moodLabel` (updated after each chat turn), a `creativeContext` badge when the context is non-default, and counts for traits, quirks, and sources.
 
-**`ChatWindow.jsx`** is the chat interface. The header shows a VAD-driven mood dot (colored by valence) next to the character name and the character's description below it. The message list renders user and assistant bubbles. The composer is a `<textarea>` that submits on Enter (Shift+Enter for newline). The voice panel exposes TTS settings and a button to generate/play the last assistant reply.
+**`ChatWindow.jsx`** is the chat interface. The header shows a VAD-driven mood dot (colored by valence) next to the character name and the character's description below it. The message list renders user and assistant bubbles. The composer is a `<textarea>` that submits on Enter (Shift+Enter for newline). Chat now keeps only quick voice actions (enable/autoplay, generate latest reply audio, stop, quick save) to avoid clutter.
 It also includes a toggleable debug panel for assistant turns, rendering the backend's per-turn debug payload directly in the chat UI.
+
+**`VoiceLab.jsx`** is a dedicated TTS workspace tab. It owns full voice profile editing (voice/model/pitch/rate), sample text audio generation, latest-reply generation, and persistent voice profile saves.
 
 ### Neural Core Mindscape
 

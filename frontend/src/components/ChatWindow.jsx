@@ -300,6 +300,13 @@ const chatStyles = `
     margin-top: 12px;
   }
 
+  .voice-quick-copy {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+    font-size: 0.88rem;
+  }
+
   .voice-actions button {
     padding: 10px 16px;
     border: 0;
@@ -386,6 +393,7 @@ export default function ChatWindow({
   onSend,
   onSaveVoiceProfile,
   onJumpToBuilder,
+  onOpenVoiceLab,
 }) {
   const authFetch = useAuthFetch();
   const [draft, setDraft] = useState("");
@@ -716,60 +724,11 @@ export default function ChatWindow({
           </div>
 
           <div className="voice-panel">
+            <p className="voice-quick-copy">
+              Quick voice controls stay in chat. Open Voice Lab for full TTS tuning.
+            </p>
+
             <div className="voice-grid">
-              <div className="voice-field">
-                <label htmlFor="voice-select">TTS voice</label>
-                <input
-                  id="voice-select"
-                  value={voiceProfile.providerVoice || voiceProfile.preferredVoice}
-                  onChange={(event) => {
-                    updateVoiceField("providerVoice", event.target.value);
-                    updateVoiceField("preferredVoice", event.target.value);
-                  }}
-                  placeholder="alloy"
-                />
-              </div>
-
-              <div className="voice-field">
-                <label htmlFor="voice-model">TTS model</label>
-                <input
-                  id="voice-model"
-                  value={voiceProfile.providerModel}
-                  onChange={(event) => updateVoiceField("providerModel", event.target.value)}
-                  placeholder="gpt-4o-mini-tts"
-                />
-              </div>
-
-              <div className="voice-field">
-                <label htmlFor="voice-pitch">
-                  Pitch: {Number(voiceProfile.pitch).toFixed(2)}
-                </label>
-                <input
-                  id="voice-pitch"
-                  type="range"
-                  min="0.5"
-                  max="1.6"
-                  step="0.05"
-                  value={voiceProfile.pitch}
-                  onChange={(event) => updateVoiceField("pitch", Number(event.target.value))}
-                />
-              </div>
-
-              <div className="voice-field">
-                <label htmlFor="voice-rate">
-                  Rate: {Number(voiceProfile.rate).toFixed(2)}
-                </label>
-                <input
-                  id="voice-rate"
-                  type="range"
-                  min="0.6"
-                  max="1.6"
-                  step="0.05"
-                  value={voiceProfile.rate}
-                  onChange={(event) => updateVoiceField("rate", Number(event.target.value))}
-                />
-              </div>
-
               <label className="voice-checkbox">
                 <input
                   type="checkbox"
@@ -801,7 +760,10 @@ export default function ChatWindow({
                 Stop Audio
               </button>
               <button type="button" className="secondary" onClick={handleSaveVoiceProfile}>
-                {isSavingVoice ? "Saving Voice..." : "Save Voice Profile"}
+                {isSavingVoice ? "Saving..." : "Save Quick Voice"}
+              </button>
+              <button type="button" className="secondary" onClick={onOpenVoiceLab}>
+                Open Voice Lab
               </button>
             </div>
 

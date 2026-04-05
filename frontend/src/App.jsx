@@ -5,6 +5,7 @@ import { useAuthFetch } from "./hooks/useAuthFetch.js";
 import PersonalityForm from "./components/PersonalityForm.jsx";
 import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
+import VoiceLab from "./components/VoiceLab.jsx";
 import MemoryJournal from "./components/MemoryJournal.jsx";
 import HarnessReport from "./components/HarnessReport.jsx";
 import LlmSettingsPanel from "./components/LlmSettingsPanel.jsx";
@@ -976,6 +977,13 @@ export default function App() {
               </button>
               <button
                 type="button"
+                className={`tab ${activeView === "voice" ? "active" : ""}`}
+                onClick={() => setActiveView("voice")}
+              >
+                Voice Lab
+              </button>
+              <button
+                type="button"
                 className={`tab ${activeView === "journal" ? "active" : ""}`}
                 onClick={() => setActiveView("journal")}
               >
@@ -1035,6 +1043,21 @@ export default function App() {
                 </>
               ) : activeView === "journal" ? (
                 <MemoryJournal personality={selectedPersonality} />
+              ) : activeView === "voice" ? (
+                <>
+                  <h2 className="section-heading">Tune voice in Voice Lab</h2>
+                  <p className="section-copy">
+                    Keep quick playback controls in chat while using this tab for full TTS profile tuning,
+                    sample generation, and voice profile saves.
+                  </p>
+                  <VoiceLab
+                    personality={selectedPersonality}
+                    messages={chatLogs[selectedId] || []}
+                    onSaveVoiceProfile={handleVoiceProfileChange}
+                    onStatus={setStatus}
+                    onJumpToBuilder={() => setActiveView("builder")}
+                  />
+                </>
               ) : activeView === "eval" ? (
                 <>
                   <h2 className="section-heading">Pressure-test the active character</h2>
@@ -1219,6 +1242,7 @@ export default function App() {
                     onSend={handleSendMessage}
                     onSaveVoiceProfile={handleVoiceProfileChange}
                     onJumpToBuilder={() => setActiveView("builder")}
+                    onOpenVoiceLab={() => setActiveView("voice")}
                   />
                 </>
               )}

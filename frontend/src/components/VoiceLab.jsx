@@ -1,0 +1,416 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch.js";
+
+const voiceLabStyles = `
+  .voice-lab-shell {
+    border: 1px solid rgba(0, 180, 255, 0.12);
+    border-radius: 22px;
+    background: rgba(6, 14, 28, 0.72);
+    overflow: hidden;
+  }
+
+  .voice-lab-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid rgba(0, 180, 255, 0.08);
+    background: rgba(0, 180, 255, 0.04);
+  }
+
+  .voice-lab-header h3 {
+    margin: 0 0 6px;
+    font-size: 1.02rem;
+  }
+
+  .voice-lab-header p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+    font-size: 0.92rem;
+  }
+
+  .voice-lab-body {
+    padding: 16px 20px 20px;
+    display: grid;
+    gap: 14px;
+  }
+
+  .voice-lab-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .voice-lab-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .voice-lab-field label {
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 700;
+  }
+
+  .voice-lab-field input,
+  .voice-lab-field textarea {
+    width: 100%;
+    padding: 10px 13px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(6, 14, 28, 0.90);
+    color: var(--text);
+  }
+
+  .voice-lab-field textarea {
+    min-height: 110px;
+    resize: vertical;
+  }
+
+  .voice-lab-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+
+  .voice-lab-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .voice-lab-actions button {
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+
+  .voice-lab-actions button.secondary {
+    background: rgba(0, 180, 255, 0.06);
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    color: var(--accent);
+  }
+
+  .voice-lab-actions button:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+
+  .voice-lab-player {
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .voice-lab-empty {
+    border: 1px solid rgba(0, 180, 255, 0.12);
+    border-radius: 22px;
+    background: rgba(6, 14, 28, 0.72);
+    padding: 24px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .voice-lab-link {
+    margin-top: 14px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  @media (max-width: 720px) {
+    .voice-lab-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+`;
+
+export default function VoiceLab({
+  personality,
+  messages,
+  onSaveVoiceProfile,
+  onStatus,
+  onJumpToBuilder,
+}) {
+  const authFetch = useAuthFetch();
+  const [voiceProfile, setVoiceProfile] = useState({
+    enabled: true,
+    autoplay: false,
+    pitch: 1,
+    rate: 1,
+    preferredVoice: "alloy",
+    providerVoice: "alloy",
+    providerModel: "gpt-4o-mini-tts",
+  });
+  const [sampleText, setSampleText] = useState("");
+  const [isSavingVoice, setIsSavingVoice] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioUrl, setAudioUrl] = useState("");
+  const audioRef = useRef(null);
+
+  const latestAssistantMessage = useMemo(
+    () => [...(messages || [])].reverse().find((message) => message.role === "assistant") || null,
+    [messages],
+  );
+
+  useEffect(() => {
+    if (!personality) {
+      return;
+    }
+
+    setVoiceProfile({
+      enabled: personality.voiceProfile?.enabled !== false,
+      autoplay: Boolean(personality.voiceProfile?.autoplay),
+      pitch: Number(personality.voiceProfile?.pitch) || 1,
+      rate: Number(personality.voiceProfile?.rate) || 1,
+      preferredVoice:
+        personality.voiceProfile?.preferredVoice || personality.voiceProfile?.providerVoice || "alloy",
+      providerVoice:
+        personality.voiceProfile?.providerVoice || personality.voiceProfile?.preferredVoice || "alloy",
+      providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
+    });
+  }, [personality]);
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
+
+  function updateVoiceField(name, value) {
+    setVoiceProfile((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  function stopSpeaking() {
+    if (audioRef.current instanceof HTMLAudioElement) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }
+
+  async function generateAudio(text) {
+    if (!voiceProfile.enabled || !text?.trim() || !personality) {
+      return;
+    }
+
+    setIsGeneratingAudio(true);
+
+    try {
+      const response = await authFetch(`/personality/${personality.id}/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          voiceProfile,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = "Failed to generate speech.";
+
+        try {
+          const errorPayload = await response.json();
+          errorMessage = errorPayload.error || errorMessage;
+        } catch {
+          errorMessage = await response.text();
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const blob = await response.blob();
+      const nextAudioUrl = URL.createObjectURL(blob);
+
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+
+      setAudioUrl(nextAudioUrl);
+
+      requestAnimationFrame(() => {
+        if (audioRef.current instanceof HTMLAudioElement) {
+          void audioRef.current.play().catch(() => {});
+        }
+      });
+    } catch (error) {
+      onStatus?.({
+        type: "error",
+        message: error.message || "Failed to generate speech.",
+      });
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  }
+
+  async function handleSaveVoiceProfile() {
+    setIsSavingVoice(true);
+
+    try {
+      await onSaveVoiceProfile({
+        enabled: voiceProfile.enabled,
+        autoplay: voiceProfile.autoplay,
+        pitch: Number(voiceProfile.pitch),
+        rate: Number(voiceProfile.rate),
+        preferredVoice: voiceProfile.preferredVoice,
+        providerVoice: voiceProfile.providerVoice || voiceProfile.preferredVoice,
+        providerModel: voiceProfile.providerModel,
+      });
+    } finally {
+      setIsSavingVoice(false);
+    }
+  }
+
+  if (!personality) {
+    return (
+      <>
+        <style>{voiceLabStyles}</style>
+        <div className="voice-lab-empty">
+          Select a saved personality or create a new one before opening Voice Lab.
+          <div>
+            <button type="button" className="voice-lab-link" onClick={onJumpToBuilder}>
+              Go to Character Request
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <style>{voiceLabStyles}</style>
+      <div className="voice-lab-shell">
+        <div className="voice-lab-header">
+          <h3>Voice Lab: {personality.name}</h3>
+          <p>
+            Tune full TTS settings, test sample lines, and save profile defaults. Quick play/autoplay remains in Chat.
+          </p>
+        </div>
+
+        <div className="voice-lab-body">
+          <div className="voice-lab-grid">
+            <div className="voice-lab-field">
+              <label htmlFor="voice-lab-voice">TTS voice</label>
+              <input
+                id="voice-lab-voice"
+                value={voiceProfile.providerVoice || voiceProfile.preferredVoice}
+                onChange={(event) => {
+                  updateVoiceField("providerVoice", event.target.value);
+                  updateVoiceField("preferredVoice", event.target.value);
+                }}
+                placeholder="alloy"
+              />
+            </div>
+
+            <div className="voice-lab-field">
+              <label htmlFor="voice-lab-model">TTS model</label>
+              <input
+                id="voice-lab-model"
+                value={voiceProfile.providerModel}
+                onChange={(event) => updateVoiceField("providerModel", event.target.value)}
+                placeholder="gpt-4o-mini-tts"
+              />
+            </div>
+
+            <div className="voice-lab-field">
+              <label htmlFor="voice-lab-pitch">Pitch: {Number(voiceProfile.pitch).toFixed(2)}</label>
+              <input
+                id="voice-lab-pitch"
+                type="range"
+                min="0.5"
+                max="1.6"
+                step="0.05"
+                value={voiceProfile.pitch}
+                onChange={(event) => updateVoiceField("pitch", Number(event.target.value))}
+              />
+            </div>
+
+            <div className="voice-lab-field">
+              <label htmlFor="voice-lab-rate">Rate: {Number(voiceProfile.rate).toFixed(2)}</label>
+              <input
+                id="voice-lab-rate"
+                type="range"
+                min="0.6"
+                max="1.6"
+                step="0.05"
+                value={voiceProfile.rate}
+                onChange={(event) => updateVoiceField("rate", Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="voice-lab-grid" style={{ alignItems: "end" }}>
+            <label className="voice-lab-check">
+              <input
+                type="checkbox"
+                checked={voiceProfile.enabled}
+                onChange={(event) => updateVoiceField("enabled", event.target.checked)}
+              />
+              Enable voice playback
+            </label>
+
+            <label className="voice-lab-check">
+              <input
+                type="checkbox"
+                checked={voiceProfile.autoplay}
+                onChange={(event) => updateVoiceField("autoplay", event.target.checked)}
+              />
+              Auto-play assistant replies
+            </label>
+          </div>
+
+          <div className="voice-lab-field">
+            <label htmlFor="voice-lab-sample">Sample text</label>
+            <textarea
+              id="voice-lab-sample"
+              value={sampleText}
+              onChange={(event) => setSampleText(event.target.value)}
+              placeholder="Type a line to preview this voice profile..."
+            />
+          </div>
+
+          <div className="voice-lab-actions">
+            <button
+              type="button"
+              onClick={() => void generateAudio(sampleText)}
+              disabled={isGeneratingAudio || !sampleText.trim()}
+            >
+              {isGeneratingAudio ? "Generating..." : "Generate Sample Audio"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void generateAudio(latestAssistantMessage?.content || "")}
+              disabled={isGeneratingAudio || !latestAssistantMessage}
+            >
+              Generate Latest Reply Audio
+            </button>
+            <button type="button" className="secondary" onClick={stopSpeaking}>
+              Stop Audio
+            </button>
+            <button type="button" className="secondary" onClick={handleSaveVoiceProfile}>
+              {isSavingVoice ? "Saving Voice..." : "Save Voice Profile"}
+            </button>
+          </div>
+
+          {audioUrl ? (
+            <audio ref={audioRef} className="voice-lab-player" controls src={audioUrl} />
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
+}
