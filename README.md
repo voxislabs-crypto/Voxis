@@ -691,18 +691,18 @@ The app shell now also includes a lightweight user profile selector (age band + 
 - Basic: name, description, traits, quirks, mood
 - Narrative: creative context (select), behavior rules (textarea — one rule per line), goals (comma-separated), values (comma-separated)
 - Mood: sensitivity slider (0.1–3.0, step 0.05) — sets `moodSensitivity`; live value shown on the label
-- Hybrid personality: Big Five sliders plus optional D&D alignment overlay
+- Hybrid personality: interactive Big Five radar chart (drag vertices) with fine-tune sliders, 3×3 D&D alignment grid, and a live Hybrid Tuning Preview card
 - Expression style: sentence style, interruption rate, energy level, and explicit per-line speaking rules
 - Voice: speech style, notable phrases, TTS provider/voice/pitch/rate/enabled/autoplay
 - Research: source query, source URL list, ranked source cards with per-source enable/disable
 
 ### Hybrid Personality Controls
 
-The character pipeline now supports a layered personality model:
+The character pipeline now supports a layered personality model with graphical interactive controls:
 
-- Big Five baseline provides a continuous spectrum for personality tuning.
-- Optional alignment overlay provides moral framing without forcing discrete-only behavior.
-- Expression style rules harden speaking cadence and reduce generic assistant drift.
+- **Big Five radar chart** (`BigFiveRadar.jsx`) — a draggable SVG pentagon. Move vertices to adjust traits live; sliders are provided alongside for precise control. O/C/E/A/N values update the live shape in real time.
+- **3×3 Alignment grid** (`AlignmentGrid.jsx`) — replaces the dropdown. Click any cell to select and auto-enable the alignment overlay. Cells are color-coded by row: teal for Good, indigo for Neutral, rose for Evil, with a glow effect on the selected cell.
+- **Hybrid Tuning Preview card** (`HybridPreview.jsx`) — a live panel that recomputes VAD baseline (Valence/Arousal/Dominance), mood sensitivity, and suggested creative context from the current Big Five × alignment combination without any API call. The preview appears as soon as the alignment overlay is enabled.
 
 These values are persisted in the personality record and injected into the runtime prompt package, so they remain compatible with existing memory retrieval, VAD mood updates, goal selection, and prompt budgeting.
 

@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useEffect } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import AvatarCore from "./AvatarCore.jsx";
+import BigFiveRadar from "./BigFiveRadar.jsx";
+import AlignmentGrid from "./AlignmentGrid.jsx";
+import HybridPreview from "./HybridPreview.jsx";
 
 const formStyles = `
   .creator-grid {
@@ -1023,120 +1026,96 @@ export default function PersonalityForm({
 
           <div className="field full">
             <label>Big Five spectrum</label>
-            <div className="expression-grid">
-              <div className="field">
-                <label htmlFor="bigFiveOpenness">Openness: {Number(form.bigFiveOpenness).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="bigFiveOpenness"
-                  name="bigFiveOpenness"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={form.bigFiveOpenness}
-                  onChange={updateField}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="bigFiveConscientiousness">Conscientiousness: {Number(form.bigFiveConscientiousness).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="bigFiveConscientiousness"
-                  name="bigFiveConscientiousness"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={form.bigFiveConscientiousness}
-                  onChange={updateField}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="bigFiveExtraversion">Extraversion: {Number(form.bigFiveExtraversion).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="bigFiveExtraversion"
-                  name="bigFiveExtraversion"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={form.bigFiveExtraversion}
-                  onChange={updateField}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="bigFiveAgreeableness">Agreeableness: {Number(form.bigFiveAgreeableness).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="bigFiveAgreeableness"
-                  name="bigFiveAgreeableness"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={form.bigFiveAgreeableness}
-                  onChange={updateField}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="bigFiveNeuroticism">Neuroticism: {Number(form.bigFiveNeuroticism).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="bigFiveNeuroticism"
-                  name="bigFiveNeuroticism"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={form.bigFiveNeuroticism}
-                  onChange={updateField}
-                />
+            <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <BigFiveRadar
+                values={{
+                  openness:          Number(form.bigFiveOpenness),
+                  conscientiousness: Number(form.bigFiveConscientiousness),
+                  extraversion:      Number(form.bigFiveExtraversion),
+                  agreeableness:     Number(form.bigFiveAgreeableness),
+                  neuroticism:       Number(form.bigFiveNeuroticism),
+                }}
+                onChange={(key, value) =>
+                  setForm(current => ({
+                    ...current,
+                    [`bigFive${key.charAt(0).toUpperCase()}${key.slice(1)}`]: String(value),
+                  }))
+                }
+              />
+              <div style={{ flex: 1, minWidth: 180, display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" }}>
+                {[
+                  { name: "bigFiveOpenness",          label: "Openness" },
+                  { name: "bigFiveConscientiousness",  label: "Conscientiousness" },
+                  { name: "bigFiveExtraversion",       label: "Extraversion" },
+                  { name: "bigFiveAgreeableness",      label: "Agreeableness" },
+                  { name: "bigFiveNeuroticism",        label: "Neuroticism" },
+                ].map(({ name, label }) => (
+                  <div key={name} className="field" style={{ marginBottom: 0 }}>
+                    <label htmlFor={name} style={{ fontSize: "0.78rem" }}>
+                      {label}: {Number(form[name]).toFixed(2)}
+                    </label>
+                    <input
+                      className="voice-slider"
+                      id={name}
+                      name={name}
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={form[name]}
+                      onChange={updateField}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
-            <small>Use Big Five as the continuous base spectrum for personality behavior.</small>
+            <small>Drag vertices on the chart or use sliders to tune. Big Five is the continuous base spectrum for personality behavior.</small>
           </div>
 
           <div className="field full">
             <label>D&amp;D moral overlay</label>
-            <div className="voice-grid">
-              <label className="checkbox-row" style={{ paddingTop: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(form.alignmentOverlayEnabled)}
-                  onChange={(event) =>
+            <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <label className="checkbox-row" style={{ paddingTop: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.alignmentOverlayEnabled)}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        alignmentOverlayEnabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  Enable alignment overlay
+                </label>
+                <AlignmentGrid
+                  value={form.alignmentOverlay}
+                  disabled={!form.alignmentOverlayEnabled}
+                  onChange={(alignment) =>
                     setForm((current) => ({
                       ...current,
-                      alignmentOverlayEnabled: event.target.checked,
+                      alignmentOverlay: alignment,
+                      alignmentOverlayEnabled: true,
                     }))
                   }
                 />
-                Enable alignment overlay
-              </label>
-              <div className="field">
-                <label htmlFor="alignmentOverlay">Alignment</label>
-                <select
-                  id="alignmentOverlay"
-                  name="alignmentOverlay"
-                  value={form.alignmentOverlay}
-                  onChange={updateField}
-                  disabled={!form.alignmentOverlayEnabled}
-                  style={{ padding: "13px 16px", border: "1px solid rgba(0,180,255,0.14)", borderRadius: 16, background: "rgba(6,14,28,0.88)", color: "var(--text)" }}
-                >
-                  <option value="lawful_good">Lawful Good</option>
-                  <option value="neutral_good">Neutral Good</option>
-                  <option value="chaotic_good">Chaotic Good</option>
-                  <option value="lawful_neutral">Lawful Neutral</option>
-                  <option value="true_neutral">True Neutral</option>
-                  <option value="chaotic_neutral">Chaotic Neutral</option>
-                  <option value="lawful_evil">Lawful Evil</option>
-                  <option value="neutral_evil">Neutral Evil</option>
-                  <option value="chaotic_evil">Chaotic Evil</option>
-                </select>
+              </div>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <HybridPreview
+                  bigFive={{
+                    openness:          Number(form.bigFiveOpenness),
+                    conscientiousness: Number(form.bigFiveConscientiousness),
+                    extraversion:      Number(form.bigFiveExtraversion),
+                    agreeableness:     Number(form.bigFiveAgreeableness),
+                    neuroticism:       Number(form.bigFiveNeuroticism),
+                  }}
+                  alignment={form.alignmentOverlay}
+                  alignmentEnabled={Boolean(form.alignmentOverlayEnabled)}
+                />
               </div>
             </div>
-            <small>Optional overlay for moral framing layered on top of Big Five.</small>
+            <small>Optional moral overlay layered on top of Big Five. Clicking any cell enables and selects it. The preview card shows live-computed VAD, sensitivity, and creative context.</small>
           </div>
 
           <div className="field full">
