@@ -974,30 +974,29 @@ function formatAlignmentOverlay(profile = {}) {
 }
 
 function formatExpressionStyle(style = {}) {
-  const lines = [];
+  const parts = [];
 
   if (style.sentenceStyle) {
-    lines.push(`- Sentence style: ${style.sentenceStyle}`);
+    parts.push(`style=${style.sentenceStyle}`);
   }
 
   if (Number.isFinite(Number(style.interruptionRate))) {
-    lines.push(`- Interruption rate: ${Math.round(Math.min(1, Math.max(0, Number(style.interruptionRate))) * 100)}%`);
+    parts.push(`interrupt=${Math.round(Math.min(1, Math.max(0, Number(style.interruptionRate))) * 100)}%`);
   }
 
   if (style.energy) {
-    lines.push(`- Energy level: ${style.energy}`);
+    parts.push(`energy=${style.energy}`);
   }
 
   const rules = Array.isArray(style.rules)
-    ? style.rules.map((item) => String(item || "").trim()).filter(Boolean)
+    ? style.rules.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
     : [];
 
   if (rules.length) {
-    lines.push("- Rules:");
-    lines.push(...rules.map((rule) => `  - ${rule}`));
+    parts.push(`rules=${rules.join(" | ")}`);
   }
 
-  return lines.length ? lines.join("\n") : "- Not specified";
+  return parts.length ? `- ${parts.join(", ")}` : "- Not specified";
 }
 
 function buildVoiceGuardrails({
@@ -1172,8 +1171,11 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
 
   const goalPrompt = buildGoalPrompt(activeGoal);
   const goalPromptTokens = estimateTokenCount(goalPrompt);
+  const alignmentBlock = alignmentSection
+    ? ["== MORAL COMPASS ==", alignmentSection].join("\n")
+    : "";
 
-  const prompt = [
+  let prompt = [
     frame ? `[NARRATIVE CONTEXT: ${frame.narrativeDisclosure}]` : "",
     frame ? "" : null,
     `You are ${name}.`,
@@ -1205,9 +1207,8 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     "== BIG FIVE REGISTER ==",
     bigFiveSection,
     "",
-    alignmentSection ? "== MORAL COMPASS ==" : null,
-    alignmentSection,
-    alignmentSection ? "" : null,
+    alignmentBlock || null,
+    alignmentBlock ? "" : null,
     "== EXPRESSION STYLE ==",
     expressionStyleSection,
     "",
@@ -1239,6 +1240,10 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
   ]
     .filter((line) => line !== null && line !== undefined)
     .join("\n");
+
+  if (prompt.length > promptBudget && alignmentBlock) {
+    prompt = prompt.replace(`${alignmentBlock}\n`, "");
+  }
 
   const finalPrompt = prompt.length > promptBudget ? truncateText(prompt, promptBudget) : prompt;
 

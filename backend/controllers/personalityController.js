@@ -6,6 +6,7 @@ import {
   updatePersonalityVoiceProfile,
 } from "../models/personalityModel.js";
 import { moodFromLabel } from "../services/moodEngine.js";
+import { recommendHybridTuning } from "../services/hybridPersonalityService.js";
 
 function sanitizeItems(items) {
   if (!Array.isArray(items)) {
@@ -149,6 +150,27 @@ function sanitizeExpressionStyle(input) {
   };
 }
 
+function hasDefinedValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function mergeExpressionStyle(baseStyle, overrideStyle) {
+  const baseRules = Array.isArray(baseStyle?.rules) ? baseStyle.rules : [];
+  const overrideRules = Array.isArray(overrideStyle?.rules) ? overrideStyle.rules : [];
+
+  return {
+    sentenceStyle: overrideStyle?.sentenceStyle || baseStyle?.sentenceStyle || "",
+    interruptionRate:
+      typeof overrideStyle?.interruptionRate === "number"
+        ? overrideStyle.interruptionRate
+        : typeof baseStyle?.interruptionRate === "number"
+          ? baseStyle.interruptionRate
+          : 0.3,
+    energy: overrideStyle?.energy || baseStyle?.energy || "medium",
+    rules: overrideRules.length ? overrideRules : baseRules,
+  };
+}
+
 const VALID_EXPRESSION_PRESETS = new Set([
   "auto",
   "sentinel",
@@ -226,14 +248,27 @@ export function createPersonalityHandler(req, res, next) {
     const behaviorRules = sanitizeItems(req.body.behaviorRules);
     const goals = sanitizeItems(req.body.goals);
     const values = sanitizeItems(req.body.values);
-    const creativeContext = sanitizeCreativeContext(req.body.creativeContext);
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
     const expressionProfile = sanitizeExpressionProfile(req.body.expressionProfile);
     const bigFiveProfile = sanitizeBigFiveProfile(req.body.bigFiveProfile);
     const alignmentProfile = sanitizeAlignmentProfile(req.body.alignmentProfile);
-    const expressionStyle = sanitizeExpressionStyle(req.body.expressionStyle);
-    const moodSensitivity = Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0));
-    const moodBaseline = moodFromLabel(mood);
+    const expressionStyleInput = sanitizeExpressionStyle(req.body.expressionStyle);
+    const autoTuneHybrid = Boolean(req.body.autoTuneHybrid);
+    const hybridTuning = autoTuneHybrid
+      ? recommendHybridTuning({ bigFiveProfile, alignmentProfile })
+      : null;
+
+    const creativeContext = hasDefinedValue(req.body.creativeContext)
+      ? sanitizeCreativeContext(req.body.creativeContext)
+      : hybridTuning?.creativeContext || "default";
+
+    const expressionStyle = mergeExpressionStyle(hybridTuning?.expressionStyle, expressionStyleInput);
+
+    const moodSensitivity = hasDefinedValue(req.body.moodSensitivity)
+      ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
+      : hybridTuning?.moodSensitivity || 1.0;
+
+    const moodBaseline = hybridTuning?.moodBaseline || moodFromLabel(mood);
     const moodState = { ...moodBaseline };
 
     if (!name) {
@@ -357,10 +392,6 @@ export function updatePersonalityHandler(req, res, next) {
     const goals = req.body.goals !== undefined ? sanitizeItems(req.body.goals) : sanitizeItems(existing.goals);
     const values =
       req.body.values !== undefined ? sanitizeItems(req.body.values) : sanitizeItems(existing.values);
-    const creativeContext =
-      req.body.creativeContext !== undefined
-        ? sanitizeCreativeContext(req.body.creativeContext)
-        : sanitizeCreativeContext(existing.creativeContext);
     const voiceProfile =
       req.body.voiceProfile !== undefined
         ? sanitizeVoiceProfile(req.body.voiceProfile)
@@ -377,16 +408,30 @@ export function updatePersonalityHandler(req, res, next) {
       req.body.alignmentProfile !== undefined
         ? sanitizeAlignmentProfile(req.body.alignmentProfile)
         : sanitizeAlignmentProfile(existing.alignmentProfile);
-    const expressionStyle =
+    const expressionStyleInput =
       req.body.expressionStyle !== undefined
         ? sanitizeExpressionStyle(req.body.expressionStyle)
         : sanitizeExpressionStyle(existing.expressionStyle);
+
+    const autoTuneHybrid = Boolean(req.body.autoTuneHybrid);
+    const hybridTuning = autoTuneHybrid
+      ? recommendHybridTuning({ bigFiveProfile, alignmentProfile })
+      : null;
+
+    const creativeContext =
+      req.body.creativeContext !== undefined
+        ? sanitizeCreativeContext(req.body.creativeContext)
+        : hybridTuning?.creativeContext || sanitizeCreativeContext(existing.creativeContext);
+
+    const expressionStyle = mergeExpressionStyle(hybridTuning?.expressionStyle, expressionStyleInput);
+
     const moodSensitivity =
       req.body.moodSensitivity !== undefined
         ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
-        : Math.min(3.0, Math.max(0.1, Number(existing.moodSensitivity) || 1.0));
-    const moodBaseline = moodFromLabel(mood);
-    const shouldResetMoodState = Boolean(req.body.resetMoodState);
+        : hybridTuning?.moodSensitivity || Math.min(3.0, Math.max(0.1, Number(existing.moodSensitivity) || 1.0));
+
+    const moodBaseline = hybridTuning?.moodBaseline || moodFromLabel(mood);
+    const shouldResetMoodState = Boolean(req.body.resetMoodState || autoTuneHybrid);
     const moodState = shouldResetMoodState
       ? { ...moodBaseline }
       : existing?.moodState && typeof existing.moodState === "object"

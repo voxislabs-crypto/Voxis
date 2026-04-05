@@ -32,10 +32,11 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
 8. [How It Works — Frontend](#how-it-works--frontend)
   - [Neural Core Mindscape](#neural-core-mindscape)
   - [Hybrid Personality Controls](#hybrid-personality-controls)
-9. [System Flow (At a Glance)](#system-flow-at-a-glance)
-10. [Demo: The "Oh Shit" Moment](#demo-the-oh-shit-moment)
-11. [Future Directions](#future-directions)
-12. [API Reference](#api-reference)
+9. [Hybrid Mapping Guide](#hybrid-mapping-guide)
+10. [System Flow (At a Glance)](#system-flow-at-a-glance)
+11. [Demo: The "Oh Shit" Moment](#demo-the-oh-shit-moment)
+12. [Future Directions](#future-directions)
+13. [API Reference](#api-reference)
 
 ---
 
@@ -124,9 +125,8 @@ What this demonstrates in minutes:
 ## What It Does
 
 - Build rich character personalities with a name, description, traits, quirks, mood, behavior rules, goals, core values, and a creative context frame.
-- Tune a continuous Big Five spectrum per character (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism).
-- Optionally apply a D&D-style moral alignment overlay (all 9 alignments) on top of the Big Five spectrum.
-- Configure explicit expression style controls (sentence style, interruption rate, energy, and line-by-line rules) for stronger voice consistency.
+- Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
+- Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
@@ -189,6 +189,8 @@ frontend/
       LlmSettingsPanel.jsx   Provider-first runtime LLM config UI
 
 concepts/layouts/            AI-generated design references (characters, UI, logo, ambient avatar)
+docs/
+  HYBRID_PERSONALITY_MAPPING.md Big Five + alignment mapping table, archetype rules, and test payloads
 ```
 
 ---
@@ -766,6 +768,13 @@ Current rollout scope:
 - `v0.1`: shipped as a lightweight orb HUD + overlay with CSS-first pulses and mode-aware telemetry.
 - `v0.2`: shipped as curved SVG trunk growth and focused sprout branches layered over the existing orb system.
 - `v0.3`: planned `react-force-graph-2d` expansion for dynamic force-directed behavior once the current overlay proves stable.
+
+---
+
+## Hybrid Mapping Guide
+
+- See [docs/HYBRID_PERSONALITY_MAPPING.md](docs/HYBRID_PERSONALITY_MAPPING.md) for the structured Big Five + alignment mapping table, archetype expression rules, and ready-to-test payload examples.
+- Backend recommendation logic lives in [backend/services/hybridPersonalityService.js](backend/services/hybridPersonalityService.js) and can be activated per request with `autoTuneHybrid: true`.
 
 ---
 
