@@ -6,7 +6,7 @@ import {
   updatePersonalityVoiceProfile,
 } from "../models/personalityModel.js";
 import { moodFromLabel } from "../services/moodEngine.js";
-import { recommendHybridTuning } from "../services/hybridPersonalityService.js";
+import { mapToVoxisPersonality } from "../services/hybridPersonalityService.js";
 
 function sanitizeItems(items) {
   if (!Array.isArray(items)) {
@@ -255,7 +255,7 @@ export function createPersonalityHandler(req, res, next) {
     const expressionStyleInput = sanitizeExpressionStyle(req.body.expressionStyle);
     const autoTuneHybrid = Boolean(req.body.autoTuneHybrid);
     const hybridTuning = autoTuneHybrid
-      ? recommendHybridTuning({ bigFiveProfile, alignmentProfile })
+      ? mapToVoxisPersonality({ bigFiveProfile, alignmentProfile })
       : null;
 
     const creativeContext = hasDefinedValue(req.body.creativeContext)
@@ -415,7 +415,7 @@ export function updatePersonalityHandler(req, res, next) {
 
     const autoTuneHybrid = Boolean(req.body.autoTuneHybrid);
     const hybridTuning = autoTuneHybrid
-      ? recommendHybridTuning({ bigFiveProfile, alignmentProfile })
+      ? mapToVoxisPersonality({ bigFiveProfile, alignmentProfile })
       : null;
 
     const creativeContext =

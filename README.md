@@ -702,7 +702,8 @@ The character pipeline now supports a layered personality model with graphical i
 
 - **Big Five radar chart** (`BigFiveRadar.jsx`) — a draggable SVG pentagon. Move vertices to adjust traits live; sliders are provided alongside for precise control. O/C/E/A/N values update the live shape in real time.
 - **3×3 Alignment grid** (`AlignmentGrid.jsx`) — replaces the dropdown. Click any cell to select and auto-enable the alignment overlay. Cells are color-coded by row: teal for Good, indigo for Neutral, rose for Evil, with a glow effect on the selected cell.
-- **Hybrid Tuning Preview card** (`HybridPreview.jsx`) — a live panel that recomputes VAD baseline (Valence/Arousal/Dominance), mood sensitivity, and suggested creative context from the current Big Five × alignment combination without any API call. The preview appears as soon as the alignment overlay is enabled.
+- **Hybrid Tuning Preview card** (`HybridPreview.jsx`) — a live panel that recomputes VAD baseline (Valence/Arousal/Dominance), mood sensitivity, suggested creative context, and expression rules from the current Big Five × alignment combination. Hovering alignment cells temporarily previews alternate mappings before commit.
+- **Apply Mapped Tuning action** (`PersonalityForm.jsx`) — one-click copy of mapper output into editable fields (`creativeContext`, `moodSensitivity`, `expressionStyle`) so creators can iterate quickly instead of hand-transcribing the preview.
 
 These values are persisted in the personality record and injected into the runtime prompt package, so they remain compatible with existing memory retrieval, VAD mood updates, goal selection, and prompt budgeting.
 
@@ -774,7 +775,8 @@ Current rollout scope:
 ## Hybrid Mapping Guide
 
 - See [docs/HYBRID_PERSONALITY_MAPPING.md](docs/HYBRID_PERSONALITY_MAPPING.md) for the structured Big Five + alignment mapping table, archetype expression rules, and ready-to-test payload examples.
-- Backend recommendation logic lives in [backend/services/hybridPersonalityService.js](backend/services/hybridPersonalityService.js) and can be activated per request with `autoTuneHybrid: true`.
+- Canonical mapping logic is `mapToVoxisPersonality` in [backend/services/hybridPersonalityService.js](backend/services/hybridPersonalityService.js), with matching frontend preview logic in [frontend/src/lib/mapToVoxisPersonality.js](frontend/src/lib/mapToVoxisPersonality.js).
+- Backend auto-application can be activated per request with `autoTuneHybrid: true`.
 
 ---
 

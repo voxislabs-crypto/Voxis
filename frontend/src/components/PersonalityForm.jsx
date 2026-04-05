@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import AvatarCore from "./AvatarCore.jsx";
 import BigFiveRadar from "./BigFiveRadar.jsx";
 import AlignmentGrid from "./AlignmentGrid.jsx";
 import HybridPreview from "./HybridPreview.jsx";
+import { mapToVoxisPersonality } from "../lib/mapToVoxisPersonality.js";
 
 const formStyles = `
   .creator-grid {
@@ -564,8 +564,37 @@ export default function PersonalityForm({
   const [researchSources, setResearchSources] = useState([]);
   const [previewPhase, setPreviewPhase] = useState("idle");
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
-    const [hoveredAlignment, setHoveredAlignment] = useState(null);
+  const [hoveredAlignment, setHoveredAlignment] = useState(null);
   const isEditing = Boolean(editingPersonality?.id);
+
+  const bigFiveProfile = useMemo(
+    () => ({
+      openness: Number(form.bigFiveOpenness),
+      conscientiousness: Number(form.bigFiveConscientiousness),
+      extraversion: Number(form.bigFiveExtraversion),
+      agreeableness: Number(form.bigFiveAgreeableness),
+      neuroticism: Number(form.bigFiveNeuroticism),
+    }),
+    [
+      form.bigFiveAgreeableness,
+      form.bigFiveConscientiousness,
+      form.bigFiveExtraversion,
+      form.bigFiveNeuroticism,
+      form.bigFiveOpenness,
+    ],
+  );
+
+  const mappedHybrid = useMemo(
+    () =>
+      mapToVoxisPersonality({
+        bigFiveProfile,
+        alignmentProfile: {
+          enabled: Boolean(form.alignmentOverlayEnabled),
+          alignment: hoveredAlignment || form.alignmentOverlay,
+        },
+      }),
+    [bigFiveProfile, form.alignmentOverlay, form.alignmentOverlayEnabled, hoveredAlignment],
+  );
 
   useEffect(() => {
     if (!editingPersonality) {
@@ -784,6 +813,28 @@ export default function PersonalityForm({
     }));
 
     onError({ type: "success", message: `Copied expression profile from ${source.name}.` });
+  }
+
+  function applyMappedHybridToFields() {
+    if (!form.alignmentOverlayEnabled) {
+      onError({ type: "error", message: "Enable alignment overlay first to apply mapped tuning." });
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      creativeContext: mappedHybrid.creativeContext,
+      moodSensitivity: String(mappedHybrid.moodSensitivity),
+      expressionSentenceStyle: mappedHybrid.expressionStyle.sentenceStyle,
+      expressionInterruptionRate: String(mappedHybrid.expressionStyle.interruptionRate),
+      expressionEnergy: mappedHybrid.expressionStyle.energy,
+      expressionRules: (mappedHybrid.expressionStyle.rules || []).join("\n"),
+    }));
+
+    onError({
+      type: "success",
+      message: `Applied mapped tuning for ${mappedHybrid.alignmentLabel}.`,
+    });
   }
 
   const personalitiesWithExpression = personalities.filter((item) => item && item.expressionProfile);
@@ -1105,20 +1156,27 @@ export default function PersonalityForm({
               </div>
               <div style={{ flex: 1, minWidth: 240 }}>
                 <HybridPreview
-                  bigFive={{
-                    openness:          Number(form.bigFiveOpenness),
-                    conscientiousness: Number(form.bigFiveConscientiousness),
-                    extraversion:      Number(form.bigFiveExtraversion),
-                    agreeableness:     Number(form.bigFiveAgreeableness),
-                    neuroticism:       Number(form.bigFiveNeuroticism),
-                  }}
+                  bigFive={bigFiveProfile}
                   alignment={form.alignmentOverlay}
                   alignmentEnabled={Boolean(form.alignmentOverlayEnabled)}
                   previewAlignment={hoveredAlignment}
                 />
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!form.alignmentOverlayEnabled}
+                  style={{ marginTop: 10 }}
+                  onClick={applyMappedHybridToFields}
+                >
+                  Apply Mapped Tuning
+                </button>
               </div>
             </div>
-                        <small>Optional moral overlay layered on top of Big Five. Clicking any cell enables and selects it. The preview card shows live-computed VAD, sensitivity, and creative context.</small>
+            <small>
+              Optional moral overlay layered on top of Big Five. Clicking any cell enables and selects it.
+              Hover any cell to preview mapped VAD instantly, then use Apply Mapped Tuning to copy those
+              suggestions into Creative Context, Mood Sensitivity, and Expression Style fields.
+            </small>
           </div>
 
           <div className="field full">
@@ -1301,8 +1359,16 @@ export default function PersonalityForm({
             <div className="avatar-preview-panel">
               <AvatarCore
                 size="large"
-                valence={Number(form.expressionIntensity) - Number(form.expressionCalmness)}
-                arousal={Number(form.expressionIntensity)}
+                valence={
+                  form.alignmentOverlayEnabled
+                    ? mappedHybrid.moodBaseline.valence
+                    : Number(form.expressionIntensity) - Number(form.expressionCalmness)
+                }
+                arousal={
+                  form.alignmentOverlayEnabled
+                    ? mappedHybrid.moodBaseline.arousal
+                    : Number(form.expressionIntensity)
+                }
                 phase={previewPhase}
                 speaking={previewSpeaking}
                 mode="scientist"

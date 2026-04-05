@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   HYBRID_MAPPING_TABLE,
   TEST_PERSONALITIES,
+  mapToVoxisPersonality,
   recommendHybridTuning,
 } from "../services/hybridPersonalityService.js";
 
@@ -35,5 +36,19 @@ describe("hybridPersonalityService", () => {
     expect(tuning.moodBaseline.dominance).toBeGreaterThan(0);
     expect(tuning.creativeContext).toMatch(/morally_complex|tragic_villain|narrative_antagonist/);
     expect(tuning.expressionStyle.sentenceStyle.length).toBeGreaterThan(0);
+  });
+
+  it("keeps canonical mapper and legacy helper in sync", () => {
+    const zoe = TEST_PERSONALITIES.find((item) => item.id === "zoe_test");
+    const fromCanonical = mapToVoxisPersonality({
+      bigFiveProfile: zoe.bigFiveProfile,
+      alignmentProfile: zoe.alignmentProfile,
+    });
+    const fromLegacy = recommendHybridTuning({
+      bigFiveProfile: zoe.bigFiveProfile,
+      alignmentProfile: zoe.alignmentProfile,
+    });
+
+    expect(fromCanonical).toEqual(fromLegacy);
   });
 });
