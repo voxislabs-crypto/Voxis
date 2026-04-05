@@ -851,6 +851,7 @@ export default function NeuralCore({
   const [focusNode, setFocusNode] = useState("core");
   const [tick, setTick] = useState(0);
   const [phaseBurst, setPhaseBurst] = useState("");
+  const [hovering, setHovering] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const performanceTier = resolvePerformanceTier(requestedPerformanceTier, mode, prefersReducedMotion);
@@ -896,7 +897,10 @@ export default function NeuralCore({
     const speed = performanceTier === "full" ? 1.2 : 0.72;
 
     function frame(now) {
-      setTick(((now - start) / 1000) * speed);
+      // Skip animation updates when hovering over the neural scene
+      if (!hovering) {
+        setTick(((now - start) / 1000) * speed);
+      }
       raf = requestAnimationFrame(frame);
     }
 
@@ -906,7 +910,7 @@ export default function NeuralCore({
         cancelAnimationFrame(raf);
       }
     };
-  }, [enabled, performanceTier]);
+  }, [enabled, performanceTier, hovering]);
 
   useEffect(() => {
     if (!livePhase) {
@@ -1130,7 +1134,11 @@ export default function NeuralCore({
             </button>
           </div>
 
-          <div className="neural-scene">
+          <div
+            className="neural-scene"
+            onMouseEnter={() => setHovering(true)}
+            onMouseLeave={() => setHovering(false)}
+          >
             <div className="neural-assistive">
               {kidsMode
                 ? "Large touch targets stay on in Kids Mode. Tap the Brain orb, use voice narration if enabled, or press N on a keyboard."
