@@ -400,11 +400,14 @@ export default function ChatWindow({
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
     autoplay: false,
+    engine: "auto",
     pitch: 1,
     rate: 1,
     preferredVoice: "alloy",
     providerVoice: "alloy",
     providerModel: "gpt-4o-mini-tts",
+    piperModelPath: "",
+    piperSpeaker: null,
   });
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
@@ -480,6 +483,7 @@ export default function ChatWindow({
     setVoiceProfile({
       enabled: personality.voiceProfile?.enabled !== false,
       autoplay: Boolean(personality.voiceProfile?.autoplay),
+      engine: personality.voiceProfile?.engine || "auto",
       pitch: Number(personality.voiceProfile?.pitch) || 1,
       rate: Number(personality.voiceProfile?.rate) || 1,
       preferredVoice:
@@ -487,6 +491,8 @@ export default function ChatWindow({
       providerVoice:
         personality.voiceProfile?.providerVoice || personality.voiceProfile?.preferredVoice || "alloy",
       providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
+      piperModelPath: personality.voiceProfile?.piperModelPath || "",
+      piperSpeaker: personality.voiceProfile?.piperSpeaker ?? null,
     });
   }, [personality]);
 
@@ -631,11 +637,14 @@ export default function ChatWindow({
       await onSaveVoiceProfile({
         enabled: voiceProfile.enabled,
         autoplay: voiceProfile.autoplay,
+        engine: voiceProfile.engine,
         pitch: Number(voiceProfile.pitch),
         rate: Number(voiceProfile.rate),
         preferredVoice: voiceProfile.preferredVoice,
         providerVoice: voiceProfile.providerVoice || voiceProfile.preferredVoice,
         providerModel: voiceProfile.providerModel,
+        piperModelPath: voiceProfile.piperModelPath,
+        piperSpeaker: voiceProfile.piperSpeaker,
       });
     } finally {
       setIsSavingVoice(false);

@@ -42,7 +42,7 @@ ensureColumn("personalities", "researchSources", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn(
   "personalities",
   "voiceProfile",
-  `TEXT NOT NULL DEFAULT '{"enabled":true,"autoplay":false,"pitch":1,"rate":1,"preferredVoice":""}'`,
+  `TEXT NOT NULL DEFAULT '{"enabled":true,"autoplay":false,"engine":"auto","pitch":1,"rate":1,"preferredVoice":"","providerVoice":"alloy","providerModel":"gpt-4o-mini-tts","piperModelPath":"","piperSpeaker":null}'`,
 );
 ensureColumn("personalities", "behaviorRules", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "goals", "TEXT NOT NULL DEFAULT '[]'");

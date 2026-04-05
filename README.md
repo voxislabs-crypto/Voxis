@@ -228,6 +228,10 @@ cp backend/.env.example backend/.env
 | `EMBEDDING_MODEL` | Embedding model name for semantic memory retrieval (for example `nomic-embed-text-v1.5`) |
 | `TTS_API_KEY` | API key for TTS provider (can be the same as `LLM_API_KEY`) |
 | `TTS_BASE_URL` | Base URL for TTS provider (optional) |
+| `TTS_ENGINE` | Default engine selector: `auto`, `cloud`, or `piper` |
+| `PIPER_COMMAND` | Piper executable command (default: `piper`) |
+| `PIPER_MODEL_PATH` | Default `.onnx` model path used when engine resolves to Piper |
+| `PIPER_SPEAKER` | Optional default numeric speaker id for multi-speaker Piper models |
 
 Research scraping works without any LLM credentials. If an LLM is configured, Voxis also synthesizes scraped source notes into a structured character profile automatically.
 
@@ -648,7 +652,13 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 ### Server-Side TTS
 
-`POST /personality/:id/tts` accepts `{text, voiceProfile}` and calls the configured TTS provider for that character. `voiceProfile` carries the per-character settings saved in the personality: provider model, voice name, pitch, and rate. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+`POST /personality/:id/tts` accepts `{text, voiceProfile}` and resolves engine per request:
+
+- `engine: "cloud"` -> OpenAI-compatible `/audio/speech`
+- `engine: "piper"` -> local Piper CLI synthesis
+- `engine: "auto"` -> Piper when configured, otherwise cloud
+
+`voiceProfile` now supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
 
 ---
 

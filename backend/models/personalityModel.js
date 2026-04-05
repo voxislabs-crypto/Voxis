@@ -86,11 +86,14 @@ function normalizeRow(row) {
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
       autoplay: false,
+      engine: "auto",
       pitch: 1,
       rate: 1,
       preferredVoice: "alloy",
       providerVoice: "alloy",
       providerModel: "gpt-4o-mini-tts",
+      piperModelPath: "",
+      piperSpeaker: null,
     }),
   };
 }

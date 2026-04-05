@@ -38,9 +38,16 @@ function sanitizeSourceUrls(items) {
 
 function sanitizeVoiceProfile(input) {
   const voiceProfile = input && typeof input === "object" ? input : {};
+  const engine = String(voiceProfile.engine || "auto").trim().toLowerCase();
+  const piperSpeaker = Number(voiceProfile.piperSpeaker);
   return {
     enabled: voiceProfile.enabled !== false,
     autoplay: Boolean(voiceProfile.autoplay),
+    engine: ["auto", "cloud", "openai", "piper"].includes(engine)
+      ? engine === "openai"
+        ? "cloud"
+        : engine
+      : "auto",
     pitch: Math.min(1.6, Math.max(0.5, Number(voiceProfile.pitch) || 1)),
     rate: Math.min(1.6, Math.max(0.6, Number(voiceProfile.rate) || 1)),
     preferredVoice: String(
@@ -50,6 +57,8 @@ function sanitizeVoiceProfile(input) {
       voiceProfile.providerVoice || voiceProfile.preferredVoice || "alloy",
     ).trim(),
     providerModel: String(voiceProfile.providerModel || "gpt-4o-mini-tts").trim(),
+    piperModelPath: String(voiceProfile.piperModelPath || "").trim(),
+    piperSpeaker: Number.isFinite(piperSpeaker) && piperSpeaker >= 0 ? Math.floor(piperSpeaker) : null,
   };
 }
 

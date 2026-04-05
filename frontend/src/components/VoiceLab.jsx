@@ -52,6 +52,7 @@ const voiceLabStyles = `
   }
 
   .voice-lab-field input,
+  .voice-lab-field select,
   .voice-lab-field textarea {
     width: 100%;
     padding: 10px 13px;
@@ -142,11 +143,14 @@ export default function VoiceLab({
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
     autoplay: false,
+    engine: "auto",
     pitch: 1,
     rate: 1,
     preferredVoice: "alloy",
     providerVoice: "alloy",
     providerModel: "gpt-4o-mini-tts",
+    piperModelPath: "",
+    piperSpeaker: "",
   });
   const [sampleText, setSampleText] = useState("");
   const [isSavingVoice, setIsSavingVoice] = useState(false);
@@ -167,6 +171,7 @@ export default function VoiceLab({
     setVoiceProfile({
       enabled: personality.voiceProfile?.enabled !== false,
       autoplay: Boolean(personality.voiceProfile?.autoplay),
+      engine: personality.voiceProfile?.engine || "auto",
       pitch: Number(personality.voiceProfile?.pitch) || 1,
       rate: Number(personality.voiceProfile?.rate) || 1,
       preferredVoice:
@@ -174,6 +179,11 @@ export default function VoiceLab({
       providerVoice:
         personality.voiceProfile?.providerVoice || personality.voiceProfile?.preferredVoice || "alloy",
       providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
+      piperModelPath: personality.voiceProfile?.piperModelPath || "",
+      piperSpeaker:
+        personality.voiceProfile?.piperSpeaker === null || personality.voiceProfile?.piperSpeaker === undefined
+          ? ""
+          : String(personality.voiceProfile?.piperSpeaker),
     });
   }, [personality]);
 
@@ -262,11 +272,14 @@ export default function VoiceLab({
       await onSaveVoiceProfile({
         enabled: voiceProfile.enabled,
         autoplay: voiceProfile.autoplay,
+        engine: voiceProfile.engine,
         pitch: Number(voiceProfile.pitch),
         rate: Number(voiceProfile.rate),
         preferredVoice: voiceProfile.preferredVoice,
         providerVoice: voiceProfile.providerVoice || voiceProfile.preferredVoice,
         providerModel: voiceProfile.providerModel,
+        piperModelPath: voiceProfile.piperModelPath,
+        piperSpeaker: voiceProfile.piperSpeaker === "" ? null : Number(voiceProfile.piperSpeaker),
       });
     } finally {
       setIsSavingVoice(false);
@@ -303,6 +316,19 @@ export default function VoiceLab({
         <div className="voice-lab-body">
           <div className="voice-lab-grid">
             <div className="voice-lab-field">
+              <label htmlFor="voice-lab-engine">TTS engine</label>
+              <select
+                id="voice-lab-engine"
+                value={voiceProfile.engine}
+                onChange={(event) => updateVoiceField("engine", event.target.value)}
+              >
+                <option value="auto">auto (prefer Piper, fallback cloud)</option>
+                <option value="cloud">cloud</option>
+                <option value="piper">piper</option>
+              </select>
+            </div>
+
+            <div className="voice-lab-field">
               <label htmlFor="voice-lab-voice">TTS voice</label>
               <input
                 id="voice-lab-voice"
@@ -321,9 +347,33 @@ export default function VoiceLab({
                 id="voice-lab-model"
                 value={voiceProfile.providerModel}
                 onChange={(event) => updateVoiceField("providerModel", event.target.value)}
-                placeholder="gpt-4o-mini-tts"
+                placeholder={voiceProfile.engine === "piper" ? "Optional cloud fallback model" : "gpt-4o-mini-tts"}
               />
             </div>
+
+            {voiceProfile.engine === "piper" ? (
+              <>
+                <div className="voice-lab-field">
+                  <label htmlFor="voice-lab-piper-model">Piper model path</label>
+                  <input
+                    id="voice-lab-piper-model"
+                    value={voiceProfile.piperModelPath}
+                    onChange={(event) => updateVoiceField("piperModelPath", event.target.value)}
+                    placeholder="/models/en_US-lessac-medium.onnx"
+                  />
+                </div>
+
+                <div className="voice-lab-field">
+                  <label htmlFor="voice-lab-piper-speaker">Piper speaker id (optional)</label>
+                  <input
+                    id="voice-lab-piper-speaker"
+                    value={voiceProfile.piperSpeaker}
+                    onChange={(event) => updateVoiceField("piperSpeaker", event.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+              </>
+            ) : null}
 
             <div className="voice-lab-field">
               <label htmlFor="voice-lab-pitch">Pitch: {Number(voiceProfile.pitch).toFixed(2)}</label>

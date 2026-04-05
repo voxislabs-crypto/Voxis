@@ -662,11 +662,14 @@ export default function PersonalityForm({
           voiceProfile: {
             enabled: form.voiceEnabled,
             autoplay: form.voiceAutoplay,
+            engine: editingPersonality?.voiceProfile?.engine || "auto",
             pitch: Number(form.voicePitch),
             rate: Number(form.voiceRate),
             preferredVoice: form.preferredVoice,
             providerVoice: form.preferredVoice,
             providerModel: form.providerModel,
+            piperModelPath: editingPersonality?.voiceProfile?.piperModelPath || "",
+            piperSpeaker: editingPersonality?.voiceProfile?.piperSpeaker ?? null,
           },
           expressionProfile: {
             preset: form.expressionPreset,

@@ -3,14 +3,23 @@ import { generateSpeechAudio, isTtsConfigured } from "../services/ttsService.js"
 
 function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   const source = input && typeof input === "object" ? input : fallbackProfile;
+  const engine = String(source.engine || fallbackProfile.engine || "auto").trim().toLowerCase();
+  const piperSpeaker = Number(source.piperSpeaker ?? fallbackProfile.piperSpeaker);
   return {
     enabled: source.enabled !== false,
     autoplay: Boolean(source.autoplay),
+    engine: ["auto", "cloud", "openai", "piper"].includes(engine)
+      ? engine === "openai"
+        ? "cloud"
+        : engine
+      : "auto",
     pitch: Math.min(1.6, Math.max(0.5, Number(source.pitch) || 1)),
     rate: Math.min(1.6, Math.max(0.6, Number(source.rate) || 1)),
     preferredVoice: String(source.preferredVoice || source.providerVoice || "alloy").trim(),
     providerVoice: String(source.providerVoice || source.preferredVoice || "alloy").trim(),
     providerModel: String(source.providerModel || "gpt-4o-mini-tts").trim(),
+    piperModelPath: String(source.piperModelPath || "").trim(),
+    piperSpeaker: Number.isFinite(piperSpeaker) && piperSpeaker >= 0 ? Math.floor(piperSpeaker) : null,
   };
 }
 
@@ -30,7 +39,7 @@ export async function generateSpeechHandler(req, res, next) {
     if (!isTtsConfigured()) {
       return res.status(500).json({
         error:
-          "TTS is not configured. Set TTS_API_KEY or a compatible TTS_BASE_URL in backend/.env.",
+          "TTS is not configured. Configure cloud TTS (TTS_API_KEY/TTS_BASE_URL) or Piper (PIPER_MODEL_PATH) in backend/.env.",
       });
     }
 
