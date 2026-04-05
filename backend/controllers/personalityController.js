@@ -7,6 +7,7 @@ import {
 } from "../models/personalityModel.js";
 import { moodFromLabel } from "../services/moodEngine.js";
 import { mapToVoxisPersonality } from "../services/hybridPersonalityService.js";
+import { getAllVoicePresets, recommendVoicePreset } from "../services/voicePresetsService.js";
 
 function sanitizeItems(items) {
   if (!Array.isArray(items)) {
@@ -518,6 +519,31 @@ export function getPersonalityHandler(req, res, next) {
     }
 
     return res.json(personality);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function getVoicePresetsHandler(req, res, next) {
+  try {
+    const presets = getAllVoicePresets();
+    return res.json(presets);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function getRecommendedVoicePresetHandler(req, res, next) {
+  try {
+    const ownerId = req.voxisUser?.id ?? null;
+    const personality = getPersonalityById(Number(req.params.id), ownerId);
+
+    if (!personality) {
+      return res.status(404).json({ error: "Personality not found." });
+    }
+
+    const preset = recommendVoicePreset(personality);
+    return res.json(preset);
   } catch (error) {
     return next(error);
   }

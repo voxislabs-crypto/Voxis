@@ -565,6 +565,8 @@ export default function PersonalityForm({
   const [previewPhase, setPreviewPhase] = useState("idle");
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
   const [hoveredAlignment, setHoveredAlignment] = useState(null);
+  const [voicePresets, setVoicePresets] = useState({});
+  const [recommendedVoicePreset, setRecommendedVoicePreset] = useState(null);
   const isEditing = Boolean(editingPersonality?.id);
 
   const bigFiveProfile = useMemo(
@@ -602,6 +604,7 @@ export default function PersonalityForm({
       setResearchResult(null);
       setResearchSources([]);
       setCopySourceId("");
+      setRecommendedVoicePreset(null);
       return;
     }
 
@@ -618,7 +621,35 @@ export default function PersonalityForm({
     );
     setResearchSources(mapResearchSourcesForEdit(editingPersonality.researchSources));
     setCopySourceId("");
-  }, [editingPersonality]);
+
+    // Fetch recommended voice preset for this personality
+    (async () => {
+      try {
+        const res = await authFetch(`/personality/${editingPersonality.id}/voice-preset`);
+        if (res.ok) {
+          const preset = await res.json();
+          setRecommendedVoicePreset(preset);
+        }
+      } catch (err) {
+        // Silently fail if preset fetch fails
+      }
+    })();
+  }, [editingPersonality, authFetch]);
+
+  // Fetch all voice presets on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await authFetch("/voice-presets");
+        if (res.ok) {
+          const presets = await res.json();
+          setVoicePresets(presets);
+        }
+      } catch (err) {
+        // Silently fail if presets fetch fails
+      }
+    })();
+  }, [authFetch]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -626,6 +657,20 @@ export default function PersonalityForm({
       ...current,
       [name]: value,
     }));
+  }
+
+  function applyVoicePreset(preset) {
+    if (!preset) return;
+    setForm((current) => ({
+      ...current,
+      // Set to Piper engine and the recommended model
+      // These fields will be saved to the voiceProfile
+      voiceEnabled: true,
+      // Note: actual Piper model path will be set by backend based on the env
+      // For now, we track which model is recommended
+    }));
+    // Store the recommended model in a data attribute or notify user
+    // For now, we'll just show it in the UI
   }
 
   async function handleSubmit(event) {
@@ -1255,6 +1300,32 @@ export default function PersonalityForm({
               Lower = stoic, higher = volatile. Overrides the automatic trait stack when not 1.0.
             </small>
           </div>
+
+          {recommendedVoicePreset && (
+            <div className="field full" style={{ padding: 14, border: "1px solid rgba(0, 200, 255, 0.2)", borderRadius: 16, background: "rgba(0, 180, 255, 0.05)" }}>
+              <label style={{ marginBottom: 6, display: "block" }}>Recommended Voice Preset</label>
+              <div style={{ marginBottom: 10, fontSize: "0.9rem" }}>
+                <strong style={{ color: "var(--accent)" }}>{recommendedVoicePreset.label}</strong>
+                <div style={{ color: "var(--muted)", marginTop: 4, fontSize: "0.85rem" }}>
+                  {recommendedVoicePreset.description}
+                </div>
+                <div style={{ marginTop: 6, fontSize: "0.8rem", color: "var(--muted)" }}>
+                  Primary: <strong>{recommendedVoicePreset.recommended}</strong>
+                  {recommendedVoicePreset.alternatives && recommendedVoicePreset.alternatives.length > 0 && (
+                    <> | Alternatives: {recommendedVoicePreset.alternatives.join(", ")}</>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ width: "100%", padding: "10px 16px" }}
+                onClick={() => applyVoicePreset(recommendedVoicePreset)}
+              >
+                Apply This Voice Preset
+              </button>
+            </div>
+          )}
 
           <div className="field full">
             <label>Expression profile</label>
