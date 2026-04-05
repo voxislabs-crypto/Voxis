@@ -142,6 +142,19 @@ const avatarStyles = `
     height: 100%;
   }
 
+  .avatar-face .mouth {
+    fill: none;
+    stroke: var(--eye);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+
+  .avatar-core.state-speak .avatar-face .mouth {
+    opacity: 0.76;
+  }
+
   .avatar-face .eye {
     fill: rgba(40, 216, 255, 0.18);
     stroke: var(--eye);
@@ -443,6 +456,7 @@ export default function AvatarCore({
         <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
         <circle className="pupil" cx={36 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
         <circle className="pupil" cx={64 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
+        <path className="mouth" d="M 38 68 Q 50 72 62 68" />
       </svg>
 
       <div className={`avatar-wave ${waveClass}`.trim()}>
