@@ -52,6 +52,33 @@ function pickContext(alignment, b5) {
   return "default";
 }
 
+function pickExpressionRules(alignment, b5) {
+  const E = clamp01(b5.extraversion);
+  const N = clamp01(b5.neuroticism);
+  const C = clamp01(b5.conscientiousness);
+
+  if (alignment === "chaotic_good")    return ["burst phrasing with mid-sentence jumps", "frequent exclamations", "whimsical tangents"];
+  if (alignment === "chaotic_evil")    return ["sudden sinister pivots", "sarcastic dramatic pauses", "unpredictable tonal swings"];
+  if (alignment === "lawful_evil")     return ["long structured sentences", "cold authoritative composure", E > 0.65 ? "rare calculated humor" : "minimal interruptions"];
+  if (alignment === "neutral_evil")    return ["cynical self-serving tone", "no wasted words", N > 0.6 ? "volatile undercurrent" : "flat affect"];
+  if (alignment === "chaotic_neutral") return ["topic jumps mid-sentence", "playful metaphors", "avoids rigid conclusions"];
+  if (alignment === "lawful_neutral")  return ["structured logical delivery", "composed measured tone", "formal phrasing preferred"];
+
+  const rules = [];
+  if (E > 0.70)      rules.push("energetic, punchy delivery");
+  else if (C > 0.70) rules.push("deliberate, structured phrasing");
+  else               rules.push("natural conversational flow");
+
+  if (N > 0.65)                         rules.push("emotionally variable reactions");
+  else if (alignment.includes("good"))  rules.push(E > 0.6 ? "warm enthusiastic tone" : "measured encouraging tone");
+  else                                  rules.push("balanced neutral cadence");
+
+  if (alignment.includes("lawful"))     rules.push("prefers complete clear sentences");
+  else if (alignment.includes("neutral"))rules.push("adapts style to context");
+
+  return rules.slice(0, 3);
+}
+
 // ── sub-components ──
 
 const VAD_CONFIG = {
@@ -125,14 +152,18 @@ function VADBar({ axis, value }) {
 
 // ── main export ──
 
-export default function HybridPreview({ bigFive, alignment, alignmentEnabled }) {
+export default function HybridPreview({ bigFive, alignment, alignmentEnabled, previewAlignment }) {
+  const activeAlignment = (previewAlignment && previewAlignment !== alignment) ? previewAlignment : alignment;
+  const isPreviewing = Boolean(previewAlignment && previewAlignment !== alignment);
+
   const result = useMemo(() => {
     if (!alignmentEnabled) return null;
-    const vad = computeVAD(bigFive, alignment);
-    const sensitivity = computeSensitivity(bigFive, alignment);
-    const context = pickContext(alignment, bigFive);
-    return { vad, sensitivity, context };
-  }, [bigFive, alignment, alignmentEnabled]);
+    const vad = computeVAD(bigFive, activeAlignment);
+    const sensitivity = computeSensitivity(bigFive, activeAlignment);
+    const context = pickContext(activeAlignment, bigFive);
+    const rules = pickExpressionRules(activeAlignment, bigFive);
+    return { vad, sensitivity, context, rules };
+  }, [bigFive, activeAlignment, alignmentEnabled]);
 
   if (!result) {
     return (
@@ -155,7 +186,13 @@ export default function HybridPreview({ bigFive, alignment, alignmentEnabled }) 
     <div style={card}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 4 }}>
         <span style={titleStyle}>Hybrid Tuning Preview</span>
-        <span style={subStyle}>Live · Big Five × {alignment.replace(/_/g, " ")}</span>
+        {isPreviewing ? (
+          <span style={{ ...subStyle, color: "#f5a623" }}>
+            Hover preview · {activeAlignment.replace(/_/g, " ")}
+          </span>
+        ) : (
+          <span style={subStyle}>Live · {activeAlignment.replace(/_/g, " ")}</span>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -174,6 +211,15 @@ export default function HybridPreview({ bigFive, alignment, alignmentEnabled }) 
         <div style={chip}>
           <span style={chipLabel}>Suggested context</span>
           <span style={chipValue}>{contextLabel}</span>
+
+              {result.rules && result.rules.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={chipLabel}>Expression rules</span>
+                  {result.rules.map((rule, i) => (
+                    <span key={i} style={ruleItemStyle}>· {rule}</span>
+                  ))}
+                </div>
+              )}
         </div>
       </div>
     </div>
@@ -230,4 +276,10 @@ const chipValue = {
   fontWeight: 700,
   color: "#8ddfff",
   textTransform: "capitalize",
+};
+
+const ruleItemStyle = {
+  fontSize: "0.76rem",
+  color: "rgba(141,223,255,0.72)",
+  lineHeight: 1.45,
 };

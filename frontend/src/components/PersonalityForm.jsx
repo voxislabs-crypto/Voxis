@@ -564,6 +564,7 @@ export default function PersonalityForm({
   const [researchSources, setResearchSources] = useState([]);
   const [previewPhase, setPreviewPhase] = useState("idle");
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
+    const [hoveredAlignment, setHoveredAlignment] = useState(null);
   const isEditing = Boolean(editingPersonality?.id);
 
   useEffect(() => {
@@ -1099,6 +1100,7 @@ export default function PersonalityForm({
                       alignmentOverlayEnabled: true,
                     }))
                   }
+                  onHover={setHoveredAlignment}
                 />
               </div>
               <div style={{ flex: 1, minWidth: 240 }}>
@@ -1112,10 +1114,11 @@ export default function PersonalityForm({
                   }}
                   alignment={form.alignmentOverlay}
                   alignmentEnabled={Boolean(form.alignmentOverlayEnabled)}
+                  previewAlignment={hoveredAlignment}
                 />
               </div>
             </div>
-            <small>Optional moral overlay layered on top of Big Five. Clicking any cell enables and selects it. The preview card shows live-computed VAD, sensitivity, and creative context.</small>
+                        <small>Optional moral overlay layered on top of Big Five. Clicking any cell enables and selects it. The preview card shows live-computed VAD, sensitivity, and creative context.</small>
           </div>
 
           <div className="field full">

@@ -7,11 +7,11 @@ const R = 68;        // pentagon data radius
 const LABEL_R = 88;  // label ring radius
 
 const TRAITS = [
-  { key: "openness",          label: "O", full: "Openness" },
-  { key: "conscientiousness", label: "C", full: "Conscientiousness" },
-  { key: "extraversion",      label: "E", full: "Extraversion" },
-  { key: "agreeableness",     label: "A", full: "Agreeableness" },
-  { key: "neuroticism",       label: "N", full: "Neuroticism" },
+  { key: "openness",          label: "O", full: "Openness",          color: "#c860ff" },
+  { key: "conscientiousness", label: "C", full: "Conscientiousness", color: "#00d4a8" },
+  { key: "extraversion",      label: "E", full: "Extraversion",      color: "#f5a623" },
+  { key: "agreeableness",     label: "A", full: "Agreeableness",     color: "#6cff88" },
+  { key: "neuroticism",       label: "N", full: "Neuroticism",       color: "#ff6b6b" },
 ];
 
 function axisAngle(i) {
@@ -25,6 +25,10 @@ function pt(r, i) {
 
 function toPoints(pts) {
   return pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+}
+
+function snap(value, step = 0.05) {
+  return Math.round(value / step) * step;
 }
 
 function clamp01(n) {
@@ -67,7 +71,7 @@ export default function BigFiveRadar({ values, onChange, disabled = false }) {
     const a = axisAngle(axisIdx);
     const dx = x - CX;
     const dy = y - CY;
-    return clamp01((dx * Math.cos(a) + dy * Math.sin(a)) / R);
+    return snap(clamp01((dx * Math.cos(a) + dy * Math.sin(a)) / R));
   }
 
   function handlePointerDown(e) {
@@ -169,7 +173,7 @@ export default function BigFiveRadar({ values, onChange, disabled = false }) {
             cx={x}
             cy={y}
             r={5}
-            fill="#00c8ff"
+            fill={TRAITS[i].color}
             stroke="rgba(4,10,22,0.88)"
             strokeWidth="1.5"
           />
@@ -187,7 +191,7 @@ export default function BigFiveRadar({ values, onChange, disabled = false }) {
                 dominantBaseline="middle"
                 fontSize="10"
                 fontWeight="700"
-                fill="#8ddfff"
+                fill={t.color}
                 style={{ fontFamily: "inherit" }}
               >
                 {t.label}
@@ -198,7 +202,7 @@ export default function BigFiveRadar({ values, onChange, disabled = false }) {
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize="8.5"
-                fill="rgba(141,223,255,0.62)"
+                fill={t.color + "99"}
                 style={{ fontFamily: "inherit" }}
               >
                 {vals[i].toFixed(2)}
