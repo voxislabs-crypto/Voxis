@@ -3,6 +3,16 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // Force a single copy of three + R3F packages — prevents
+    // "Multiple instances of Three.js" / "Hooks can only be used within Canvas"
+    dedupe: [
+      "three",
+      "@react-three/fiber",
+      "@react-three/drei",
+      "@react-three/postprocessing",
+    ],
+  },
   server: {
     port: 3100,
     proxy: {
