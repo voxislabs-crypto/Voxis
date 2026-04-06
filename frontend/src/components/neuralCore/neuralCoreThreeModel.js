@@ -30,7 +30,7 @@ function inferMoodState({ valence, arousal, repairActive, livePhaseBurst }) {
   if (valence > 0.22) {
     return {
       mood: "excited",
-      background: ["#03111b", "#10223f"],
+      background: ["#030810", "#060d1c"],
       speed: 1.05,
       accent: "#ff9c5c",
       secondary: "#19edff",
@@ -86,7 +86,7 @@ function buildPrimaryNodes({
       strength: hasIntent ? 0.72 : 0.42,
       activity: hasIntent ? 0.92 : 0.28,
       connections: ["core"],
-      color: hasIntent ? "#ff8f5c" : "#62d7ff",
+      color: hasIntent ? "#00d4ff" : "#1a5a78",
       type: "intent",
       meta: hasIntent ? "Active goal selected" : "No active goal",
     },
@@ -108,7 +108,7 @@ function buildPrimaryNodes({
       strength: evidenceActive || repairActive ? 0.74 : 0.38,
       activity: repairActive ? 1 : evidenceActive ? 0.7 : 0.16,
       connections: ["core"],
-      color: repairActive ? "#ffffff" : evidenceActive ? "#90f5ff" : "#4fb3d8",
+      color: repairActive ? "#ffffff" : evidenceActive ? "#ff2d78" : "#3a1555",
       type: repairActive ? "repair" : "evidence",
       meta: repairActive ? "Repair pass running" : evidenceActive ? "Citations linked" : "Evidence pending",
     },

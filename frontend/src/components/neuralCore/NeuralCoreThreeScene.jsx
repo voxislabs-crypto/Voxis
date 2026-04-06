@@ -193,14 +193,14 @@ function CompanionOrb({ moodState, orbActivityRef }) {
     <group ref={groupRef} position={[3, 2.15, -1.2]}>
       {/* Glow halo */}
       <mesh ref={glowRef}>
-        <sphereGeometry args={[0.68, 18, 18]} />
+        <sphereGeometry args={[0.36, 18, 18]} />
         <meshStandardMaterial color={moodState.accent} emissive={moodState.accent}
           emissiveIntensity={1.0} transparent opacity={0.06}
           side={THREE.BackSide} depthWrite={false} />
       </mesh>
       {/* Core */}
       <mesh ref={coreRef}>
-        <sphereGeometry args={[0.38, 32, 32]} />
+        <sphereGeometry args={[0.21, 32, 32]} />
         <meshStandardMaterial color={moodState.secondary} emissive={moodState.accent}
           emissiveIntensity={2.4} transparent opacity={0.9} roughness={0.16} />
       </mesh>
@@ -336,7 +336,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
     const e  = endRef.current;
     const t  = state.clock.elapsedTime * 0.5;
     const np = noisePhase.current;
-    const jScale = (highlighted ? 0.14 : 0.045) * (0.7 + weight * 0.6);
+    const jScale = (highlighted ? 0.062 : 0.018) * (0.5 + weight * 0.5);
 
     for (let i = 0; i <= SEGS; i++) {
       const f = i / SEGS;
@@ -399,6 +399,7 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
   const groupRef = useRef(null);
   const meshRef  = useRef(null);
   const glowRef  = useRef(null);
+  const ringRef  = useRef(null);
   const labelRef = useRef(null);
 
   const basePos = useMemo(() => new THREE.Vector3(...node.position), [node.position]);
@@ -472,31 +473,43 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
     // Glow halo
     if (glowRef.current) {
       glowRef.current.material.opacity =
-        0.07 + pulseRef.current * 0.50 + node.activity * 0.06 + (isSelected ? 0.14 : 0);
-      glowRef.current.scale.setScalar(next * (1.38 + pulseRef.current * 0.28));
+        0.03 + pulseRef.current * 0.30 + node.activity * 0.03 + (isSelected ? 0.07 : 0);
+      glowRef.current.scale.setScalar(next * (1.0 + pulseRef.current * 0.14));
+    }
+    // Neural ring — rotates slowly, flares on pulse
+    if (ringRef.current) {
+      ringRef.current.rotation.z = t * 0.22 + dp.offset;
+      ringRef.current.material.opacity = 0.28 + pulseRef.current * 0.72 + (isSelected ? 0.25 : 0);
+      ringRef.current.material.emissiveIntensity = 1.2 + pulseRef.current * 4.5 + (isSelected ? 0.8 : 0);
     }
   });
 
-  // Node size grows with strength (memory growth)
-  const radius = 0.18 + node.strength * 0.30;
+  // Node size — much smaller for neural pathway aesthetic
+  const radius = 0.055 + node.strength * 0.12;
 
   return (
     <group ref={groupRef} position={node.position}
       onClick={(e) => { e.stopPropagation(); onSelect(node); }}
     >
-      {/* Outer glow shell */}
+      {/* Tight diffuse shell */}
       <mesh ref={glowRef}>
-        <sphereGeometry args={[radius * 1.58, 18, 18]} />
+        <sphereGeometry args={[radius * 1.25, 18, 18]} />
         <meshStandardMaterial color={node.color} emissive={node.color}
-          emissiveIntensity={1.4} transparent opacity={0.07}
+          emissiveIntensity={0.8} transparent opacity={0.03}
           side={THREE.BackSide} depthWrite={false} />
+      </mesh>
+      {/* Neural circuit ring */}
+      <mesh ref={ringRef}>
+        <torusGeometry args={[radius * 1.62, radius * 0.055, 6, 64]} />
+        <meshStandardMaterial color={node.color} emissive={node.color}
+          emissiveIntensity={1.5} transparent opacity={0.28} depthWrite={false} />
       </mesh>
       {/* Core orb */}
       <mesh ref={meshRef}>
         <sphereGeometry args={[radius, 32, 32]} />
         <meshStandardMaterial color={node.color} emissive={node.color}
           emissiveIntensity={1.1 + node.activity * 0.55}
-          roughness={0.22} metalness={0.14} />
+          roughness={0.12} metalness={0.65} />
       </mesh>
       <Html position={[0, -radius - 0.22, 0]} center>
         <div ref={labelRef} className="neural-node-label">{node.label}</div>
@@ -645,13 +658,13 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   return (
     <>
       <color attach="background" args={[graph.moodState.background[0]]} />
-      <fog   attach="fog"        args={[graph.moodState.background[1], 6, 14]} />
-      <ambientLight intensity={0.38} />
+      <fog   attach="fog"        args={[graph.moodState.background[1], 8, 24]} />
+      <ambientLight intensity={0.22} />
       <pointLight position={[8,  8, 8]} intensity={1.4} color={graph.moodState.secondary} />
       <pointLight position={[-6,-4, 5]} intensity={0.8} color={graph.moodState.accent}    />
 
-      <Stars radius={28} depth={18} count={460} factor={3.2}
-        saturation={0} fade speed={graph.moodState.speed * 0.5} />
+      <Stars radius={28} depth={18} count={160} factor={0.8}
+        saturation={0} fade speed={graph.moodState.speed * 0.3} />
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
         speed={graph.moodState.speed} controlsRef={controlsRef}
