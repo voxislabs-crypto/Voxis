@@ -38,6 +38,8 @@ fi
 
 echo "[1/6] Updating code"
 git -C "$APP_DIR" fetch origin
+# Discard any local changes to lockfiles/generated files that block checkout
+git -C "$APP_DIR" checkout -- . 2>/dev/null || true
 git -C "$APP_DIR" checkout "$BRANCH"
 git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
 
