@@ -334,7 +334,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
   useFrame((state) => {
     const s  = startRef.current;
     const e  = endRef.current;
-    const t  = state.clock.elapsedTime;
+    const t  = state.clock.elapsedTime * 0.5;
     const np = noisePhase.current;
     const jScale = (highlighted ? 0.14 : 0.045) * (0.7 + weight * 0.6);
 
