@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import NeuralCoreRenderer from "./neuralCore/NeuralCoreRenderer.jsx";
+import NeuralCoreThreeScene from "./neuralCore/NeuralCoreThreeScene.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 
 const neuralStyles = `
@@ -13,6 +14,22 @@ const neuralStyles = `
     flex-direction: column;
     gap: 8px;
     align-items: flex-end;
+  }
+
+  .neural-mini-preview {
+    width: 210px;
+    height: 160px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 200, 255, 0.20);
+    background: #060c18;
+    box-shadow: 0 0 18px rgba(0, 200, 255, 0.10);
+    cursor: pointer;
+    position: relative;
+  }
+  .neural-mini-preview canvas {
+    display: block;
+    pointer-events: none;
   }
 
   .neural-button {
@@ -1094,6 +1111,31 @@ export default function NeuralCore({
 
       {!expanded ? (
         <div className="neural-hud">
+          {!kidsMode && performanceTier !== "light" && (
+            <div
+              className="neural-mini-preview"
+              onClick={() => setExpanded(true)}
+              title="Click to open Neural Core"
+            >
+              <NeuralCoreThreeScene
+                scene={scene}
+                personality={personality}
+                memoryCount={memoryCount}
+                hasIntent={hasIntent}
+                identityActive={identityActive}
+                evidenceActive={evidenceActive}
+                repairActive={repairActive}
+                reconditioningActive={reconditioningActive}
+                visibleChildNodes={[]}
+                focusNode="core"
+                setFocusNode={() => {}}
+                valence={valence}
+                arousal={arousal}
+                dominance={dominance}
+                livePhaseBurst={phaseBurst}
+              />
+            </div>
+          )}
           <button
             type="button"
             className={`neural-button ${kidsMode ? "kids" : ""}`}
