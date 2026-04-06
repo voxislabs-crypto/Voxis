@@ -261,80 +261,183 @@ const chatStyles = `
     font-weight: 700;
   }
 
+  /* ── Quick Voice Panel ─────────────────────────────────────── */
   .voice-panel {
-    padding: 16px 20px 0;
+    padding: 14px 20px 0;
+    border-top: 1px solid rgba(0, 180, 255, 0.07);
+    background: rgba(0, 20, 46, 0.28);
   }
 
-  .voice-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .voice-field {
+  .voice-panel-header {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .voice-panel-label {
+    display: flex;
+    align-items: center;
     gap: 6px;
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.17em;
+    text-transform: uppercase;
+    color: rgba(0, 200, 255, 0.50);
+    font-family: "JetBrains Mono", "Courier New", monospace;
   }
 
-  .voice-field label {
-    color: var(--muted);
+  .voice-panel-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    animation: vcp-blink 1.6s ease-in-out infinite;
+  }
+
+  @keyframes vcp-blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.2; }
+  }
+
+  .voice-open-lab {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 180, 255, 0.22);
+    background: rgba(0, 180, 255, 0.06);
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 150ms ease, box-shadow 150ms ease;
+  }
+
+  .voice-open-lab:hover {
+    background: rgba(0, 180, 255, 0.12);
+    box-shadow: 0 0 10px rgba(0, 200, 255, 0.14);
+  }
+
+  .voice-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 12px;
+  }
+
+  .voice-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .voice-toggle input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .voice-toggle-track {
+    position: relative;
+    flex-shrink: 0;
+    width: 34px;
+    height: 19px;
+    border-radius: 10px;
+    background: rgba(0, 180, 255, 0.09);
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  }
+
+  .voice-toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: rgba(0, 180, 255, 0.30);
+    transition: transform 200ms ease, background 200ms ease, box-shadow 200ms ease;
+  }
+
+  .voice-toggle input:checked + .voice-toggle-track {
+    background: rgba(0, 200, 255, 0.16);
+    border-color: rgba(0, 200, 255, 0.50);
+    box-shadow: 0 0 8px rgba(0, 200, 255, 0.20);
+  }
+
+  .voice-toggle input:checked + .voice-toggle-track::after {
+    transform: translateX(15px);
+    background: var(--accent);
+    box-shadow: 0 0 7px rgba(0, 200, 255, 0.75);
+  }
+
+  .voice-toggle-label {
     font-size: 0.85rem;
-    font-weight: 700;
-  }
-
-  .voice-field input,
-  .voice-field select {
-    width: 100%;
-    padding: 10px 13px;
-    border: 1px solid rgba(0, 180, 255, 0.14);
-    border-radius: 12px;
-    background: rgba(6, 14, 28, 0.90);
-    color: var(--text);
+    font-weight: 600;
+    color: var(--muted);
   }
 
   .voice-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 12px;
+    gap: 9px;
+    padding-bottom: 14px;
   }
 
-  .voice-quick-copy {
-    margin: 0;
-    color: var(--muted);
-    line-height: 1.6;
-    font-size: 0.88rem;
-  }
-
-  .voice-actions button {
-    padding: 10px 16px;
-    border: 0;
-    border-radius: 999px;
+  .voice-btn {
+    padding: 9px 15px;
+    border: none;
+    border-radius: 9px;
     background: linear-gradient(135deg, var(--accent), var(--accent-deep));
     color: #fff;
-    font-weight: 700;
-    font-size: 0.9rem;
+    font-weight: 800;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow: 0 3px 12px rgba(0, 160, 255, 0.24);
+    cursor: pointer;
+    transition: box-shadow 160ms ease, transform 100ms ease;
   }
 
-  .voice-actions button.secondary {
+  .voice-btn:hover {
+    box-shadow: 0 5px 18px rgba(0, 160, 255, 0.38);
+    transform: translateY(-1px);
+  }
+
+  .voice-btn:active { transform: translateY(0); }
+
+  .voice-btn.sec {
     background: rgba(0, 180, 255, 0.06);
-    border: 1px solid rgba(0, 180, 255, 0.18);
+    border: 1px solid rgba(0, 180, 255, 0.20);
     color: var(--accent);
+    box-shadow: none;
+  }
+
+  .voice-btn.sec:hover {
+    background: rgba(0, 180, 255, 0.10);
+    box-shadow: 0 0 10px rgba(0, 200, 255, 0.12);
+  }
+
+  .voice-btn:disabled {
+    opacity: 0.40;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
   }
 
   .audio-player {
     width: 100%;
-    margin-top: 12px;
-  }
-
-  .voice-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-top: 30px;
-    color: var(--muted);
-    font-size: 0.92rem;
+    margin-top: 10px;
+    margin-bottom: 2px;
+    border-radius: 8px;
+    accent-color: var(--accent);
   }
 
   @media (max-width: 720px) {
@@ -350,12 +453,9 @@ const chatStyles = `
       max-width: 100%;
     }
 
-    .voice-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .voice-checkbox {
-      padding-top: 0;
+    .voice-toggles {
+      flex-direction: column;
+      gap: 12px;
     }
   }
 
@@ -907,46 +1007,51 @@ export default function ChatWindow({
           </div>
 
           <div className="voice-panel">
-            <p className="voice-quick-copy">
-              Quick play and autoplay stay in chat. Open Voice Lab for full TTS tuning.
-            </p>
+            <div className="voice-panel-header">
+              <div className="voice-panel-label">
+                <span className="voice-panel-dot" />
+                QUICK VOICE
+              </div>
+              <button type="button" className="voice-open-lab" onClick={onOpenVoiceLab}>
+                ⚗ Full Voice Lab
+              </button>
+            </div>
 
-            <div className="voice-grid">
-              <label className="voice-checkbox">
+            <div className="voice-toggles">
+              <label className="voice-toggle">
                 <input
                   type="checkbox"
                   checked={voiceProfile.enabled}
                   onChange={(event) => updateVoiceField("enabled", event.target.checked)}
                 />
-                Enable voice playback
+                <span className="voice-toggle-track" />
+                <span className="voice-toggle-label">Voice playback</span>
               </label>
-
-              <label className="voice-checkbox">
+              <label className="voice-toggle">
                 <input
                   type="checkbox"
                   checked={voiceProfile.autoplay}
                   onChange={(event) => updateVoiceField("autoplay", event.target.checked)}
                 />
-                Auto-play assistant replies
+                <span className="voice-toggle-track" />
+                <span className="voice-toggle-label">Auto-play replies</span>
               </label>
             </div>
 
             <div className="voice-actions">
               <button
                 type="button"
+                className="voice-btn"
                 onClick={() => void generateAudio(latestAssistantMessage?.content || "")}
                 disabled={isGeneratingAudio || !latestAssistantMessage}
               >
-                {isGeneratingAudio ? "Generating Audio..." : "Play Latest Reply"}
+                {isGeneratingAudio ? "Generating…" : "▶ Play Latest Reply"}
               </button>
-              <button type="button" className="secondary" onClick={stopSpeaking}>
-                Stop Audio
+              <button type="button" className="voice-btn sec" onClick={stopSpeaking}>
+                ■ Stop
               </button>
-              <button type="button" className="secondary" onClick={handleSaveVoiceProfile}>
-                {isSavingVoice ? "Saving..." : "Save Quick Voice"}
-              </button>
-              <button type="button" className="secondary" onClick={onOpenVoiceLab}>
-                Open Voice Lab
+              <button type="button" className="voice-btn sec" onClick={handleSaveVoiceProfile}>
+                {isSavingVoice ? "Saving…" : "✦ Save Quick Voice"}
               </button>
             </div>
 

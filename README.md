@@ -125,7 +125,8 @@ What this demonstrates in minutes:
 ## What It Does
 
 - Build rich character personalities with a name, description, traits, quirks, mood, behavior rules, goals, core values, and a creative context frame.
-- Tune full text-to-speech defaults in the dedicated `Voice Lab` tab, while keeping quick play/autoplay controls directly in chat.
+- Tune full text-to-speech defaults in the dedicated `Voice Lab` tab — featuring a cyberpunk-styled HUD with a live waveform canvas that shows idle oscilloscope, FFT frequency bars during playback, and a stochastic synthesizing animation during generation.
+- Quick voice controls (enable, autoplay, play-latest, stop, save) stay embedded in the Chat tab as compact cyberpunk toggle switches so you never have to leave the conversation.
 - When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
@@ -188,8 +189,8 @@ frontend/
     components/
       PersonalityForm.jsx    Character builder + research panel
       PersonalityList.jsx    Character selector cards
-      ChatWindow.jsx         Chat UI with mood indicator + quick voice playback controls
-      VoiceLab.jsx           Dedicated TTS tuning, sample generation, and profile saves
+      ChatWindow.jsx         Chat UI with mood indicator + cyberpunk quick-voice controls (toggles, play-latest, stop, save)
+      VoiceLab.jsx           Cyberpunk TTS lab — HUD header, engine config, synthesis sliders, toggle flags, live waveform canvas (idle/FFT/synth modes), and profile saves
       MemoryJournal.jsx      Memory fact viewer / editor
       HarnessReport.jsx      Adversarial eval report UI
       LlmSettingsPanel.jsx   Provider-first runtime LLM config UI
