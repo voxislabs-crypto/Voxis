@@ -11,7 +11,7 @@ set -euo pipefail
 #   --reset-db  : remove sqlite DB and WAL/SHM files
 
 APP_DIR="${APP_DIR:-/opt/voxis}"
-BRANCH="${BRANCH:-clean-main}"
+BRANCH="${BRANCH:-feature/cyberpunk-ui-redesign}"
 BACKEND_DIR="$APP_DIR/backend"
 DB_FILE="$BACKEND_DIR/voxis.sqlite"
 BACKUP_DIR="$BACKEND_DIR/backups"
@@ -38,8 +38,9 @@ fi
 
 echo "[1/6] Updating code"
 git -C "$APP_DIR" fetch origin
-# Discard any local changes to lockfiles/generated files that block checkout
+# Discard tracked modifications and remove untracked files that would block checkout
 git -C "$APP_DIR" checkout -- . 2>/dev/null || true
+git -C "$APP_DIR" clean -fd --exclude=frontend/.env --exclude=backend/.env 2>/dev/null || true
 git -C "$APP_DIR" checkout "$BRANCH"
 git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
 
