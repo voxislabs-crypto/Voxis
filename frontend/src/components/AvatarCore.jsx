@@ -256,6 +256,22 @@ const avatarStyles = `
     0%, 46%, 49%, 100% { transform: scaleY(1); }
     47%, 48% { transform: scaleY(0.08); }
   }
+
+  /* ── Neural activity spike state ───────────────────────── */
+  .avatar-core.activity-spike .avatar-aura {
+    opacity: 1.05;
+    animation-duration: 0.52s;
+  }
+
+  .avatar-core.activity-spike .eye {
+    filter: drop-shadow(0 0 14px rgba(48, 236, 255, 0.92));
+  }
+
+  .avatar-core.activity-spike::before {
+    opacity: 1.0;
+    border-color: var(--aura);
+    filter: blur(2px);
+  }
 `;
 
 function clamp(value, min, max) {
@@ -337,6 +353,7 @@ export default function AvatarCore({
   expressionProfile,
   expressionPreset = "auto",
   size = "default",
+  neuralActivity = 0,
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [animState, setAnimState] = useState("idle");
@@ -412,7 +429,7 @@ export default function AvatarCore({
     const v = clamp(Number(valence) || 0, -1, 1);
     const a = clamp(Number(arousal) || 0, -1, 1);
 
-    const eyeOpen = 8 + expression.calmness * 4 + a * (2.2 + expression.intensity * 2.8) - Math.max(0, -v) * 3;
+    const eyeOpen = 8 + expression.calmness * 4 + a * (2.2 + expression.intensity * 2.8) - Math.max(0, -v) * 3 + neuralActivity * 3.5;
     const browTilt = clamp(-v * 8 + (phase === "intent" ? 4 : 0), -9, 9);
     const aura = phase === "generation"
       ? "rgba(255, 159, 74, 0.42)"
@@ -428,7 +445,7 @@ export default function AvatarCore({
       rim: phase === "reply" ? "rgba(255, 128, 196, 0.72)" : "rgba(192, 82, 255, 0.48)",
       blinkDuration: `${(8.2 - expression.blinkRate * 4.8).toFixed(2)}s`,
     };
-  }, [animState, arousal, expression.blinkRate, expression.calmness, expression.intensity, phase, valence]);
+  }, [animState, arousal, expression.blinkRate, expression.calmness, expression.intensity, neuralActivity, phase, valence]);
 
   const preset = useMemo(
     () => resolvePersonaPreset(personalitySeed, mode, expressionPreset),
@@ -447,8 +464,8 @@ export default function AvatarCore({
 
   return (
     <div
-      className={`avatar-core exp-${mood.mode} persona-${preset} state-${animState} ${size === "compact" ? "compact" : size === "large" ? "large" : ""}`.trim()}
-      style={{ "--aura": mood.aura, "--rim": mood.rim }}
+      className={`avatar-core exp-${mood.mode} persona-${preset} state-${animState} ${size === "compact" ? "compact" : size === "large" ? "large" : ""} ${neuralActivity > 0.45 ? "activity-spike" : ""}`.trim()}
+      style={{ "--aura": mood.aura, "--rim": mood.rim, "--neural-activity": neuralActivity }}
       aria-hidden="true"
     >
       <style>{avatarStyles}</style>

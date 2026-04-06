@@ -726,6 +726,26 @@ const chatStyles = `
     letter-spacing: 0.06em;
   }
 
+  /* ── Neural activity sync — chat-card glow + avatar tilt ───── */
+  @keyframes neuralCardPulse {
+    0%, 100% { box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 18px rgba(0, 234, 255, 0.04); }
+    50% { box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 32px rgba(0, 234, 255, 0.22), 0 0 0 1px rgba(0, 234, 255, 0.14); }
+  }
+
+  @keyframes avatarTiltThink {
+    0%, 100% { transform: rotate(-2deg) scale(1.0); }
+    50% { transform: rotate(2deg) scale(1.02); }
+  }
+
+  .chat-card.neural-active {
+    animation: neuralCardPulse 1.4s ease-in-out infinite;
+    border-color: rgba(0, 234, 255, 0.26);
+  }
+
+  .avatar-panel-orb.thinking-tilt {
+    animation: avatarTiltThink 1.6s ease-in-out infinite;
+  }
+
   @media (max-width: 980px) {
     .chat-card {
       grid-template-columns: 1fr;
@@ -858,6 +878,15 @@ export default function ChatWindow({
     () => displayDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 },
     [displayDebug, personality?.moodState],
   );
+
+  // Derived neural activity score (0–1) — drives avatar eye/glow/tilt and chat-card pulse
+  const neuralActivity = useMemo(() => {
+    const arousalBase = Math.min(0.4, Math.abs(neuralSignal.arousal) * 0.4);
+    const phaseBoost = ["intent", "generation", "reply", "memory", "memory-write", "user-memory-write", "prompt", "token"].includes(livePhase) ? 0.55 : 0;
+    const memBoost = neuralSignal.memoryActive ? 0.2 : 0;
+    const intentBoost = neuralSignal.intentActive ? 0.18 : 0;
+    return Math.min(1, arousalBase + phaseBoost + memBoost + intentBoost);
+  }, [livePhase, neuralSignal]);
 
   useEffect(() => {
     if (!personality) {
@@ -1097,7 +1126,7 @@ export default function ChatWindow({
     <>
       <style>{chatStyles}</style>
       <div className="chat-shell">
-        <div className="chat-card">
+        <div className={`chat-card${neuralActivity > 0.4 ? " neural-active" : ""}`}>
           <NeuralCore
             personality={personality}
             mode={activeMode || "scientist"}
@@ -1135,6 +1164,7 @@ export default function ChatWindow({
                     personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                     expressionProfile={personality.expressionProfile}
                     expressionPreset={personality.expressionProfile?.preset || "auto"}
+                    neuralActivity={neuralActivity}
                   />
                   <span>{personality.name}</span>
                 </span>
@@ -1200,7 +1230,7 @@ export default function ChatWindow({
 
           {/* ── Ambient Avatar Panel ──────────────────────────────── */}
           <div className="avatar-panel">
-            <div className="avatar-panel-orb">
+            <div className={`avatar-panel-orb${neuralActivity > 0.45 ? " thinking-tilt" : ""}`}>
               <AvatarCore
                 size="large"
                 valence={avatarMood.valence}
@@ -1211,6 +1241,7 @@ export default function ChatWindow({
                 personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                 expressionProfile={personality.expressionProfile}
                 expressionPreset={personality.expressionProfile?.preset || "auto"}
+                neuralActivity={neuralActivity}
               />
             </div>
             <div className="avatar-panel-name">{personality.name}</div>
