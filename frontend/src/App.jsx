@@ -851,7 +851,7 @@ export default function App() {
     setActiveView("chat");
     setStatus({
       type: "success",
-      message: `${personality.name} is ready. Start the conversation on the chat page.`,
+      message: `${personality.name} is ready. Start chatting now, or open Voice Lab to dial in TTS.`,
     });
   }
 
@@ -1268,8 +1268,8 @@ export default function App() {
                   </h2>
                   <p className="section-copy">
                     {builderMode === "edit"
-                      ? "Load the selected character into the form, tune behavior and voice, then save updates in place."
-                      : "Start with a character name and optional source URLs, pull research into the form, then save a profile with voice settings and a stronger system prompt."}
+                      ? "Load the selected character into the form, refine behavior and expression, then save updates in place. Use Voice Lab for dedicated TTS tuning."
+                      : "Start with a character name and optional source URLs, pull research into the form, then save a profile with a stronger system prompt. Voice tuning happens in Voice Lab after save."}
                   </p>
                   <div className="meta-row" style={{ marginBottom: 12 }}>
                     <button
@@ -1292,6 +1292,7 @@ export default function App() {
                     onCreated={handlePersonalityCreated}
                     onUpdated={handlePersonalityUpdated}
                     onError={setStatus}
+                    onOpenVoiceLab={() => setActiveView("voice")}
                     personalities={personalities}
                     editingPersonality={builderMode === "edit" ? selectedPersonality : null}
                   />
@@ -1498,6 +1499,7 @@ export default function App() {
                     onSaveVoiceProfile={handleVoiceProfileChange}
                     onJumpToBuilder={() => setActiveView("builder")}
                     onOpenVoiceLab={() => setActiveView("voice")}
+                    onStatus={setStatus}
                   />
                 </>
               )}

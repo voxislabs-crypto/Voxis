@@ -394,6 +394,7 @@ export default function ChatWindow({
   onSaveVoiceProfile,
   onJumpToBuilder,
   onOpenVoiceLab,
+  onStatus,
 }) {
   const authFetch = useAuthFetch();
   const [draft, setDraft] = useState("");
@@ -652,6 +653,11 @@ export default function ChatWindow({
           void audioElement.play().catch(() => {});
         }
       });
+    } catch (error) {
+      onStatus?.({
+        type: "error",
+        message: error.message || "Failed to generate speech.",
+      });
     } finally {
       setIsGeneratingAudio(false);
     }
@@ -761,7 +767,7 @@ export default function ChatWindow({
 
           <div className="voice-panel">
             <p className="voice-quick-copy">
-              Quick voice controls stay in chat. Open Voice Lab for full TTS tuning.
+              Quick play and autoplay stay in chat. Open Voice Lab for full TTS tuning.
             </p>
 
             <div className="voice-grid">
@@ -790,7 +796,7 @@ export default function ChatWindow({
                 onClick={() => void generateAudio(latestAssistantMessage?.content || "")}
                 disabled={isGeneratingAudio || !latestAssistantMessage}
               >
-                {isGeneratingAudio ? "Generating Audio..." : "Generate Latest Audio"}
+                {isGeneratingAudio ? "Generating Audio..." : "Play Latest Reply"}
               </button>
               <button type="button" className="secondary" onClick={stopSpeaking}>
                 Stop Audio

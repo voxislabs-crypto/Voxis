@@ -552,6 +552,7 @@ export default function PersonalityForm({
   onCreated,
   onUpdated,
   onError,
+  onOpenVoiceLab = null,
   personalities = [],
   editingPersonality = null,
 }) {
@@ -565,7 +566,6 @@ export default function PersonalityForm({
   const [previewPhase, setPreviewPhase] = useState("idle");
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
   const [hoveredAlignment, setHoveredAlignment] = useState(null);
-  const [voicePresets, setVoicePresets] = useState({});
   const [recommendedVoicePreset, setRecommendedVoicePreset] = useState(null);
   const isEditing = Boolean(editingPersonality?.id);
 
@@ -636,41 +636,12 @@ export default function PersonalityForm({
     })();
   }, [editingPersonality, authFetch]);
 
-  // Fetch all voice presets on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await authFetch("/voice-presets");
-        if (res.ok) {
-          const presets = await res.json();
-          setVoicePresets(presets);
-        }
-      } catch (err) {
-        // Silently fail if presets fetch fails
-      }
-    })();
-  }, [authFetch]);
-
   function updateField(event) {
     const { name, value } = event.target;
     setForm((current) => ({
       ...current,
       [name]: value,
     }));
-  }
-
-  function applyVoicePreset(preset) {
-    if (!preset) return;
-    setForm((current) => ({
-      ...current,
-      // Set to Piper engine and the recommended model
-      // These fields will be saved to the voiceProfile
-      voiceEnabled: true,
-      // Note: actual Piper model path will be set by backend based on the env
-      // For now, we track which model is recommended
-    }));
-    // Store the recommended model in a data attribute or notify user
-    // For now, we'll just show it in the UI
   }
 
   async function handleSubmit(event) {
@@ -1316,14 +1287,19 @@ export default function PersonalityForm({
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                className="secondary-button"
-                style={{ width: "100%", padding: "10px 16px" }}
-                onClick={() => applyVoicePreset(recommendedVoicePreset)}
-              >
-                Apply This Voice Preset
-              </button>
+              <small>
+                Use this as your starting point in Voice Lab after saving. Chat keeps quick playback controls, while full TTS setup now lives in the dedicated tab.
+              </small>
+              {onOpenVoiceLab ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ width: "100%", padding: "10px 16px", marginTop: 12 }}
+                  onClick={onOpenVoiceLab}
+                >
+                  Open Voice Lab
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -1483,88 +1459,26 @@ export default function PersonalityForm({
           </div>
 
           <div className="field full">
-            <label>Voice profile</label>
-            <div className="voice-grid">
-              <div className="field">
-                <label htmlFor="preferredVoice">Preferred browser voice</label>
-                <input
-                  id="preferredVoice"
-                  name="preferredVoice"
-                  placeholder="alloy"
-                  value={form.preferredVoice}
-                  onChange={updateField}
-                />
+            <label>Voice workflow</label>
+            <div className="research-panel" style={{ marginTop: 0 }}>
+              <h3 style={{ marginTop: 0 }}>Voice Lab handoff</h3>
+              <p>
+                Detailed TTS tuning now lives in the dedicated Voice Lab tab. Character Chat keeps the quick
+                playback and autoplay controls.
+              </p>
+              <div className="research-meta">
+                <span>Playback: {form.voiceEnabled ? "enabled" : "off"}</span>
+                <span>Autoplay: {form.voiceAutoplay ? "on" : "off"}</span>
+                <span>Voice: {form.preferredVoice || "alloy"}</span>
+                <span>Model: {form.providerModel || "gpt-4o-mini-tts"}</span>
               </div>
-
-              <div className="field">
-                <label htmlFor="providerModel">TTS model</label>
-                <input
-                  id="providerModel"
-                  name="providerModel"
-                  placeholder="gpt-4o-mini-tts"
-                  value={form.providerModel}
-                  onChange={updateField}
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="voicePitch">Pitch: {Number(form.voicePitch).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="voicePitch"
-                  name="voicePitch"
-                  type="range"
-                  min="0.5"
-                  max="1.6"
-                  step="0.05"
-                  value={form.voicePitch}
-                  onChange={updateField}
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="voiceRate">Rate: {Number(form.voiceRate).toFixed(2)}</label>
-                <input
-                  className="voice-slider"
-                  id="voiceRate"
-                  name="voiceRate"
-                  type="range"
-                  min="0.6"
-                  max="1.6"
-                  step="0.05"
-                  value={form.voiceRate}
-                  onChange={updateField}
-                />
-              </div>
-            </div>
-            <div className="voice-grid">
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={form.voiceEnabled}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      voiceEnabled: event.target.checked,
-                    }))
-                  }
-                />
-                Server-side voice playback enabled
-              </label>
-
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={form.voiceAutoplay}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      voiceAutoplay: event.target.checked,
-                    }))
-                  }
-                />
-                Auto-play generated replies
-              </label>
+              {isEditing && onOpenVoiceLab ? (
+                <button type="button" className="secondary-button" onClick={onOpenVoiceLab}>
+                  Open Voice Lab for TTS
+                </button>
+              ) : (
+                <small>Save this character first, then open Voice Lab to test samples and tune the full voice profile.</small>
+              )}
             </div>
           </div>
         </div>
