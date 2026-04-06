@@ -1,3 +1,5 @@
+import AvatarCore from "./AvatarCore.jsx";
+
 const listStyles = `
   .list-header {
     display: flex;
@@ -74,6 +76,25 @@ const listStyles = `
     background: transparent;
     text-align: left;
     color: inherit;
+  }
+
+  .personality-card-top {
+    display: grid;
+    grid-template-columns: 60px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .personality-avatar {
+    display: grid;
+    place-items: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(0, 234, 255, 0.08), rgba(184, 60, 248, 0.08));
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    box-shadow: inset 0 0 18px rgba(0, 180, 255, 0.08);
   }
 
   .personality-card h3 {
@@ -159,8 +180,25 @@ export default function PersonalityList({
                     onOpenChat();
                   }}
                 >
-                  <h3>{personality.name}</h3>
-                  <p>{personality.description}</p>
+                  <div className="personality-card-top">
+                    <div className="personality-avatar">
+                      <AvatarCore
+                        size="compact"
+                        valence={Number(personality.moodState?.valence || 0)}
+                        arousal={Number(personality.moodState?.arousal || 0)}
+                        phase="idle"
+                        speaking={false}
+                        mode="scientist"
+                        personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
+                        expressionProfile={personality.expressionProfile}
+                        expressionPreset={personality.expressionProfile?.preset || "auto"}
+                      />
+                    </div>
+                    <div>
+                      <h3>{personality.name}</h3>
+                      <p>{personality.description}</p>
+                    </div>
+                  </div>
                   <div className="personality-meta">
                     <span>{personality.moodLabel || personality.mood}</span>
                     {personality.creativeContext && personality.creativeContext !== "default" && (

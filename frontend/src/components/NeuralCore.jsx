@@ -975,9 +975,10 @@ export default function NeuralCore({
   }, [performanceTier, repairActive, tick]);
 
   const kidsMode = mode === "kids";
-  // rendererType gates the boundary swap: "force-graph" activates the v0.3 Scientist renderer.
-  // Kids mode is always "svg" regardless of the env var.
-  const rendererType = !kidsMode && import.meta.env.VITE_NEURAL_CORE_RENDERER === "force-graph" ? "force-graph" : "svg";
+  // The redesign branch defaults Scientist mode to the experimental 3D renderer.
+  // Set VITE_NEURAL_CORE_RENDERER=svg to force the legacy SVG scene.
+  const rendererEnv = String(import.meta.env.VITE_NEURAL_CORE_RENDERER || "force-graph").trim().toLowerCase();
+  const rendererType = !kidsMode && rendererEnv !== "svg" ? "force-graph" : "svg";
 
   const focusChildren = useMemo(
     () => getFocusChildren(focusNode, latestDebug, mode, personality),
