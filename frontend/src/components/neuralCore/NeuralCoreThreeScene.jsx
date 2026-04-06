@@ -514,7 +514,6 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
   const bloomRef       = useRef(1.35);
-  const bloomPassRef   = useRef(null);
   const orbActivityRef = useRef(0);
   // Persistent Hebbian strength: nodeId → { strength, lastActivated }
   const strengthRef    = useRef(new Map());
@@ -539,15 +538,10 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
     bloomRef.current = Math.max(bloomRef.current, 1.35 + orbActivityRef.current * 2.2);
   });
 
-  // Bloom decay each frame — spike → baseline
+  // Bloom ref intentionally removed — mutating the Bloom effect ref causes
+  // THREE.WebGLRenderTarget circular JSON serialization → Context Lost.
+  // Static bloom at 1.8; node emissiveIntensity spikes drive visual bloom naturally.
   useFrame((_, delta) => {
-    if (!bloomPassRef.current) return;
-    const target = bloomRef.current;
-    const cur    = bloomPassRef.current.intensity ?? 1.35;
-    const next   = target > cur
-      ? cur + (target - cur) * 0.35
-      : cur + (target - cur) * Math.min(1, delta * 3.0);
-    bloomPassRef.current.intensity = next;
     bloomRef.current = Math.max(1.35, bloomRef.current - delta * 2.8);
   });
 
@@ -703,10 +697,10 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
         );
       })}
 
-      {/* Dynamic bloom */}
+      {/* Static bloom — do NOT attach a ref here; THREE.WebGLRenderTarget is not serializable */}
       <EffectComposer>
-        <Bloom ref={bloomPassRef}
-          intensity={1.35} luminanceThreshold={0.06}
+        <Bloom
+          intensity={1.8} luminanceThreshold={0.06}
           luminanceSmoothing={0.88} mipmapBlur
         />
       </EffectComposer>
