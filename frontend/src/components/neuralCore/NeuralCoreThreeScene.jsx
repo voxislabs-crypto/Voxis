@@ -1,116 +1,95 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * NeuralCoreThreeScene — Real-time Cognitive Activity Engine (RCAE)
+ *
+ * A living neural interface representing memory, thought, emotion, and activation
+ * dynamics. Everything is data-driven, state-connected, and reactive.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { buildThreeGraphModel } from "./neuralCoreThreeModel.js";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CSS
+// ─────────────────────────────────────────────────────────────────────────────
 const threeSceneStyles = `
-  .neural-three-shell {
-    position: absolute;
-    inset: 0;
-  }
+  .neural-three-shell { position: absolute; inset: 0; }
 
   .neural-three-panel {
-    position: absolute;
-    right: 18px;
-    bottom: 18px;
-    z-index: 2;
-    width: min(320px, calc(100% - 36px));
-    padding: 14px 16px;
-    border-radius: 18px;
-    border: 1px solid rgba(0, 234, 255, 0.22);
-    background: linear-gradient(180deg, rgba(4, 12, 24, 0.9), rgba(5, 10, 22, 0.78));
-    box-shadow: 0 0 24px rgba(0, 234, 255, 0.12);
-    backdrop-filter: blur(14px);
+    position: absolute; right: 18px; bottom: 18px; z-index: 2;
+    width: min(320px, calc(100% - 36px)); padding: 14px 16px;
+    border-radius: 18px; border: 1px solid rgba(0,234,255,0.22);
+    background: linear-gradient(180deg, rgba(4,12,24,0.9), rgba(5,10,22,0.78));
+    box-shadow: 0 0 24px rgba(0,234,255,0.12); backdrop-filter: blur(14px);
   }
-
   .neural-three-panel h5 {
-    margin: 0 0 6px;
-    color: #e7fbff;
-    font-size: 0.96rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    margin: 0 0 6px; color: #e7fbff; font-size: 0.96rem;
+    letter-spacing: 0.04em; text-transform: uppercase;
   }
-
-  .neural-three-panel p {
-    margin: 0;
-    color: #8dcfe3;
-    font-size: 0.84rem;
-    line-height: 1.6;
-  }
-
-  .neural-three-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
+  .neural-three-panel p { margin: 0; color: #8dcfe3; font-size: 0.84rem; line-height: 1.6; }
+  .neural-three-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .neural-three-meta span {
-    padding: 4px 9px;
-    border-radius: 999px;
-    border: 1px solid rgba(0, 234, 255, 0.16);
-    background: rgba(0, 234, 255, 0.06);
-    color: #93efff;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
+    padding: 4px 9px; border-radius: 999px;
+    border: 1px solid rgba(0,234,255,0.16); background: rgba(0,234,255,0.06);
+    color: #93efff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
   }
-
   .neural-three-hint {
-    position: absolute;
-    left: 18px;
-    top: 16px;
-    z-index: 2;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(5, 14, 26, 0.78);
-    border: 1px solid rgba(0, 234, 255, 0.18);
-    color: #8ddbff;
-    font-size: 0.74rem;
-    font-weight: 700;
+    position: absolute; left: 18px; top: 16px; z-index: 2;
+    padding: 6px 10px; border-radius: 999px;
+    background: rgba(5,14,26,0.78); border: 1px solid rgba(0,234,255,0.18);
+    color: #8ddbff; font-size: 0.74rem; font-weight: 700;
   }
-
   .neural-node-label {
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(2, 8, 18, 0.76);
-    color: #dff9ff;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    box-shadow: 0 0 12px rgba(0, 234, 255, 0.10);
+    padding: 2px 7px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12); background: rgba(2,8,18,0.76);
+    color: #dff9ff; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+    box-shadow: 0 0 12px rgba(0,234,255,0.10);
   }
 `;
 
-// ── Phase → node mapping for burst pulses ───────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase → node mapping
+// ─────────────────────────────────────────────────────────────────────────────
 const PHASE_NODE_MAP = {
-  intent:               ["intent", "core"],
-  generation:           ["core"],
-  token:                ["core"],
-  reply:                ["core", "evidence"],
-  "reply-complete":     ["core", "evidence"],
-  "memory-write":       ["memory", "core"],
-  "user-memory-write":  ["memory"],
-  mood:                 ["core", "identity"],
-  scientist:            ["evidence"],
-  repair:               ["evidence"],
-  prompt:               ["identity", "core"],
-  "rate-limit":         ["core"],
-  "rate-limit-retry":   ["core"],
-  "rate-limit-fallback":["core"],
-  queued:               ["core"],
+  intent:                ["intent", "core"],
+  generation:            ["core"],
+  token:                 ["core"],
+  reply:                 ["core", "evidence"],
+  "reply-complete":      ["core", "evidence"],
+  "memory-write":        ["memory", "core"],
+  "user-memory-write":   ["memory"],
+  mood:                  ["core", "identity"],
+  scientist:             ["evidence"],
+  repair:                ["evidence"],
+  prompt:                ["identity", "core"],
+  "rate-limit":          ["core"],
+  "rate-limit-retry":    ["core"],
+  "rate-limit-fallback": ["core"],
+  queued:                ["core"],
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 function smoothLerpAlpha(delta, speed = 5) {
   return 1 - Math.exp(-delta * speed);
 }
 
-// ── Camera ───────────────────────────────────────────────────────────
+// Temporal smooth noise — avoids per-frame Math.random() spam
+function smoothNoise(t, freq, phase) {
+  return (
+    Math.sin(t * freq + phase) * 0.6 +
+    Math.sin(t * freq * 2.3 + phase * 1.7) * 0.28 +
+    Math.sin(t * freq * 5.1 + phase * 3.1) * 0.12
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CameraRig
+// ─────────────────────────────────────────────────────────────────────────────
 function CameraRig({ target, speed, controlsRef }) {
   const { camera } = useThree();
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
@@ -119,13 +98,13 @@ function CameraRig({ target, speed, controlsRef }) {
     const t = state.clock.elapsedTime;
     const orbit = new THREE.Vector3(
       Math.sin(t * 0.18) * 0.18,
-      Math.cos(t * 0.2) * 0.1,
+      Math.cos(t * 0.20) * 0.10,
       5.9 - Math.min(1.25, Math.max(0, targetVector.length() * 0.08)),
     );
-
-    const desiredPosition = new THREE.Vector3(targetVector.x + orbit.x, targetVector.y + orbit.y, orbit.z);
-    camera.position.lerp(desiredPosition, smoothLerpAlpha(delta, 3.4 + speed));
-
+    camera.position.lerp(
+      new THREE.Vector3(targetVector.x + orbit.x, targetVector.y + orbit.y, orbit.z),
+      smoothLerpAlpha(delta, 3.4 + speed),
+    );
     if (controlsRef.current) {
       controlsRef.current.target.lerp(targetVector, smoothLerpAlpha(delta, 4.4 + speed));
       controlsRef.current.update();
@@ -137,71 +116,110 @@ function CameraRig({ target, speed, controlsRef }) {
   return null;
 }
 
-function CompanionOrb({ moodState }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CompanionOrb — activity-reactive AI presence
+// Reads graphActivity from a ref each frame to avoid triggering re-renders
+// ─────────────────────────────────────────────────────────────────────────────
+function CompanionOrb({ moodState, orbActivityRef }) {
   const groupRef = useRef(null);
-  const coreRef = useRef(null);
-  const orbitRingRef = useRef(null);
+  const coreRef  = useRef(null);
+  const ringRef  = useRef(null);
+  const glowRef  = useRef(null);
+  const particles = useRef([]);
+  if (particles.current.length === 0) {
+    for (let i = 0; i < 5; i++) particles.current.push(null);
+  }
+  const burstTimer  = useRef(0);
+  const prevAct     = useRef(0);
+  const angles      = useMemo(() => [0, 72, 144, 216, 288], []);
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     if (!groupRef.current || !coreRef.current) return;
-    const t = state.clock.elapsedTime;
+    const t   = state.clock.elapsedTime;
+    const act = orbActivityRef.current;
 
-    // Float
-    groupRef.current.position.y = 2.15 + Math.sin(t * 1.1) * 0.12;
+    // Burst detection
+    if (act > prevAct.current + 0.22) burstTimer.current = 1;
+    prevAct.current = act;
+    burstTimer.current = Math.max(0, burstTimer.current - delta * 3.2);
+    const burst = burstTimer.current;
+
+    const spd   = 0.9 + act * 1.8;
+    const chaos = act > 0.7 ? smoothNoise(t, 3.5, 1.11) * 0.08 : 0;
+
+    // Float — faster + erratic when high activity
+    groupRef.current.position.y = 2.15 + Math.sin(t * 1.1 * spd) * 0.12 + chaos;
+    groupRef.current.position.x = 3.0  + Math.sin(t * 0.44) * 0.1 * (1 + act * 0.6);
     groupRef.current.rotation.z = Math.sin(t * 0.5) * 0.08;
 
-    // Breathing scale
-    coreRef.current.scale.setScalar(1 + Math.sin(t * 2.0) * 0.055);
+    // Breathing — rate tied to mood
+    const rate = moodState.mood === "calm" ? 1.4 : moodState.mood === "chaotic" ? 3.2 : 2.0;
+    coreRef.current.scale.setScalar(1 + Math.sin(t * rate) * 0.055 + burst * 0.18);
+    if (coreRef.current.material) {
+      coreRef.current.material.emissiveIntensity = 2.4 + act * 2.2 + burst * 5.5;
+    }
 
-    // Orbit ring spin
-    if (orbitRingRef.current) {
-      orbitRingRef.current.rotation.y = t * 1.25;
-      orbitRingRef.current.rotation.x = t * 0.72;
+    // Glow halo
+    if (glowRef.current) {
+      glowRef.current.material.opacity  = 0.06 + act * 0.18 + burst * 0.35;
+      glowRef.current.scale.setScalar(1.6 + burst * 0.5 + act * 0.3);
+    }
+
+    // Orbit ring — faster + chaotic axis when excited
+    if (ringRef.current) {
+      const rs = spd * (moodState.mood === "chaotic" ? 1.55 : 1.0);
+      ringRef.current.rotation.y = t * 1.25 * rs;
+      ringRef.current.rotation.x = t * 0.72 * rs;
+      if (moodState.mood === "chaotic" || act > 0.7) {
+        ringRef.current.rotation.z = Math.sin(t * 2.2) * 0.38;
+      }
+    }
+
+    // Per-particle vertical oscillation + emissive
+    for (let i = 0; i < 5; i++) {
+      const p = particles.current[i];
+      if (!p) continue;
+      p.position.y = Math.sin(t * (0.9 + i * 0.22) + i * 1.3) * 0.06;
+      if (p.material) {
+        p.material.emissiveIntensity = 2.8 + act * 2.0 + Math.sin(t * (2 + i * 0.4)) * 0.8;
+      }
     }
   });
 
-  const orbitAngles = useMemo(() => [0, 72, 144, 216, 288], []);
-
   return (
     <group ref={groupRef} position={[3, 2.15, -1.2]}>
-      {/* Core sphere */}
+      {/* Glow halo */}
+      <mesh ref={glowRef}>
+        <sphereGeometry args={[0.68, 18, 18]} />
+        <meshStandardMaterial color={moodState.accent} emissive={moodState.accent}
+          emissiveIntensity={1.0} transparent opacity={0.06}
+          side={THREE.BackSide} depthWrite={false} />
+      </mesh>
+      {/* Core */}
       <mesh ref={coreRef}>
         <sphereGeometry args={[0.38, 32, 32]} />
-        <meshStandardMaterial
-          color={moodState.secondary}
-          emissive={moodState.accent}
-          emissiveIntensity={2.4}
-          transparent
-          opacity={0.9}
-          roughness={0.16}
-        />
+        <meshStandardMaterial color={moodState.secondary} emissive={moodState.accent}
+          emissiveIntensity={2.4} transparent opacity={0.9} roughness={0.16} />
       </mesh>
       {/* Eye glints */}
-      <mesh position={[-0.1, 0.04, 0.28]}>
-        <sphereGeometry args={[0.052, 16, 16]} />
-        <meshStandardMaterial color="#ddffff" emissive="#9af4ff" emissiveIntensity={3.5} />
-      </mesh>
-      <mesh position={[0.1, 0.04, 0.28]}>
-        <sphereGeometry args={[0.052, 16, 16]} />
-        <meshStandardMaterial color="#ddffff" emissive="#9af4ff" emissiveIntensity={3.5} />
-      </mesh>
-      {/* Orbiting particle ring */}
-      <group ref={orbitRingRef}>
-        {orbitAngles.map((angle) => {
-          const rad = (angle * Math.PI) / 180;
+      {[[-0.1,0.04,0.28],[0.1,0.04,0.28]].map(([x,y,z], i)=>(
+        <mesh key={i} position={[x,y,z]}>
+          <sphereGeometry args={[0.052, 16, 16]} />
+          <meshStandardMaterial color="#ddffff" emissive="#9af4ff" emissiveIntensity={3.5} />
+        </mesh>
+      ))}
+      {/* Orbit ring */}
+      <group ref={ringRef}>
+        {angles.map((angle, i) => {
+          const r = (angle * Math.PI) / 180;
           return (
-            <mesh
-              key={angle}
-              position={[Math.cos(rad) * 0.66, Math.sin(rad) * 0.26, Math.sin(rad) * 0.50]}
+            <mesh key={angle}
+              ref={(el) => { particles.current[i] = el; }}
+              position={[Math.cos(r)*0.66, Math.sin(r)*0.26, Math.sin(r)*0.50]}
             >
               <sphereGeometry args={[0.028, 8, 8]} />
-              <meshStandardMaterial
-                color={moodState.accent}
-                emissive={moodState.accent}
-                emissiveIntensity={3.2}
-                transparent
-                opacity={0.8}
-              />
+              <meshStandardMaterial color={moodState.accent} emissive={moodState.accent}
+                emissiveIntensity={3.2} transparent opacity={0.8} />
             </mesh>
           );
         })}
@@ -210,194 +228,254 @@ function CompanionOrb({ moodState }) {
   );
 }
 
-// ── Traveling pulse dot along a synapse ─────────────────────────────
-function PulseDot({ start, end, activity, color }) {
-  const meshRef = useRef(null);
-  const progressRef = useRef(Math.random());
+// ─────────────────────────────────────────────────────────────────────────────
+// MultiPulse — up to 3 simultaneous traveling dots per synapse
+// onArrive fires when a dot reaches the target; triggers echo pulse in parent
+// ─────────────────────────────────────────────────────────────────────────────
+function MultiPulse({ start, end, activity, color, onArrive }) {
+  const COUNT = 3;
+  const meshRefs    = useRef(Array.from({ length: COUNT }, () => null));
+  const progRefs    = useRef(Array.from({ length: COUNT }, (_, i) => i / COUNT));
+  const arrivedRefs = useRef(Array.from({ length: COUNT }, () => false));
   const startRef = useRef(start);
-  const endRef = useRef(end);
+  const endRef   = useRef(end);
 
   useEffect(() => { startRef.current = start; }, [start]);
-  useEffect(() => { endRef.current = end; }, [end]);
+  useEffect(() => { endRef.current   = end;   }, [end]);
 
   useFrame((_, delta) => {
-    if (!meshRef.current) return;
     const s = startRef.current;
     const e = endRef.current;
-    progressRef.current = (progressRef.current + delta * (0.44 + activity * 1.7)) % 1;
-    const p = progressRef.current;
-    meshRef.current.position.set(
-      s[0] + (e[0] - s[0]) * p,
-      s[1] + (e[1] - s[1]) * p,
-      s[2] + (e[2] - s[2]) * p,
-    );
-    meshRef.current.material.opacity = Math.sin(p * Math.PI) * (0.55 + activity * 0.45);
+    const spd = 0.38 + activity * 1.55;
+
+    for (let i = 0; i < COUNT; i++) {
+      const mesh = meshRefs.current[i];
+      if (!mesh) continue;
+
+      progRefs.current[i] = (progRefs.current[i] + delta * spd) % 1;
+      const p = progRefs.current[i];
+
+      if (!arrivedRefs.current[i] && p > 0.92) {
+        arrivedRefs.current[i] = true;
+        onArrive?.();
+      }
+      if (p < 0.10) arrivedRefs.current[i] = false;
+
+      mesh.position.set(
+        s[0] + (e[0] - s[0]) * p,
+        s[1] + (e[1] - s[1]) * p,
+        s[2] + (e[2] - s[2]) * p,
+      );
+      const opacity = Math.sin(p * Math.PI) * (0.55 + activity * 0.45);
+      mesh.material.opacity = opacity;
+      mesh.material.emissiveIntensity = 4.5 + (p > 0.85 ? (p - 0.85) * 30 : 0);
+    }
   });
 
-  return (
-    <mesh ref={meshRef}>
-      <sphereGeometry args={[0.022 + activity * 0.022, 6, 6]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={4.5}
-        transparent
-        opacity={0.8}
-        depthWrite={false}
-      />
-    </mesh>
-  );
-}
-
-// ── Jittered lightning synapse line ──────────────────────────────────
-function LightningConnection({ start, end, color, weight, highlighted, activity }) {
-  const startRef = useRef(start);
-  const endRef = useRef(end);
-  useEffect(() => { startRef.current = start; endRef.current = end; }, [start, end]);
-
-  // Create THREE objects once — mutated in useFrame, never re-created
-  const { line, positions, material } = useMemo(() => {
-    const positions = new Float32Array([
-      start[0], start[1], start[2],
-      (start[0] + end[0]) / 2, (start[1] + end[1]) / 2, (start[2] + end[2]) / 2,
-      end[0], end[1], end[2],
-    ]);
-    const geometry = new THREE.BufferGeometry();
-    const attr = new THREE.BufferAttribute(positions, 3);
-    attr.setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute("position", attr);
-    const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 });
-    return { line: new THREE.Line(geometry, material), positions, material };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Keep color current
-  useEffect(() => { material.color.set(color); }, [color, material]);
-
-  // Cleanup on unmount
-  useEffect(() => () => { line.geometry.dispose(); material.dispose(); }, [line, material]);
-
-  useFrame((state) => {
-    const s = startRef.current;
-    const e = endRef.current;
-
-    // Jitter midpoint — crackle intensity scales with highlight/activity
-    const jScale = highlighted ? 0.12 : 0.04;
-    positions[3] = (s[0] + e[0]) / 2 + (Math.random() - 0.5) * jScale;
-    positions[4] = (s[1] + e[1]) / 2 + (Math.random() - 0.5) * jScale;
-    positions[5] = (s[2] + e[2]) / 2;
-    line.geometry.attributes.position.needsUpdate = true;
-
-    // Flicker opacity
-    const flickSpeed = highlighted ? 14 : 5.5;
-    material.opacity =
-      0.12
-      + Math.sin(state.clock.elapsedTime * flickSpeed) * 0.065
-      + weight * 0.30
-      + (highlighted ? 0.24 : 0)
-      + activity * 0.12;
-  });
+  const size = 0.022 + activity * 0.022;
 
   return (
     <>
-      <primitive object={line} />
-      <PulseDot start={start} end={end} activity={Math.max(0.22, activity)} color={color} />
+      {Array.from({ length: COUNT }).map((_, i) => (
+        <mesh key={i} ref={(el) => { meshRefs.current[i] = el; }}>
+          <sphereGeometry args={[size, 6, 6]} />
+          <meshStandardMaterial color={color} emissive={color}
+            emissiveIntensity={4.5} transparent opacity={0.8} depthWrite={false} />
+        </mesh>
+      ))}
     </>
   );
 }
 
-// ── Graph node (orb + glow halo + pulse system) ───────────────────────
-function GraphNode({ node, selectedId, linkedIds, onSelect, livePhaseBurst, burstSeq }) {
-  const groupRef = useRef(null);
-  const meshRef = useRef(null);
-  const glowRef = useRef(null);
+// ─────────────────────────────────────────────────────────────────────────────
+// LightningConnection — multi-segment jittered arc + optional forked branch
+// ─────────────────────────────────────────────────────────────────────────────
+function LightningConnection({ start, end, color, weight, highlighted, activity, onPulseArrive }) {
+  const startRef   = useRef(start);
+  const endRef     = useRef(end);
+  const noisePhase = useRef(Math.random() * 100);
 
-  const basePos = useMemo(() => new THREE.Vector3(...node.position), [node.position]);
-  const driftOffset = useMemo(() => Math.random() * Math.PI * 2, []);
-  const pulseRef = useRef(0);
+  useEffect(() => { startRef.current = start; endRef.current = end; }, [start, end]);
 
-  const isSelected = node.id === selectedId;
-  const isLinked = linkedIds.has(node.id);
+  const SEGS = 5; // 5-segment polyline → more complex crackle
 
-  // Fire pulse when phase matches this node
+  const { mainLine, mainPos, mainMat } = useMemo(() => {
+    const arr = new Float32Array((SEGS + 1) * 3);
+    const geo  = new THREE.BufferGeometry();
+    const attr = new THREE.BufferAttribute(arr, 3);
+    attr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute("position", attr);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 });
+    return { mainLine: new THREE.Line(geo, mat), mainPos: arr, mainMat: mat };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { forkLine, forkPos, forkMat } = useMemo(() => {
+    const arr = new Float32Array(3 * 3);
+    const geo  = new THREE.BufferGeometry();
+    const attr = new THREE.BufferAttribute(arr, 3);
+    attr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute("position", attr);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0 });
+    return { forkLine: new THREE.Line(geo, mat), forkPos: arr, forkMat: mat };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
-    if (!livePhaseBurst) return;
-    const targets = PHASE_NODE_MAP[livePhaseBurst] || [];
-    if (targets.includes(node.id) || targets.includes(node.type)) {
-      pulseRef.current = 1;
-    } else if (targets.length > 0) {
-      // Echo wave — other nodes get a dim sympathetic pulse
-      pulseRef.current = Math.max(pulseRef.current, 0.30);
+    mainMat.color.set(color); forkMat.color.set(color);
+  }, [color, mainMat, forkMat]);
+
+  useEffect(() => () => {
+    mainLine.geometry.dispose(); mainMat.dispose();
+    forkLine.geometry.dispose(); forkMat.dispose();
+  }, [mainLine, mainMat, forkLine, forkMat]);
+
+  useFrame((state) => {
+    const s  = startRef.current;
+    const e  = endRef.current;
+    const t  = state.clock.elapsedTime;
+    const np = noisePhase.current;
+    const jScale = (highlighted ? 0.14 : 0.045) * (0.7 + weight * 0.6);
+
+    for (let i = 0; i <= SEGS; i++) {
+      const f = i / SEGS;
+      const bx = s[0] + (e[0] - s[0]) * f;
+      const by = s[1] + (e[1] - s[1]) * f;
+      const bz = s[2] + (e[2] - s[2]) * f;
+      if (i > 0 && i < SEGS) {
+        mainPos[i*3]   = bx + smoothNoise(t, 7.3 + i*1.1, np + i*2.4) * jScale;
+        mainPos[i*3+1] = by + smoothNoise(t, 6.1 + i*0.9, np + i*3.7) * jScale;
+        mainPos[i*3+2] = bz;
+      } else {
+        mainPos[i*3]   = bx;
+        mainPos[i*3+1] = by;
+        mainPos[i*3+2] = bz;
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [burstSeq]);
+    mainLine.geometry.attributes.position.needsUpdate = true;
 
-  useFrame((state, delta) => {
-    if (!groupRef.current || !meshRef.current) return;
+    const flicker = smoothNoise(t, highlighted ? 14 : 5.5, np);
+    mainMat.opacity =
+      0.12 + flicker * 0.065 + weight * 0.30 + (highlighted ? 0.24 : 0) + activity * 0.12;
 
-    // Decay pulse
-    pulseRef.current = Math.max(0, pulseRef.current - delta * 2.2);
-
-    const t = state.clock.elapsedTime;
-
-    // Smooth fluid drift — feels like floating in liquid
-    groupRef.current.position.set(
-      basePos.x + Math.cos(t * 0.28 + driftOffset) * 0.046,
-      basePos.y + Math.sin(t * 0.44 + driftOffset) * 0.054,
-      basePos.z,
-    );
-
-    // Breathing scale
-    const breathe = 1 + Math.sin(t * 1.75 + driftOffset) * 0.042;
-    const targetScale = (isSelected ? 1.18 : isLinked ? 1.07 : 1.0) * breathe;
-    const cur = meshRef.current.scale.x;
-    const next = cur + (targetScale - cur) * 0.06;
-    meshRef.current.scale.setScalar(next);
-
-    // Emissive FLASH then decay
-    const baseGlow = 0.82 + node.activity * 0.72 + Math.sin(t * 2.1 + driftOffset) * 0.10;
-    meshRef.current.material.emissiveIntensity =
-      baseGlow + pulseRef.current * 6.5 + (isSelected ? 1.5 : 0);
-
-    // Glow halo tracks pulse
-    if (glowRef.current) {
-      glowRef.current.material.opacity =
-        0.07 + pulseRef.current * 0.44 + node.activity * 0.06 + (isSelected ? 0.12 : 0);
-      glowRef.current.scale.setScalar(next * (1.34 + pulseRef.current * 0.22));
+    // Fork — fires when highlighted and noise crosses threshold
+    const doFork = highlighted && smoothNoise(t, 2.1, np * 0.5) > 0.55;
+    if (doFork) {
+      const mf = 0.45 + smoothNoise(t, 1.3, np) * 0.1;
+      const mx = s[0] + (e[0]-s[0])*mf;
+      const my = s[1] + (e[1]-s[1])*mf;
+      const mz = s[2] + (e[2]-s[2])*mf;
+      const px =  (e[1]-s[1]) * 0.28 * smoothNoise(t, 3.7, np+5);
+      const py = -(e[0]-s[0]) * 0.28 * smoothNoise(t, 4.2, np+7);
+      const pf = mf - 0.18;
+      forkPos[0] = s[0]+(e[0]-s[0])*pf; forkPos[1] = s[1]+(e[1]-s[1])*pf; forkPos[2] = mz;
+      forkPos[3] = mx+px;                forkPos[4] = my+py;                forkPos[5] = mz;
+      forkPos[6] = mx+px*0.5+(e[0]-mx)*0.35; forkPos[7] = my+py*0.5+(e[1]-my)*0.35; forkPos[8] = mz;
+      forkLine.geometry.attributes.position.needsUpdate = true;
+      forkMat.opacity = mainMat.opacity * 0.65;
+    } else {
+      forkMat.opacity = 0;
     }
   });
 
+  return (
+    <>
+      <primitive object={mainLine} />
+      <primitive object={forkLine} />
+      <MultiPulse
+        start={start} end={end} activity={Math.max(0.22, activity)}
+        color={color} onArrive={onPulseArrive}
+      />
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GraphNode — orb + glow halo + BFS pulse + fluid drift + memory growth
+// pulseRef is { current: 0..1 } owned by NeuralScene, shared read/write
+// ─────────────────────────────────────────────────────────────────────────────
+function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef }) {
+  const groupRef = useRef(null);
+  const meshRef  = useRef(null);
+  const glowRef  = useRef(null);
+
+  const basePos = useMemo(() => new THREE.Vector3(...node.position), [node.position]);
+
+  // Each node has a unique motion signature — never sync with others
+  const dp = useMemo(() => ({
+    xFreq:      0.22 + Math.random() * 0.14,
+    yFreq:      0.38 + Math.random() * 0.18,
+    xAmp:       0.038 + Math.random() * 0.020,
+    yAmp:       0.044 + Math.random() * 0.022,
+    zFreq:      0.14 + Math.random() * 0.10,
+    offset:     Math.random() * Math.PI * 2,
+    breathFreq: 1.4 + Math.random() * 0.70,
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isSelected = node.id === selectedId;
+  const isLinked   = linkedIds.has(node.id);
+
+  useFrame((state, delta) => {
+    if (!groupRef.current || !meshRef.current) return;
+    const t     = state.clock.elapsedTime;
+    const pulse = pulseRef.current;
+
+    // Decay pulse
+    pulseRef.current = Math.max(0, pulse - delta * 2.4);
+
+    // Fluid drift — unique per node
+    groupRef.current.position.set(
+      basePos.x + Math.cos(t * dp.xFreq + dp.offset) * dp.xAmp,
+      basePos.y + Math.sin(t * dp.yFreq + dp.offset) * dp.yAmp,
+      basePos.z + Math.sin(t * dp.zFreq + dp.offset * 1.3) * 0.012,
+    );
+
+    // Breathing scale
+    const breathe    = 1 + Math.sin(t * dp.breathFreq + dp.offset) * 0.042;
+    const targetScale = (isSelected ? 1.22 : isLinked ? 1.09 : 1.0) * breathe;
+    const cur  = meshRef.current.scale.x;
+    const next = cur + (targetScale - cur) * 0.06;
+    meshRef.current.scale.setScalar(next);
+
+    // Emissive — base + activity + pulse flash
+    const baseGlow = 0.82 + node.activity * 0.72 + Math.sin(t * 2.1 + dp.offset) * 0.10;
+    meshRef.current.material.emissiveIntensity =
+      baseGlow + pulseRef.current * 7.2 + (isSelected ? 1.8 : 0);
+
+    // Spike global bloom on strong pulse
+    if (pulseRef.current > 0.6 && bloomIntensityRef) {
+      bloomIntensityRef.current = Math.max(
+        bloomIntensityRef.current,
+        1.35 + pulseRef.current * 3.5,
+      );
+    }
+
+    // Glow halo
+    if (glowRef.current) {
+      glowRef.current.material.opacity =
+        0.07 + pulseRef.current * 0.50 + node.activity * 0.06 + (isSelected ? 0.14 : 0);
+      glowRef.current.scale.setScalar(next * (1.38 + pulseRef.current * 0.28));
+    }
+  });
+
+  // Node size grows with strength (memory growth)
   const radius = 0.18 + node.strength * 0.30;
 
   return (
-    <group
-      ref={groupRef}
-      position={node.position}
+    <group ref={groupRef} position={node.position}
       onClick={(e) => { e.stopPropagation(); onSelect(node); }}
     >
-      {/* Outer glow shell — bloom-amplified */}
+      {/* Outer glow shell */}
       <mesh ref={glowRef}>
-        <sphereGeometry args={[radius * 1.55, 18, 18]} />
-        <meshStandardMaterial
-          color={node.color}
-          emissive={node.color}
-          emissiveIntensity={1.4}
-          transparent
-          opacity={0.07}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
+        <sphereGeometry args={[radius * 1.58, 18, 18]} />
+        <meshStandardMaterial color={node.color} emissive={node.color}
+          emissiveIntensity={1.4} transparent opacity={0.07}
+          side={THREE.BackSide} depthWrite={false} />
       </mesh>
       {/* Core orb */}
       <mesh ref={meshRef}>
         <sphereGeometry args={[radius, 32, 32]} />
-        <meshStandardMaterial
-          color={node.color}
-          emissive={node.color}
+        <meshStandardMaterial color={node.color} emissive={node.color}
           emissiveIntensity={1.1 + node.activity * 0.55}
-          roughness={0.22}
-          metalness={0.14}
-        />
+          roughness={0.22} metalness={0.14} />
       </mesh>
       <Html position={[0, -radius - 0.22, 0]} center>
         <div className="neural-node-label">{node.label}</div>
@@ -406,88 +484,212 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, livePhaseBurst, burs
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NeuralScene — owns all runtime state inside the Canvas
+// ─────────────────────────────────────────────────────────────────────────────
+function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
+                       livePhaseBurst, burstSeq, controlsRef }) {
+
+  // One pulse ref per node — mutable, never trigger re-renders
+  const pulseRefs       = useRef({});
+  const bloomRef        = useRef(1.35);
+  const bloomPassRef    = useRef(null);
+  const orbActivityRef  = useRef(0);
+
+  // Ensure pulse ref exists for every node
+  useEffect(() => {
+    for (const node of graph.nodes) {
+      if (!pulseRefs.current[node.id]) pulseRefs.current[node.id] = { current: 0 };
+    }
+  }, [graph.nodes]);
+
+  // Track global activity scalar for CompanionOrb (no state → no re-render)
+  useFrame(() => {
+    const total = graph.nodes.reduce((s, n) => s + n.activity, 0);
+    orbActivityRef.current = Math.min(1, total / Math.max(1, graph.nodes.length));
+  });
+
+  // Bloom decay each frame — spike → baseline
+  useFrame((_, delta) => {
+    if (!bloomPassRef.current) return;
+    const target = bloomRef.current;
+    const cur    = bloomPassRef.current.intensity ?? 1.35;
+    const next   = target > cur
+      ? cur + (target - cur) * 0.35
+      : cur + (target - cur) * Math.min(1, delta * 3.0);
+    bloomPassRef.current.intensity = next;
+    bloomRef.current = Math.max(1.35, bloomRef.current - delta * 2.8);
+  });
+
+  // Build adjacency map for BFS
+  const adjacency = useMemo(() => {
+    const map = new Map();
+    for (const n of graph.nodes)       map.set(n.id, []);
+    for (const c of graph.connections) {
+      map.get(c.sourceId)?.push(c.targetId);
+      map.get(c.targetId)?.push(c.sourceId);
+    }
+    return map;
+  }, [graph.nodes, graph.connections]);
+
+  // BFS thought-wave propagation with energy decay per hop
+  const runBFS = useCallback((rootIds) => {
+    const refs = pulseRefs.current;
+    const visited = new Set(rootIds);
+    const queue   = rootIds.map((id) => ({ id, energy: 1.0, hop: 0 }));
+    while (queue.length > 0) {
+      const { id, energy, hop } = queue.shift();
+      const ref = refs[id];
+      if (ref) ref.current = Math.max(ref.current, energy);
+      if (hop >= 4 || energy < 0.08) continue;
+      for (const nid of (adjacency.get(id) || [])) {
+        if (!visited.has(nid)) {
+          visited.add(nid);
+          queue.push({ id: nid, energy: energy * 0.6, hop: hop + 1 });
+        }
+      }
+    }
+    bloomRef.current = Math.max(bloomRef.current, 3.8);
+  }, [adjacency]);
+
+  // Fire BFS on every LLM phase burst
+  useEffect(() => {
+    if (!livePhaseBurst) return;
+    const targets = (PHASE_NODE_MAP[livePhaseBurst] || []).filter(
+      (id) => pulseRefs.current[id],
+    );
+    if (targets.length > 0) runBFS(targets);
+  }, [burstSeq, livePhaseBurst, runBFS]);
+
+  // Cinematic: Neural Storm — periodic random flood when mood is chaotic
+  const lastStorm = useRef(0);
+  useFrame((state) => {
+    if (graph.moodState.mood !== "chaotic") return;
+    const t = state.clock.elapsedTime;
+    if (t - lastStorm.current > 3.5) {
+      lastStorm.current = t;
+      const seeds = [...graph.nodes]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3)
+        .map((n) => n.id);
+      runBFS(seeds);
+    }
+  });
+
+  // Cinematic: Thought Spike — rapid burst when arousal is high
+  const lastSpike = useRef(0);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    if (graph.metrics.arousal > 0.6 && t - lastSpike.current > 5.0) {
+      lastSpike.current = t;
+      runBFS(["core", "intent"]);
+    }
+  });
+
+  return (
+    <>
+      <color attach="background" args={[graph.moodState.background[0]]} />
+      <fog   attach="fog"        args={[graph.moodState.background[1], 6, 14]} />
+      <ambientLight intensity={0.38} />
+      <pointLight position={[8,  8, 8]} intensity={1.4} color={graph.moodState.secondary} />
+      <pointLight position={[-6,-4, 5]} intensity={0.8} color={graph.moodState.accent}    />
+
+      <Stars radius={28} depth={18} count={460} factor={3.2}
+        saturation={0} fade speed={graph.moodState.speed * 0.5} />
+
+      <CameraRig target={selectedNode?.position || [0,0,0]}
+        speed={graph.moodState.speed} controlsRef={controlsRef} />
+
+      <OrbitControls ref={controlsRef} enablePan={false} enableZoom
+        minDistance={4.4} maxDistance={9.2}
+        autoRotate autoRotateSpeed={0.35 * graph.moodState.speed} />
+
+      <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
+
+      {/* Synaptic connections */}
+      {graph.connections.map((conn) => {
+        const src = graph.nodeMap.get(conn.sourceId);
+        const tgt = graph.nodeMap.get(conn.targetId);
+        if (!src || !tgt) return null;
+        const highlighted =
+          conn.sourceId === selectedNode?.id || conn.targetId === selectedNode?.id;
+        const onPulseArrive = () => {
+          const ref = pulseRefs.current[conn.targetId];
+          if (ref) ref.current = Math.max(ref.current, 0.45);
+        };
+        return (
+          <LightningConnection key={conn.key}
+            start={src.position} end={tgt.position}
+            color={conn.color} weight={conn.weight}
+            highlighted={highlighted} activity={conn.weight}
+            onPulseArrive={onPulseArrive}
+          />
+        );
+      })}
+
+      {/* Nodes */}
+      {graph.nodes.map((node) => {
+        const pr = pulseRefs.current[node.id] || { current: 0 };
+        return (
+          <GraphNode key={node.id} node={node}
+            selectedId={selectedNode?.id} linkedIds={linkedIds}
+            onSelect={handleSelect}
+            pulseRef={pr} bloomIntensityRef={bloomRef}
+          />
+        );
+      })}
+
+      {/* Dynamic bloom */}
+      <EffectComposer>
+        <Bloom ref={bloomPassRef}
+          intensity={1.35} luminanceThreshold={0.06}
+          luminanceSmoothing={0.88} mipmapBlur
+        />
+      </EffectComposer>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Root export
+// ─────────────────────────────────────────────────────────────────────────────
 export default function NeuralCoreThreeScene({
-  scene,
-  personality,
-  memoryCount,
-  hasIntent,
-  identityActive,
-  evidenceActive,
-  repairActive,
-  reconditioningActive,
-  visibleChildNodes,
-  focusNode,
-  setFocusNode,
-  valence,
-  arousal,
-  dominance,
-  livePhaseBurst,
+  scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
+  repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
+  valence, arousal, dominance, livePhaseBurst,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
-  // Increment on every new phase burst so useEffect in GraphNode always fires
-  const [burstSeq, setBurstSeq] = useState(0);
+  const [burstSeq,   setBurstSeq]   = useState(0);
 
-  useEffect(() => {
-    setSelectedId(focusNode || "core");
-  }, [focusNode]);
+  useEffect(() => { setSelectedId(focusNode || "core"); }, [focusNode]);
+  useEffect(() => { if (livePhaseBurst) setBurstSeq((n) => n + 1); }, [livePhaseBurst]);
 
-  useEffect(() => {
-    if (livePhaseBurst) setBurstSeq((n) => n + 1);
-  }, [livePhaseBurst]);
-
-  const graph = useMemo(
-    () =>
-      buildThreeGraphModel({
-        scene,
-        personality,
-        memoryCount,
-        hasIntent,
-        identityActive,
-        evidenceActive,
-        repairActive,
-        reconditioningActive,
-        visibleChildNodes,
-        focusNode,
-        valence,
-        arousal,
-        dominance,
-        livePhaseBurst,
-      }),
-    [
-      scene,
-      personality,
-      memoryCount,
-      hasIntent,
-      identityActive,
-      evidenceActive,
-      repairActive,
-      reconditioningActive,
-      visibleChildNodes,
-      focusNode,
-      valence,
-      arousal,
-      dominance,
-      livePhaseBurst,
-    ],
+  const graph = useMemo(() =>
+    buildThreeGraphModel({
+      scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
+      repairActive, reconditioningActive, visibleChildNodes, focusNode,
+      valence, arousal, dominance, livePhaseBurst,
+    }),
+    [scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
+     repairActive, reconditioningActive, visibleChildNodes, focusNode,
+     valence, arousal, dominance, livePhaseBurst],
   );
 
-  const selectedNode = graph.nodes.find((node) => node.id === selectedId) || graph.nodes[0];
+  const selectedNode = graph.nodes.find((n) => n.id === selectedId) || graph.nodes[0];
 
   const linkedIds = useMemo(() => {
     const ids = new Set([selectedNode?.id || "core"]);
-    for (const connection of graph.connections) {
-      if (connection.sourceId === selectedNode?.id) ids.add(connection.targetId);
-      if (connection.targetId === selectedNode?.id) ids.add(connection.sourceId);
+    for (const c of graph.connections) {
+      if (c.sourceId === selectedNode?.id) ids.add(c.targetId);
+      if (c.targetId === selectedNode?.id) ids.add(c.sourceId);
     }
     return ids;
   }, [graph.connections, selectedNode?.id]);
 
-  const selectedTarget = selectedNode?.position || [0, 0, 0];
-
   function handleSelect(node) {
     setSelectedId(node.id);
-    if (["core", "memory", "intent", "identity", "evidence"].includes(node.id)) {
+    if (["core","memory","intent","identity","evidence"].includes(node.id)) {
       setFocusNode?.(node.id);
     } else if (node.parentId) {
       setFocusNode?.(node.parentId);
@@ -499,82 +701,19 @@ export default function NeuralCoreThreeScene({
       <style>{threeSceneStyles}</style>
       <div className="neural-three-hint">3D Neural Core · click nodes to inspect and zoom</div>
 
-      <Canvas camera={{ position: [0, 0.15, 6], fov: 48 }} onPointerMissed={() => setSelectedId("core")}>
-        <color attach="background" args={[graph.moodState.background[0]]} />
-        <fog attach="fog" args={[graph.moodState.background[1], 6, 14]} />
-        <ambientLight intensity={0.38} />
-        <pointLight position={[8, 8, 8]} intensity={1.4} color={graph.moodState.secondary} />
-        <pointLight position={[-6, -4, 5]} intensity={0.8} color={graph.moodState.accent} />
-
-        <Stars
-          radius={28}
-          depth={18}
-          count={460}
-          factor={3.2}
-          saturation={0}
-          fade
-          speed={graph.moodState.speed * 0.5}
+      <Canvas camera={{ position: [0, 0.15, 6], fov: 48 }}
+        onPointerMissed={() => setSelectedId("core")}
+      >
+        <NeuralScene
+          graph={graph}
+          selectedNode={selectedNode}
+          linkedIds={linkedIds}
+          handleSelect={handleSelect}
+          setSelectedId={setSelectedId}
+          livePhaseBurst={livePhaseBurst}
+          burstSeq={burstSeq}
+          controlsRef={controlsRef}
         />
-
-        <CameraRig target={selectedTarget} speed={graph.moodState.speed} controlsRef={controlsRef} />
-
-        <OrbitControls
-          ref={controlsRef}
-          enablePan={false}
-          enableZoom
-          minDistance={4.4}
-          maxDistance={9.2}
-          autoRotate
-          autoRotateSpeed={0.35 * graph.moodState.speed}
-        />
-
-        <CompanionOrb moodState={graph.moodState} />
-
-        {/* ── Synaptic connections with lightning + pulse dots ── */}
-        {graph.connections.map((connection) => {
-          const source = graph.nodeMap.get(connection.sourceId);
-          const target = graph.nodeMap.get(connection.targetId);
-          if (!source || !target) return null;
-
-          const highlighted =
-            connection.sourceId === selectedNode?.id ||
-            connection.targetId === selectedNode?.id;
-
-          return (
-            <LightningConnection
-              key={connection.key}
-              start={source.position}
-              end={target.position}
-              color={connection.color}
-              weight={connection.weight}
-              highlighted={highlighted}
-              activity={connection.weight}
-            />
-          );
-        })}
-
-        {/* ── Nodes with glow + pulse + fluid drift ── */}
-        {graph.nodes.map((node) => (
-          <GraphNode
-            key={node.id}
-            node={node}
-            selectedId={selectedNode?.id}
-            linkedIds={linkedIds}
-            onSelect={handleSelect}
-            livePhaseBurst={livePhaseBurst}
-            burstSeq={burstSeq}
-          />
-        ))}
-
-        {/* ── Bloom post-processing ── */}
-        <EffectComposer>
-          <Bloom
-            intensity={1.35}
-            luminanceThreshold={0.06}
-            luminanceSmoothing={0.88}
-            mipmapBlur
-          />
-        </EffectComposer>
       </Canvas>
 
       {selectedNode ? (
