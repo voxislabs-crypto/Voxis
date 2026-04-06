@@ -1,5 +1,5 @@
 import { getPersonalityById } from "../models/personalityModel.js";
-import { generateSpeechAudio, isTtsConfigured } from "../services/ttsService.js";
+import { generateSpeechAudio, isTtsConfigured, listPiperVoiceOptions } from "../services/ttsService.js";
 
 function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   const source = input && typeof input === "object" ? input : fallbackProfile;
@@ -23,6 +23,15 @@ function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   };
 }
 
+export async function listPiperVoicesHandler(req, res, next) {
+  try {
+    const payload = await listPiperVoiceOptions();
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function generateSpeechHandler(req, res, next) {
   try {
     const personalityId = Number(req.params.id);
@@ -36,13 +45,6 @@ export async function generateSpeechHandler(req, res, next) {
       return res.status(400).json({ error: "Text is required for speech generation." });
     }
 
-    if (!isTtsConfigured()) {
-      return res.status(500).json({
-        error:
-          "TTS is not configured. Configure cloud TTS (TTS_API_KEY/TTS_BASE_URL) or Piper (PIPER_MODEL_PATH) in backend/.env.",
-      });
-    }
-
     const personality = getPersonalityById(personalityId);
 
     if (!personality) {
@@ -50,6 +52,13 @@ export async function generateSpeechHandler(req, res, next) {
     }
 
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile, personality.voiceProfile);
+
+    if (!isTtsConfigured(voiceProfile)) {
+      return res.status(500).json({
+        error:
+          "TTS is not configured. Configure cloud TTS (TTS_API_KEY/TTS_BASE_URL) or Piper (PIPER_MODEL_PATH) in backend/.env.",
+      });
+    }
     const audio = await generateSpeechAudio({
       personality,
       text,

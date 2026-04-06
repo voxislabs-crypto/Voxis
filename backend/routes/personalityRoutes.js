@@ -12,7 +12,7 @@ import {
 import { runHarnessHandler } from "../controllers/harnessController.js";
 import { researchProfileHandler } from "../controllers/researchController.js";
 import { chatHistoryHandler } from "../controllers/chatController.js";
-import { generateSpeechHandler } from "../controllers/ttsController.js";
+import { generateSpeechHandler, listPiperVoicesHandler } from "../controllers/ttsController.js";
 import {
   backfillMemoryEmbeddingsHandler,
   listMemoryHandler,
@@ -36,6 +36,7 @@ router.get("/personality/:id/memory", requireAuth, listMemoryHandler);
 router.post("/personality/:id/memory/backfill", requireAuth, backfillMemoryEmbeddingsHandler);
 router.put("/memory/:memoryId", requireAuth, updateMemoryHandler);
 router.delete("/memory/:memoryId", requireAuth, deleteMemoryHandler);
+router.get("/tts/piper-voices", requireAuth, listPiperVoicesHandler);
 router.post("/personality/:id/tts", requireAuth, generateSpeechHandler);
 router.patch("/personality/:id/voice", requireAuth, updateVoiceProfileHandler);
 

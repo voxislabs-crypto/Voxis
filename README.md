@@ -126,6 +126,7 @@ What this demonstrates in minutes:
 
 - Build rich character personalities with a name, description, traits, quirks, mood, behavior rules, goals, core values, and a creative context frame.
 - Tune full text-to-speech defaults in the dedicated `Voice Lab` tab, while keeping quick play/autoplay controls directly in chat.
+- When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
@@ -234,6 +235,8 @@ cp backend/.env.example backend/.env
 | `PIPER_COMMAND` | Piper executable command (default: `piper`) |
 | `PIPER_MODEL_PATH` | Default `.onnx` model path used when engine resolves to Piper |
 | `PIPER_SPEAKER` | Optional default numeric speaker id for multi-speaker Piper models |
+
+Voice Lab will also auto-scan common Piper model locations such as `/opt/piper/models` and the directory containing `PIPER_MODEL_PATH`, then present discovered voices in a dropdown when you switch the engine to `piper`.
 
 Research scraping works without any LLM credentials. If an LLM is configured, Voxis also synthesizes scraped source notes into a structured character profile automatically.
 

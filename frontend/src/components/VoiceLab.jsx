@@ -156,11 +156,25 @@ export default function VoiceLab({
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
+  const [piperVoices, setPiperVoices] = useState([]);
+  const [isLoadingPiperVoices, setIsLoadingPiperVoices] = useState(false);
+  const [piperVoiceError, setPiperVoiceError] = useState("");
   const audioRef = useRef(null);
 
   const latestAssistantMessage = useMemo(
     () => [...(messages || [])].reverse().find((message) => message.role === "assistant") || null,
     [messages],
+  );
+
+  const selectedPiperVoice = useMemo(
+    () =>
+      piperVoices.find(
+        (voice) =>
+          voice.path === voiceProfile.piperModelPath ||
+          voice.id === voiceProfile.providerVoice ||
+          voice.id === voiceProfile.preferredVoice,
+      ) || null,
+    [piperVoices, voiceProfile.piperModelPath, voiceProfile.preferredVoice, voiceProfile.providerVoice],
   );
 
   useEffect(() => {
@@ -188,6 +202,73 @@ export default function VoiceLab({
   }, [personality]);
 
   useEffect(() => {
+    if (!personality || voiceProfile.engine !== "piper") {
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadPiperVoices() {
+      setIsLoadingPiperVoices(true);
+      setPiperVoiceError("");
+
+      try {
+        const response = await authFetch("/tts/piper-voices");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load Piper voices.");
+        }
+
+        if (ignore) {
+          return;
+        }
+
+        const voices = Array.isArray(data.voices) ? data.voices : [];
+        setPiperVoices(voices);
+
+        setVoiceProfile((current) => {
+          const currentMatch = voices.find((voice) => voice.path === current.piperModelPath);
+          if (currentMatch) {
+            return {
+              ...current,
+              providerVoice: currentMatch.id,
+              preferredVoice: currentMatch.id,
+            };
+          }
+
+          const defaultVoice = voices.find((voice) => voice.isDefault) || voices[0];
+          if (!defaultVoice || current.piperModelPath) {
+            return current;
+          }
+
+          return {
+            ...current,
+            piperModelPath: defaultVoice.path,
+            providerVoice: defaultVoice.id,
+            preferredVoice: defaultVoice.id,
+          };
+        });
+      } catch (error) {
+        if (!ignore) {
+          setPiperVoices([]);
+          setPiperVoiceError(error.message || "Failed to load Piper voices.");
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingPiperVoices(false);
+        }
+      }
+    }
+
+    void loadPiperVoices();
+
+    return () => {
+      ignore = true;
+    };
+  }, [authFetch, personality?.id, voiceProfile.engine]);
+
+  useEffect(() => {
     return () => {
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
@@ -199,6 +280,26 @@ export default function VoiceLab({
     setVoiceProfile((current) => ({
       ...current,
       [name]: value,
+    }));
+  }
+
+  function handlePiperVoiceChange(nextPath) {
+    const nextVoice = piperVoices.find((voice) => voice.path === nextPath);
+
+    if (!nextVoice) {
+      updateVoiceField("piperModelPath", nextPath);
+      return;
+    }
+
+    setVoiceProfile((current) => ({
+      ...current,
+      piperModelPath: nextVoice.path,
+      providerVoice: nextVoice.id,
+      preferredVoice: nextVoice.id,
+      piperSpeaker:
+        nextVoice.speakers?.length === 1 && (current.piperSpeaker === "" || current.piperSpeaker === null)
+          ? String(nextVoice.speakers[0].id)
+          : current.piperSpeaker,
     }));
   }
 
@@ -329,16 +430,49 @@ export default function VoiceLab({
             </div>
 
             <div className="voice-lab-field">
-              <label htmlFor="voice-lab-voice">TTS voice</label>
-              <input
-                id="voice-lab-voice"
-                value={voiceProfile.providerVoice || voiceProfile.preferredVoice}
-                onChange={(event) => {
-                  updateVoiceField("providerVoice", event.target.value);
-                  updateVoiceField("preferredVoice", event.target.value);
-                }}
-                placeholder="alloy"
-              />
+              <label htmlFor={voiceProfile.engine === "piper" ? "voice-lab-piper-voice" : "voice-lab-voice"}>
+                {voiceProfile.engine === "piper" ? "Piper voice" : "TTS voice"}
+              </label>
+              {voiceProfile.engine === "piper" ? (
+                <>
+                  <select
+                    id="voice-lab-piper-voice"
+                    value={selectedPiperVoice?.path || voiceProfile.piperModelPath || ""}
+                    onChange={(event) => handlePiperVoiceChange(event.target.value)}
+                    disabled={isLoadingPiperVoices || piperVoices.length === 0}
+                  >
+                    <option value="">
+                      {isLoadingPiperVoices
+                        ? "Scanning local Piper voices..."
+                        : piperVoices.length
+                          ? "Select a Piper voice"
+                          : "No Piper voices found"}
+                    </option>
+                    {piperVoices.map((voice) => (
+                      <option key={voice.path} value={voice.path}>
+                        {voice.label}{voice.isDefault ? " (default)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    {piperVoiceError
+                      ? piperVoiceError
+                      : piperVoices.length
+                        ? `Found ${piperVoices.length} local Piper voice${piperVoices.length === 1 ? "" : "s"}.`
+                        : "No local Piper models were detected yet. Run the Piper installer or set PIPER_MODEL_PATH."}
+                  </small>
+                </>
+              ) : (
+                <input
+                  id="voice-lab-voice"
+                  value={voiceProfile.providerVoice || voiceProfile.preferredVoice}
+                  onChange={(event) => {
+                    updateVoiceField("providerVoice", event.target.value);
+                    updateVoiceField("preferredVoice", event.target.value);
+                  }}
+                  placeholder="alloy"
+                />
+              )}
             </div>
 
             <div className="voice-lab-field">
@@ -354,23 +488,40 @@ export default function VoiceLab({
             {voiceProfile.engine === "piper" ? (
               <>
                 <div className="voice-lab-field">
-                  <label htmlFor="voice-lab-piper-model">Piper model path</label>
+                  <label htmlFor="voice-lab-piper-model">Piper model path (advanced)</label>
                   <input
                     id="voice-lab-piper-model"
                     value={voiceProfile.piperModelPath}
                     onChange={(event) => updateVoiceField("piperModelPath", event.target.value)}
-                    placeholder="/models/en_US-lessac-medium.onnx"
+                    placeholder="/opt/piper/models/en_US-lessac-medium.onnx"
                   />
                 </div>
 
                 <div className="voice-lab-field">
-                  <label htmlFor="voice-lab-piper-speaker">Piper speaker id (optional)</label>
-                  <input
-                    id="voice-lab-piper-speaker"
-                    value={voiceProfile.piperSpeaker}
-                    onChange={(event) => updateVoiceField("piperSpeaker", event.target.value)}
-                    placeholder="0"
-                  />
+                  <label htmlFor="voice-lab-piper-speaker">
+                    {selectedPiperVoice?.speakers?.length > 1 ? "Piper speaker" : "Piper speaker id (optional)"}
+                  </label>
+                  {selectedPiperVoice?.speakers?.length > 1 ? (
+                    <select
+                      id="voice-lab-piper-speaker"
+                      value={String(voiceProfile.piperSpeaker ?? "")}
+                      onChange={(event) => updateVoiceField("piperSpeaker", event.target.value)}
+                    >
+                      <option value="">Use default speaker</option>
+                      {selectedPiperVoice.speakers.map((speaker) => (
+                        <option key={`${selectedPiperVoice.id}-${speaker.id}`} value={String(speaker.id)}>
+                          {speaker.label} ({speaker.id})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="voice-lab-piper-speaker"
+                      value={voiceProfile.piperSpeaker}
+                      onChange={(event) => updateVoiceField("piperSpeaker", event.target.value)}
+                      placeholder="0"
+                    />
+                  )}
                 </div>
               </>
             ) : null}
