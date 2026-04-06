@@ -15,6 +15,18 @@ sudo systemctl reload nginx
 
 ---
 
+bash deploy/update-app.sh && sudo systemctl reload nginx
+
+
+
+---
+rm -f package-lock.json && BRANCH=feature/cyberpunk-ui-redesign bash deploy/update-app.sh
+
+sudo sed -i '/proxy_set_header X-Forwarded-Proto/a\        proxy_buffering off;\n        proxy_cache off;\n        proxy_read_timeout 300s;\n        proxy_send_timeout 300s;\n        add_header X-Accel-Buffering no;' /etc/nginx/sites-available/voxis
+sudo nginx -t && sudo systemctl reload ngin
+
+---
+
 7-DAY INDIE BETA CHECKLIST
 
 Day 1: Lock Scope + Recruit

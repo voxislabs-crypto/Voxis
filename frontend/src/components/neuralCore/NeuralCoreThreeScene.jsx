@@ -547,7 +547,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   // Track global activity + per-frame orb decay (prevents permanent over-excitation)
   // Also emits heartbeat to onActivityUpdate ~4x/sec for Avatar ↔ Brain sync
   useFrame((state, delta) => {
-    const total  = graph.nodes.reduce((s, n) => s + n.activity, 0);
+    if (!graph.nodes?.length) return;
+    const total  = graph.nodes.reduce((s, n) => s + (n.activity || 0), 0);
     const avg    = Math.min(1, total / Math.max(1, graph.nodes.length));
     // Blend: graph average can push orb up; decay pulls it down
     orbActivityRef.current = Math.max(avg, Math.max(0, orbActivityRef.current - delta * 2.1));
@@ -801,15 +802,15 @@ export default function NeuralCoreThreeScene({
         />
       </Canvas>
 
-      {!hideLabels && selectedNode ? (
+      {!hideLabels && selectedNode && graph.nodes.length > 0 ? (
         <div className="neural-three-panel">
           <h5>{selectedNode.label}</h5>
           <p>{selectedNode.meta || "Active neural cluster"}</p>
           <div className="neural-three-meta">
-            <span>{graph.moodState.mood}</span>
+            <span>{graph.moodState?.mood}</span>
             <span>strength {selectedNode.strength.toFixed(2)}</span>
             <span>activity {selectedNode.activity.toFixed(2)}</span>
-            <span>{selectedNode.connections.length} link{selectedNode.connections.length === 1 ? "" : "s"}</span>
+            <span>{(selectedNode.connections || []).length} link{(selectedNode.connections || []).length === 1 ? "" : "s"}</span>
           </div>
         </div>
       ) : null}
