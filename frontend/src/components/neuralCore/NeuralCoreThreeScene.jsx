@@ -99,7 +99,7 @@ function CameraRig({ target, speed, controlsRef, orbActivityRef }) {
     const orbit = new THREE.Vector3(
       Math.sin(t * 0.18) * 0.18,
       Math.cos(t * 0.20) * 0.10,
-      5.9 - Math.min(1.25, Math.max(0, targetVector.length() * 0.08)),
+      5.5 - Math.min(0.8, Math.max(0, targetVector.length() * 0.05)),
     );
     // Camera shake when network activity spikes
     const act   = orbActivityRef?.current ?? 0;
@@ -151,8 +151,8 @@ function CompanionOrb({ moodState, orbActivityRef }) {
     const chaos = act > 0.7 ? smoothNoise(t, 3.5, 1.11) * 0.08 : 0;
 
     // Float — faster + erratic when high activity
-    groupRef.current.position.y = 2.15 + Math.sin(t * 1.1 * spd) * 0.12 + chaos;
-    groupRef.current.position.x = 3.0  + Math.sin(t * 0.44) * 0.1 * (1 + act * 0.6);
+    groupRef.current.position.y = 1.6 + Math.sin(t * 1.1 * spd) * 0.10 + chaos;
+    groupRef.current.position.x = 2.2  + Math.sin(t * 0.44) * 0.08 * (1 + act * 0.6);
     groupRef.current.rotation.z = Math.sin(t * 0.5) * 0.08;
 
     // Breathing — rate tied to mood
@@ -190,7 +190,7 @@ function CompanionOrb({ moodState, orbActivityRef }) {
   });
 
   return (
-    <group ref={groupRef} position={[3, 2.15, -1.2]}>
+    <group ref={groupRef} position={[2.2, 1.6, -1.2]}>
       {/* Glow halo */}
       <mesh ref={glowRef}>
         <sphereGeometry args={[0.36, 18, 18]} />
@@ -671,8 +671,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
         orbActivityRef={orbActivityRef} />
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
-        minDistance={4.4} maxDistance={9.2}
-        autoRotate autoRotateSpeed={0.35 * graph.moodState.speed} />
+        minDistance={3.5} maxDistance={18}
+        autoRotate autoRotateSpeed={0.18 * graph.moodState.speed} />
 
       <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
 

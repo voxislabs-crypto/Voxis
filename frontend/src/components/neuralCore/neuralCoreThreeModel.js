@@ -3,7 +3,8 @@ function clamp(value, min, max) {
 }
 
 function toThreePosition(point, depth = 0) {
-  return [Number(((point.x - 50) / 9.5).toFixed(3)), Number(((50 - point.y) / 9.5).toFixed(3)), depth];
+  // Divisor 15.8 pulls nodes ~40% closer to center vs original 9.5
+  return [Number(((point.x - 50) / 15.8).toFixed(3)), Number(((50 - point.y) / 15.8).toFixed(3)), depth];
 }
 
 function inferMoodState({ valence, arousal, repairActive, livePhaseBurst }) {
