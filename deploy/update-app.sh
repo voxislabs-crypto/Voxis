@@ -67,6 +67,10 @@ if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$APP_DIR/frontend/.env" 2>/dev/n
 fi
 
 echo "[5/6] Building frontend"
+# Fix ownership if dist/ was previously built by root (causes EACCES on unlink)
+if [[ -d "$APP_DIR/frontend/dist" ]]; then
+  sudo chown -R "$(id -u):$(id -g)" "$APP_DIR/frontend/dist" 2>/dev/null || true
+fi
 npm --prefix "$APP_DIR" run build
 
 echo "[6/6] Restarting backend"
