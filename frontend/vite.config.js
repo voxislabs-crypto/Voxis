@@ -12,6 +12,8 @@ export default defineConfig({
       "/research-profile": "http://localhost:3101",
       "/chat": "http://localhost:3101",
       "/settings": "http://localhost:3101",
+      "/tts": "http://localhost:3101",
+      "/voice-presets": "http://localhost:3101",
     },
   },
 });

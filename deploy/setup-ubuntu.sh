@@ -136,7 +136,7 @@ server {
     index index.html;
 
     # Regex API matcher: proxies backend endpoints to Express on $BACKEND_PORT.
-    location ~ ^/(health|chat|settings|me|users|personality|personalities|research-profile|memory)(/|$) {
+    location ~ ^/(health|chat|settings|me|users|personality|personalities|research-profile|memory|tts|voice-presets)(/|$) {
         proxy_pass http://127.0.0.1:$BACKEND_PORT;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
