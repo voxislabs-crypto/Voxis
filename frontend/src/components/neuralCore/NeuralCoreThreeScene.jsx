@@ -782,7 +782,9 @@ export default function NeuralCoreThreeScene({
       {!hideLabels && <style>{threeSceneStyles}</style>}
       {!hideLabels && <div className="neural-three-hint">3D Neural Core · click nodes to inspect and zoom</div>}
 
-      <Canvas camera={{ position: [0, 0.15, 6], fov: 48 }}
+      <Canvas
+        camera={{ position: [0, 0.15, 6], fov: 48 }}
+        gl={{ powerPreference: "low-power", antialias: false, failIfMajorPerformanceCaveat: false }}
         onPointerMissed={() => setSelectedId("core")}
       >
         <NeuralScene
