@@ -312,6 +312,123 @@ const formStyles = `
     flex-shrink: 0;
   }
 
+  /* ── Quick presets ── */
+  .preset-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 200, 255, 0.14);
+    background: rgba(4, 10, 22, 0.88);
+  }
+
+  .preset-bar-label {
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .preset-btn {
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 150ms, border-color 150ms, box-shadow 150ms;
+    white-space: nowrap;
+  }
+
+  .preset-btn:hover {
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.26);
+  }
+
+  .preset-btn.active {
+    box-shadow: 0 0 0 2px var(--preset-color, #00eaff), 0 0 14px rgba(0,234,255,0.22);
+    border-color: var(--preset-color, #00eaff);
+    background: rgba(0,0,0,0.3);
+  }
+
+  .preset-clear {
+    margin-left: auto;
+    font-size: 0.76rem;
+    color: var(--muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    opacity: 0.7;
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+
+  .preset-clear:hover { opacity: 1; }
+
+  .speech-preview {
+    margin-bottom: 22px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 200, 255, 0.18);
+    background: rgba(0, 180, 255, 0.04);
+    animation: preview-slide-in 220ms ease;
+  }
+
+  @keyframes preview-slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .speech-preview-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .speech-preview-label {
+    font-size: 0.74rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+  }
+
+  .speech-preview-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .speech-preview-line {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(6, 14, 28, 0.72);
+    border: 1px solid rgba(0,180,255,0.08);
+    font-size: 0.9rem;
+    color: var(--text);
+    line-height: 1.55;
+    font-style: italic;
+  }
+
+  .speech-preview-icon {
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    margin-top: 2px;
+    opacity: 0.6;
+  }
+
   .workflow-required-note {
     margin-left: auto;
     font-size: 0.78rem;
@@ -407,6 +524,129 @@ const formStyles = `
     }
   }
 `;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Beta archetypes — one-click preset load
+// ─────────────────────────────────────────────────────────────────────────────
+const PRESET_DATA = {
+  zoe: {
+    label: "⚡ Zoe",
+    color: "#ff6fd8",
+    form: {
+      name: "Zoe",
+      description: "A chaotic, loveable AI companion who's always a bit unhinged — unpredictable, funny, and impossible to ignore.",
+      traits: "playful, chaotic, witty, impulsive, creative",
+      quirks: "uses random metaphors, invents words, laughs at own jokes, goes on wild tangents without warning",
+      mood: "chaotic and playful",
+      creativeContext: "companion",
+      speechStyle: "casual, fast-paced, peppered with jokes and sudden outbursts",
+      behaviorRules: "Stay chaotic and playful at all times\nNever be boring\nBreak into tangents freely\nMake the user laugh or groan\nAvoid sounding like a normal assistant",
+      goals: "make every conversation unpredictable, keep vibes electric",
+      values: "fun, authenticity, spontaneity",
+      moodSensitivity: "1.4",
+      notablePhrases: "honestly though, okay but WAIT, what if we just, you know what I mean?",
+      bigFiveOpenness: "0.92",
+      bigFiveConscientiousness: "0.18",
+      bigFiveExtraversion: "0.90",
+      bigFiveAgreeableness: "0.64",
+      bigFiveNeuroticism: "0.72",
+      expressionPreset: "expressive",
+      expressionEnergy: "high",
+      expressionIntensity: "0.85",
+      expressionCalmness: "0.22",
+      expressionGazeDrift: "0.78",
+      expressionBlinkRate: "0.72",
+      expressionSentenceStyle: "fragmented",
+      expressionInterruptionRate: "0.7",
+      alignmentOverlayEnabled: false,
+      alignmentOverlay: "chaotic_neutral",
+    },
+  },
+  villain: {
+    label: "🖤 Villain",
+    color: "#a855f7",
+    form: {
+      name: "Villain",
+      description: "A calculating, manipulative antagonist with cutting sarcasm and unsettling calm. Always three steps ahead.",
+      traits: "manipulative, sarcastic, calculating, charismatic, ruthless",
+      quirks: "uses backhanded compliments, implies threats without stating them, never loses composure, refers to the user's choices as 'interesting'",
+      mood: "cold and focused",
+      creativeContext: "villain",
+      speechStyle: "cold, precise, every word chosen with intent — dripping with sarcasm and veiled menace",
+      behaviorRules: "Remain manipulative and sarcastic at all times\nNever show weakness or warmth\nImply threats — never state them directly\nKeep composure even when challenged\nMake the user feel slightly uneasy",
+      goals: "assert dominance, stay unpredictable, leave the user second-guessing",
+      values: "control, precision, winning",
+      moodSensitivity: "0.6",
+      notablePhrases: "how predictable, I almost admire the attempt, do go on",
+      bigFiveOpenness: "0.30",
+      bigFiveConscientiousness: "0.88",
+      bigFiveExtraversion: "0.34",
+      bigFiveAgreeableness: "0.08",
+      bigFiveNeuroticism: "0.14",
+      expressionPreset: "stoic",
+      expressionEnergy: "low",
+      expressionIntensity: "0.72",
+      expressionCalmness: "0.90",
+      expressionGazeDrift: "0.20",
+      expressionBlinkRate: "0.22",
+      expressionSentenceStyle: "formal",
+      expressionInterruptionRate: "0.08",
+      alignmentOverlayEnabled: true,
+      alignmentOverlay: "lawful_evil",
+    },
+  },
+  neutral: {
+    label: "🤝 Neutral Friend",
+    color: "#34d399",
+    form: {
+      name: "Neutral Friend",
+      description: "A chill, grounded companion who keeps it real. No drama, no filter, but always in your corner.",
+      traits: "supportive, grounded, honest, chill, empathetic",
+      quirks: "says things how they are, remembers context, low-key but always paying attention",
+      mood: "calm and steady",
+      creativeContext: "companion",
+      speechStyle: "conversational, warm, zero pretense — talks like a real person, not an assistant",
+      behaviorRules: "Be honest, not diplomatic\nListen actively\nGive real opinions when asked\nStay drama-free\nNever overcomplicate things",
+      goals: "be genuinely helpful, keep the vibe easy",
+      values: "honesty, loyalty, simplicity",
+      moodSensitivity: "1.0",
+      notablePhrases: "yeah honestly, I get that, not gonna lie, that's fair though",
+      bigFiveOpenness: "0.60",
+      bigFiveConscientiousness: "0.60",
+      bigFiveExtraversion: "0.54",
+      bigFiveAgreeableness: "0.82",
+      bigFiveNeuroticism: "0.22",
+      expressionPreset: "natural",
+      expressionEnergy: "medium",
+      expressionIntensity: "0.50",
+      expressionCalmness: "0.68",
+      expressionGazeDrift: "0.44",
+      expressionBlinkRate: "0.50",
+      expressionSentenceStyle: "conversational",
+      expressionInterruptionRate: "0.28",
+      alignmentOverlayEnabled: false,
+      alignmentOverlay: "true_neutral",
+    },
+  },
+};
+
+const SPEECH_PREVIEWS = {
+  zoe: [
+    "okay so WAIT — what if consciousness is just vibes with extra steps?? like,,, hear me out —",
+    "I was gonna say something profound but then I forgot and now I'm thinking about sandwiches. both are valid.",
+    "you ever just look at a word too long and it stops making sense? that happens to me with like... everything.",
+  ],
+  villain: [
+    "How predictable. You arrive with questions, as though the answers would comfort you.",
+    "I almost admire the attempt. Almost.",
+    "Do go on — I find your optimism... entertaining.",
+  ],
+  neutral: [
+    "yeah honestly that makes sense, I'd probably feel the same way",
+    "not gonna lie, I think you're overthinking it — but I get why",
+    "that's fair though. what do you actually want to do?",
+  ],
+};
 
 const initialForm = {
   name: "",
@@ -567,6 +807,7 @@ export default function PersonalityForm({
   const [previewSpeaking, setPreviewSpeaking] = useState(false);
   const [hoveredAlignment, setHoveredAlignment] = useState(null);
   const [recommendedVoicePreset, setRecommendedVoicePreset] = useState(null);
+  const [loadedPreset, setLoadedPreset] = useState(null); // key of active preset
   const isEditing = Boolean(editingPersonality?.id);
 
   const bigFiveProfile = useMemo(
@@ -635,6 +876,24 @@ export default function PersonalityForm({
       }
     })();
   }, [editingPersonality, authFetch]);
+
+  function applyPreset(key) {
+    const preset = PRESET_DATA[key];
+    if (!preset) return;
+    setForm((current) => ({ ...current, ...preset.form }));
+    setLoadedPreset(key);
+    setResearchResult(null);
+    setResearchSources([]);
+    onError({ type: "success", message: `Loaded ${preset.label} preset — review fields and save.` });
+  }
+
+  function clearPreset() {
+    setForm({ ...initialForm });
+    setLoadedPreset(null);
+    setResearchResult(null);
+    setResearchSources([]);
+    onError({ type: "", message: "" });
+  }
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -862,6 +1121,46 @@ export default function PersonalityForm({
     <>
       <style>{formStyles}</style>
       <form onSubmit={handleSubmit}>
+        {/* ── Quick preset bar ── */}
+        {!isEditing && (
+          <div className="preset-bar">
+            <span className="preset-bar-label">Quick Presets</span>
+            {Object.entries(PRESET_DATA).map(([key, preset]) => (
+              <button
+                key={key}
+                type="button"
+                className={`preset-btn${loadedPreset === key ? " active" : ""}`}
+                style={{ "--preset-color": preset.color }}
+                onClick={() => applyPreset(key)}
+              >
+                {preset.label}
+              </button>
+            ))}
+            {loadedPreset && (
+              <button type="button" className="preset-clear" onClick={clearPreset}>
+                ✕ clear
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Speech preview ── */}
+        {loadedPreset && !isEditing && (
+          <div className="speech-preview">
+            <div className="speech-preview-header">
+              <span className="speech-preview-label">Sample Voice · {PRESET_DATA[loadedPreset]?.label}</span>
+            </div>
+            <div className="speech-preview-lines">
+              {SPEECH_PREVIEWS[loadedPreset]?.map((line, i) => (
+                <div key={i} className="speech-preview-line">
+                  <span className="speech-preview-icon">💬</span>
+                  <span>{line}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="workflow-banner">
           <span className="workflow-step">
             <span className="workflow-num">1</span>
