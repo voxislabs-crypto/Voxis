@@ -90,7 +90,7 @@ function smoothNoise(t, freq, phase) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
-function CameraRig({ target, speed, controlsRef }) {
+function CameraRig({ target, speed, controlsRef, orbActivityRef }) {
   const { camera } = useThree();
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
 
@@ -101,8 +101,11 @@ function CameraRig({ target, speed, controlsRef }) {
       Math.cos(t * 0.20) * 0.10,
       5.9 - Math.min(1.25, Math.max(0, targetVector.length() * 0.08)),
     );
+    // Camera shake when network activity spikes
+    const act   = orbActivityRef?.current ?? 0;
+    const shake = act > 0.8 ? smoothNoise(t, 18, 4.2) * 0.018 : 0;
     camera.position.lerp(
-      new THREE.Vector3(targetVector.x + orbit.x, targetVector.y + orbit.y, orbit.z),
+      new THREE.Vector3(targetVector.x + orbit.x + shake, targetVector.y + orbit.y + shake * 0.6, orbit.z),
       smoothLerpAlpha(delta, 3.4 + speed),
     );
     if (controlsRef.current) {
@@ -392,10 +395,11 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
 // GraphNode — orb + glow halo + BFS pulse + fluid drift + memory growth
 // pulseRef is { current: 0..1 } owned by NeuralScene, shared read/write
 // ─────────────────────────────────────────────────────────────────────────────
-function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef }) {
+function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef, allPulseRefs, strengthRef }) {
   const groupRef = useRef(null);
   const meshRef  = useRef(null);
   const glowRef  = useRef(null);
+  const labelRef = useRef(null);
 
   const basePos = useMemo(() => new THREE.Vector3(...node.position), [node.position]);
 
@@ -420,6 +424,23 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
 
     // Decay pulse
     pulseRef.current = Math.max(0, pulse - delta * 2.4);
+
+    // Neighbor echo — when this node fires, connected nodes get a secondary pulse
+    if (pulse > 0.35 && allPulseRefs) {
+      for (const nid of (node.connections || [])) {
+        const nref = allPulseRefs.current?.[nid];
+        if (nref) nref.current = Math.max(nref.current, pulse * 0.52);
+      }
+    }
+
+    // Imperative label: glow border when recently activated
+    if (labelRef.current) {
+      const entry    = strengthRef?.current?.get(node.id);
+      const isRecent = entry && (Date.now() - (entry.lastActivated || 0)) < 1600;
+      labelRef.current.style.borderColor = isRecent ? "#00ffcc" : "rgba(255,255,255,0.12)";
+      labelRef.current.style.boxShadow   = isRecent
+        ? "0 0 18px rgba(0,255,204,0.6)" : "0 0 12px rgba(0,234,255,0.10)";
+    }
 
     // Fluid drift — unique per node
     groupRef.current.position.set(
@@ -478,7 +499,7 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
           roughness={0.22} metalness={0.14} />
       </mesh>
       <Html position={[0, -radius - 0.22, 0]} center>
-        <div className="neural-node-label">{node.label}</div>
+        <div ref={labelRef} className="neural-node-label">{node.label}</div>
       </Html>
     </group>
   );
@@ -491,22 +512,31 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
                        livePhaseBurst, burstSeq, controlsRef }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
-  const pulseRefs       = useRef({});
-  const bloomRef        = useRef(1.35);
-  const bloomPassRef    = useRef(null);
-  const orbActivityRef  = useRef(0);
+  const pulseRefs      = useRef({});
+  const bloomRef       = useRef(1.35);
+  const bloomPassRef   = useRef(null);
+  const orbActivityRef = useRef(0);
+  // Persistent Hebbian strength: nodeId → { strength, lastActivated }
+  const strengthRef    = useRef(new Map());
 
-  // Ensure pulse ref exists for every node
+  // Ensure pulse + strength refs exist for every node; seed strength from graph model
   useEffect(() => {
     for (const node of graph.nodes) {
-      if (!pulseRefs.current[node.id]) pulseRefs.current[node.id] = { current: 0 };
+      if (!pulseRefs.current[node.id])  pulseRefs.current[node.id] = { current: 0 };
+      if (!strengthRef.current.has(node.id)) {
+        strengthRef.current.set(node.id, { strength: node.strength, lastActivated: 0 });
+      }
     }
   }, [graph.nodes]);
 
-  // Track global activity scalar for CompanionOrb (no state → no re-render)
-  useFrame(() => {
-    const total = graph.nodes.reduce((s, n) => s + n.activity, 0);
-    orbActivityRef.current = Math.min(1, total / Math.max(1, graph.nodes.length));
+  // Track global activity + per-frame orb decay (prevents permanent over-excitation)
+  useFrame((_, delta) => {
+    const total  = graph.nodes.reduce((s, n) => s + n.activity, 0);
+    const avg    = Math.min(1, total / Math.max(1, graph.nodes.length));
+    // Blend: graph average can push orb up; decay pulls it down
+    orbActivityRef.current = Math.max(avg, Math.max(0, orbActivityRef.current - delta * 2.1));
+    // Bloom also driven by live orb activity
+    bloomRef.current = Math.max(bloomRef.current, 1.35 + orbActivityRef.current * 2.2);
   });
 
   // Bloom decay each frame — spike → baseline
@@ -552,14 +582,46 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
     bloomRef.current = Math.max(bloomRef.current, 3.8);
   }, [adjacency]);
 
-  // Fire BFS on every LLM phase burst
+  // Centralized phase pulse — Hebbian plasticity + BFS propagation
+  const triggerPhasePulse = useCallback((phase) => {
+    const targets = (PHASE_NODE_MAP[phase] || []).filter((id) => pulseRefs.current[id]);
+    if (targets.length === 0) return;
+
+    for (const nodeId of targets) {
+      const node = graph.nodeMap.get(nodeId);
+      if (!node) continue;
+
+      // Growth rate per event type, with saturation curve (diminishing returns)
+      let growth;
+      if (phase === "memory-write"   || phase === "user-memory-write") growth = 0.042;
+      else if (phase === "reply-complete" || phase === "reply")         growth = 0.022;
+      else if (phase === "generation"     || phase === "token")         growth = 0.014;
+      else if (phase === "mood"           || phase === "scientist")     growth = 0.018;
+      else                                                               growth = 0.009;
+
+      const entry = strengthRef.current.get(nodeId)
+        || { strength: node.strength, lastActivated: 0 };
+      // Saturation curve: strong nodes grow more slowly
+      entry.strength     = Math.min(1.0, entry.strength + growth * (1 - entry.strength * 0.65));
+      entry.lastActivated = Date.now();
+      strengthRef.current.set(nodeId, entry);
+
+      // Pulse flash proportional to event intensity
+      const pr = pulseRefs.current[nodeId];
+      if (pr) pr.current = Math.min(1.0, pr.current + growth * 18);
+
+      // Contribute to global orb arousal
+      orbActivityRef.current = Math.min(1.0, orbActivityRef.current + growth * 0.99);
+    }
+
+    runBFS(targets);
+  }, [graph.nodeMap, runBFS]);
+
+  // Fire on every LLM phase burst
   useEffect(() => {
     if (!livePhaseBurst) return;
-    const targets = (PHASE_NODE_MAP[livePhaseBurst] || []).filter(
-      (id) => pulseRefs.current[id],
-    );
-    if (targets.length > 0) runBFS(targets);
-  }, [burstSeq, livePhaseBurst, runBFS]);
+    triggerPhasePulse(livePhaseBurst);
+  }, [burstSeq, livePhaseBurst, triggerPhasePulse]);
 
   // Cinematic: Neural Storm — periodic random flood when mood is chaotic
   const lastStorm = useRef(0);
@@ -598,7 +660,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
         saturation={0} fade speed={graph.moodState.speed * 0.5} />
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
-        speed={graph.moodState.speed} controlsRef={controlsRef} />
+        speed={graph.moodState.speed} controlsRef={controlsRef}
+        orbActivityRef={orbActivityRef} />
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
         minDistance={4.4} maxDistance={9.2}
@@ -635,6 +698,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
             selectedId={selectedNode?.id} linkedIds={linkedIds}
             onSelect={handleSelect}
             pulseRef={pr} bloomIntensityRef={bloomRef}
+            allPulseRefs={pulseRefs} strengthRef={strengthRef}
           />
         );
       })}
