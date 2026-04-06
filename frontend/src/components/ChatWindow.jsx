@@ -468,11 +468,143 @@ const chatStyles = `
   /* Cyberpunk control deck overrides */
   .chat-card {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-columns: 190px minmax(0, 1fr) 280px;
     border-radius: 24px;
     border: 1px solid rgba(16, 226, 255, 0.16);
     background: linear-gradient(180deg, rgba(3, 10, 20, 0.96), rgba(3, 8, 18, 0.92));
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 18px rgba(0, 234, 255, 0.04);
+  }
+
+  /* ── Ambient Avatar Panel ───────────────────────────────────── */
+  .avatar-panel {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+    padding: 22px 12px 18px;
+    border-right: 1px solid rgba(0, 234, 255, 0.08);
+    background: linear-gradient(180deg,
+      rgba(0, 234, 255, 0.03) 0%,
+      rgba(180, 60, 248, 0.03) 60%,
+      rgba(3, 8, 18, 0.0) 100%);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .avatar-panel::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 234, 255, 0.18), transparent);
+  }
+
+  .avatar-panel-orb {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 110px;
+    height: 110px;
+    flex-shrink: 0;
+  }
+
+  .avatar-panel-orb .avatar-core {
+    --size: 96px !important;
+  }
+
+  .avatar-panel-name {
+    margin-top: 14px;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #c8f0ff;
+    text-align: center;
+  }
+
+  .avatar-panel-mood {
+    margin-top: 5px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(0, 234, 255, 0.52);
+    text-align: center;
+  }
+
+  .avatar-panel-divider {
+    width: 48px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 234, 255, 0.22), transparent);
+    margin: 16px 0 12px;
+    flex-shrink: 0;
+  }
+
+  .avatar-panel-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    width: 100%;
+    padding: 0 4px;
+  }
+
+  .avatar-panel-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .avatar-panel-stat-label {
+    font-size: 0.60rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(0, 200, 255, 0.38);
+  }
+
+  .avatar-panel-bar-track {
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(0, 200, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .avatar-panel-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 600ms ease;
+  }
+
+  .avatar-panel-phase {
+    margin-top: auto;
+    padding-top: 14px;
+    width: 100%;
+    text-align: center;
+  }
+
+  .avatar-panel-phase-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 234, 255, 0.14);
+    background: rgba(0, 234, 255, 0.05);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(0, 234, 255, 0.55);
+    transition: color 300ms, border-color 300ms, background 300ms;
+  }
+
+  .avatar-panel-phase-badge.active {
+    color: #00eaff;
+    border-color: rgba(0, 234, 255, 0.38);
+    background: rgba(0, 234, 255, 0.10);
+    box-shadow: 0 0 12px rgba(0, 234, 255, 0.18);
   }
 
   .chat-header {
@@ -502,7 +634,7 @@ const chatStyles = `
   }
 
   .message-list {
-    grid-column: 1;
+    grid-column: 2;
     min-height: 460px;
     max-height: 620px;
     padding: 16px 18px;
@@ -531,7 +663,7 @@ const chatStyles = `
   }
 
   .voice-panel {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 2;
     align-self: start;
     margin: 16px 16px 0 0;
@@ -597,6 +729,14 @@ const chatStyles = `
   @media (max-width: 980px) {
     .chat-card {
       grid-template-columns: 1fr;
+    }
+
+    .avatar-panel {
+      display: none;
+    }
+
+    .message-list {
+      grid-column: 1;
     }
 
     .voice-panel {
@@ -1056,6 +1196,63 @@ export default function ChatWindow({
             </div>
 
             {audioUrl ? <audio id="voxis-audio-player" className="audio-player" controls src={audioUrl} /> : null}
+          </div>
+
+          {/* ── Ambient Avatar Panel ──────────────────────────────── */}
+          <div className="avatar-panel">
+            <div className="avatar-panel-orb">
+              <AvatarCore
+                size="large"
+                valence={avatarMood.valence}
+                arousal={avatarMood.arousal}
+                phase={livePhase}
+                speaking={Boolean(liveReply)}
+                mode={activeMode || "scientist"}
+                personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
+                expressionProfile={personality.expressionProfile}
+                expressionPreset={personality.expressionProfile?.preset || "auto"}
+              />
+            </div>
+            <div className="avatar-panel-name">{personality.name}</div>
+            <div className="avatar-panel-mood">
+              {avatarMood.valence > 0.15
+                ? "Positive"
+                : avatarMood.valence < -0.15
+                ? "Negative"
+                : "Neutral"}
+            </div>
+            <div className="avatar-panel-divider" />
+            <div className="avatar-panel-stats">
+              <div className="avatar-panel-stat">
+                <div className="avatar-panel-stat-label">Valence</div>
+                <div className="avatar-panel-bar-track">
+                  <div
+                    className="avatar-panel-bar-fill"
+                    style={{
+                      width: `${Math.round((Number(avatarMood.valence || 0) + 1) / 2 * 100)}%`,
+                      background: "linear-gradient(90deg, #00d4ff, #4ade80)",
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="avatar-panel-stat">
+                <div className="avatar-panel-stat-label">Arousal</div>
+                <div className="avatar-panel-bar-track">
+                  <div
+                    className="avatar-panel-bar-fill"
+                    style={{
+                      width: `${Math.round(Math.abs(Number(avatarMood.arousal || 0)) * 100)}%`,
+                      background: "linear-gradient(90deg, #9b59ff, #ff2d78)",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="avatar-panel-phase">
+              <span className={`avatar-panel-phase-badge${livePhase ? " active" : ""}`}>
+                {livePhase || "idle"}
+              </span>
+            </div>
           </div>
 
           <div className="message-list" ref={messageListRef} onScroll={handleMessageListScroll}>

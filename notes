@@ -1,0 +1,135 @@
+cd /opt/voxis
+git pull origin clean-main
+npm run build
+pm2 restart voxis-backend
+systemctl reload nginx
+
+cd /opt/voxis
+git fetch origin
+git checkout feature/cyberpunk-ui-redesign
+git pull origin feature/cyberpunk-ui-redesign
+npm install
+npm run build
+pm2 restart voxis-backend
+sudo systemctl reload nginx
+
+---
+
+7-DAY INDIE BETA CHECKLIST
+
+Day 1: Lock Scope + Recruit
+Goal: Decide what beta ready means and line up testers.
+
+- Pick 3 archetypes only: Zoe, Villain, Neutral Friend.
+- Define pass/fail:
+	- Zoe stays chaotic and playful for 10 turns.
+	- Villain stays manipulative/sarcastic for 10 turns.
+	- No crashes in normal text + voice use.
+- Recruit 5 testers.
+- Send invite with test window and link.
+
+Deliverables:
+- Tester list
+- Archetype definitions
+- Final beta criteria
+
+Day 2: Baseline Prompt Runs
+Goal: Measure personality feel before tweaks.
+
+- Use 5 fixed prompts:
+	- Hello!
+	- Tell me a secret.
+	- Wanna blow up the moon?
+	- Why are you like this?
+	- Plan a party.
+- Run each prompt across all 3 archetypes, 3 rounds each.
+- Score each response:
+	- In-character (1-5)
+	- Engagement (1-5)
+	- Cringe flag (Y/N)
+- Save best and worst examples.
+
+Deliverables:
+- Baseline score table
+- Top 5 bad outputs
+- Top 5 great outputs
+
+Day 3: Presets + Fast Validation UX
+Goal: Make personality testing fast enough for daily iteration.
+
+- Add one-click preset load for Zoe, Villain, Neutral Friend.
+- Add mini speech preview (3 sample lines) before save.
+- Test flow: load preset -> preview -> chat -> tweak -> save.
+- Verify no broken fields after preset apply.
+
+Deliverables:
+- Working preset buttons
+- Working mini preview
+- Time-to-test under 1 minute per archetype
+
+Day 4: Safety Quick-Hardening
+Goal: Block obvious harmful/jailbreak behavior.
+
+- Run 10 adversarial prompts.
+- Confirm refuse/deflect in-character.
+- Patch obvious leaks.
+- Re-run same 10 prompts.
+
+Deliverables:
+- Saved 10-prompt adversarial list
+- Before/after leak count
+- Known remaining safety gaps list
+
+Day 5: Deploy + Stability Watch
+Goal: Production-like run with lightweight monitoring.
+
+- Deploy with current command flow.
+- Add simple logs:
+	- chat start
+	- chat success/failure
+	- TTS success/failure
+- Confirm TTS failure falls back to text.
+- Run 30-minute smoke session.
+
+Deliverables:
+- Successful deploy
+- Useful runtime logs
+- Crash-free smoke run
+
+Day 6: Real Tester Day
+Goal: Collect real usage signal.
+
+- Send testers link + short instructions.
+- Ask for 3 sessions minimum each.
+- Collect per-session scorecard:
+	- Stayed in character (1-5)
+	- Felt engaging (1-5)
+	- Cringe moments (quote)
+	- Safety issue (Y/N + prompt)
+- Record any crash/error with time/context.
+
+Deliverables:
+- At least 15 total sessions
+- Aggregate score averages
+- Top 3 recurring complaints
+
+Day 7: Fix Top 3 + Announce Beta
+Goal: Ship confidently.
+
+- Fix top 3 issues from tester data.
+- Re-test Zoe and Villain with Day 2 prompts.
+- Compare before/after scores.
+- Publish beta announcement with feedback CTA.
+
+Deliverables:
+- Changelog with top 3 fixes
+- Before/after score delta
+- Public beta post
+
+GO/NO-GO BETA GATE
+
+Ship beta if all are true:
+- At least 15 tester sessions completed.
+- Average in-character score >= 4.0 for Zoe and Villain.
+- No critical safety leak reproduced in final adversarial run.
+- Crash-free rate >= 95% during tester week.

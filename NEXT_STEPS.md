@@ -37,3 +37,15 @@ Latest pushed commit before this handoff: 1b1e28a
 ## Suggested First Task Monday
 
 Run a focused production smoke pass on the newest commit: auth bootstrap, LLM settings model labeling, expression preset copy flow, and one streamed chat conversation with Neural Core visible.
+
+## Quick Resume (After Work)
+
+1. Deploy latest on server using:
+	- `cd /opt/voxis`
+	- `git pull origin clean-main`
+	- `npm run build`
+	- `pm2 restart voxis-backend`
+	- `sudo systemctl reload nginx`
+2. Verify personality tuning changes in UI: edit an existing persona, save, and confirm prompt behavior is less formal in casual chat.
+3. Start next feature: split TTS into a dedicated Voice Lab tab while keeping quick play/autoplay controls in chat.
+4. If time remains, run a short API-doc drift check after any new routes added for Voice Lab.
