@@ -130,6 +130,101 @@ const voiceLabStyles = `
       grid-template-columns: 1fr;
     }
   }
+
+  /* Cyberpunk control deck overrides */
+  .voice-lab-shell {
+    border-radius: 24px;
+    border: 1px solid rgba(0, 234, 255, 0.16);
+    background: linear-gradient(180deg, rgba(3, 10, 22, 0.96), rgba(4, 8, 18, 0.92));
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 18px rgba(0, 234, 255, 0.05);
+  }
+
+  .voice-lab-header {
+    padding: 16px 18px;
+    background: linear-gradient(180deg, rgba(0, 234, 255, 0.04), rgba(255, 62, 207, 0.02));
+    border-bottom: 1px solid rgba(0, 234, 255, 0.08);
+  }
+
+  .voice-lab-header h3 {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .voice-lab-header p {
+    color: #90a8c8;
+  }
+
+  .voice-lab-body {
+    padding: 16px 18px 18px;
+    gap: 16px;
+  }
+
+  .voice-lab-grid {
+    gap: 14px;
+  }
+
+  .voice-lab-field label {
+    color: #8fe9ff;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .voice-lab-field input,
+  .voice-lab-field select,
+  .voice-lab-field textarea {
+    border-radius: 12px;
+    border-color: rgba(0, 234, 255, 0.14);
+    background: rgba(2, 10, 24, 0.95);
+    box-shadow: inset 0 0 14px rgba(0, 234, 255, 0.04);
+  }
+
+  .voice-lab-field textarea {
+    min-height: 132px;
+  }
+
+  .voice-lab-field small {
+    color: #8ea7c8;
+    line-height: 1.5;
+  }
+
+  .voice-lab-check {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 234, 255, 0.10);
+    background: rgba(0, 234, 255, 0.04);
+    color: #9fc5df;
+  }
+
+  .voice-lab-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+  }
+
+  .voice-lab-actions button {
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 8px 20px rgba(0, 160, 255, 0.18);
+  }
+
+  .voice-lab-actions button.secondary {
+    background: rgba(0, 234, 255, 0.06);
+    border-color: rgba(0, 234, 255, 0.16);
+    color: #8eecff;
+  }
+
+  .voice-lab-player {
+    width: 100%;
+    border-radius: 12px;
+    opacity: 0.95;
+  }
+
+  .voice-lab-empty {
+    border-radius: 24px;
+    border-color: rgba(0, 234, 255, 0.16);
+    background: linear-gradient(180deg, rgba(3, 10, 22, 0.95), rgba(4, 8, 18, 0.92));
+  }
 `;
 
 export default function VoiceLab({
@@ -410,7 +505,8 @@ export default function VoiceLab({
         <div className="voice-lab-header">
           <h3>Voice Lab: {personality.name}</h3>
           <p>
-            Tune full TTS settings, test sample lines, and save profile defaults. Quick play/autoplay remains in Chat.
+            Tune synthesis settings, preview sample lines, and lock in the voice profile from the same control deck aesthetic.
+            Quick play and autoplay still stay available in chat.
           </p>
         </div>
 
@@ -589,7 +685,7 @@ export default function VoiceLab({
               onClick={() => void generateAudio(sampleText)}
               disabled={isGeneratingAudio || !sampleText.trim()}
             >
-              {isGeneratingAudio ? "Generating..." : "Generate Sample Audio"}
+              {isGeneratingAudio ? "Generating..." : "Preview Sample"}
             </button>
             <button
               type="button"
@@ -597,7 +693,7 @@ export default function VoiceLab({
               onClick={() => void generateAudio(latestAssistantMessage?.content || "")}
               disabled={isGeneratingAudio || !latestAssistantMessage}
             >
-              Generate Latest Reply Audio
+              Use Latest Reply
             </button>
             <button type="button" className="secondary" onClick={stopSpeaking}>
               Stop Audio
