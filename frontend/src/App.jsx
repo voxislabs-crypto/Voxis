@@ -406,6 +406,206 @@ const appStyles = `
     0% { transform: translateY(8px); opacity: 0; }
     100% { transform: translateY(0); opacity: 1; }
   }
+
+  /* Cyberpunk control deck pass */
+  body {
+    position: relative;
+    background:
+      radial-gradient(circle at 18% 14%, rgba(0, 234, 255, 0.16), transparent 0, transparent 34%),
+      radial-gradient(circle at 84% 10%, rgba(255, 62, 207, 0.12), transparent 36%),
+      linear-gradient(180deg, #01040c 0%, #030815 48%, #020611 100%);
+    background-attachment: fixed;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.2;
+    background:
+      linear-gradient(rgba(0, 234, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 234, 255, 0.05) 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+  }
+
+  .app-shell {
+    position: relative;
+    width: min(1500px, calc(100vw - 24px));
+    padding: 18px 0 26px;
+  }
+
+  .hero {
+    margin-bottom: 14px;
+    padding: 20px 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(33, 230, 255, 0.20);
+    background: linear-gradient(135deg, rgba(4, 13, 27, 0.96), rgba(6, 14, 28, 0.88));
+    box-shadow:
+      0 0 0 1px rgba(112, 224, 255, 0.04) inset,
+      0 24px 80px rgba(1, 9, 24, 0.78),
+      0 0 22px rgba(0, 234, 255, 0.08);
+  }
+
+  .hero::before {
+    background:
+      linear-gradient(135deg, rgba(0, 234, 255, 0.08), rgba(255, 62, 207, 0.06), transparent 62%);
+  }
+
+  .hero::after {
+    width: 360px;
+    height: 220px;
+    inset: auto -40px -80px auto;
+    background: radial-gradient(circle, rgba(255, 62, 207, 0.10), transparent 68%);
+  }
+
+  .eyebrow {
+    border-radius: 10px;
+    border-color: rgba(0, 234, 255, 0.22);
+    background: rgba(0, 234, 255, 0.08);
+    color: #8ef2ff;
+    letter-spacing: 0.12em;
+  }
+
+  .hero-grid {
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  .hero h1 {
+    max-width: 14ch;
+    font-size: clamp(2.4rem, 4.3vw, 4rem);
+    text-transform: uppercase;
+  }
+
+  .hero p {
+    max-width: 70ch;
+    color: #90a8c8;
+  }
+
+  .profile-row {
+    margin-top: 18px;
+    gap: 10px;
+  }
+
+  .profile-select {
+    border-radius: 12px;
+    background: rgba(2, 10, 24, 0.96);
+    border-color: rgba(0, 234, 255, 0.18);
+    box-shadow: inset 0 0 14px rgba(0, 234, 255, 0.05);
+  }
+
+  .hero-callout {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(7, 18, 34, 0.94), rgba(5, 11, 24, 0.84));
+    border-color: rgba(255, 62, 207, 0.18);
+    box-shadow: inset 0 0 24px rgba(255, 62, 207, 0.04);
+  }
+
+  .workspace {
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
+
+  .panel {
+    position: relative;
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(4, 11, 24, 0.96), rgba(2, 8, 18, 0.90));
+    border: 1px solid rgba(22, 226, 255, 0.18);
+    box-shadow:
+      0 0 0 1px rgba(124, 231, 255, 0.04) inset,
+      0 18px 50px rgba(0, 0, 0, 0.46),
+      0 0 18px rgba(0, 234, 255, 0.05);
+  }
+
+  .panel::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 18px;
+    border: 1px solid rgba(0, 234, 255, 0.05);
+    pointer-events: none;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    padding: 18px;
+  }
+
+  .tabs {
+    gap: 10px;
+    padding: 16px 16px 0;
+    border-bottom: 1px solid rgba(0, 234, 255, 0.08);
+    background: linear-gradient(180deg, rgba(0, 234, 255, 0.03), transparent);
+  }
+
+  .tab {
+    padding: 10px 14px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.76rem;
+    background: rgba(0, 234, 255, 0.04);
+    border-color: rgba(0, 234, 255, 0.12);
+    color: #8ca6c8;
+  }
+
+  .tab.active {
+    background: linear-gradient(135deg, rgba(0, 234, 255, 0.96), rgba(168, 84, 255, 0.92));
+    color: #04111c;
+    box-shadow: 0 0 24px rgba(0, 234, 255, 0.16);
+  }
+
+  .main-content {
+    padding: 18px 18px 22px;
+  }
+
+  .section-heading {
+    font-size: 1.42rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+
+  .section-copy {
+    max-width: 74ch;
+    color: #8fa6c5;
+  }
+
+  .meta-pill {
+    border-radius: 10px;
+    background: rgba(0, 234, 255, 0.06);
+    border-color: rgba(0, 234, 255, 0.14);
+    color: #90ecff;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .status {
+    border-radius: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  @media (max-width: 1024px) {
+    .workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: static;
+      max-height: none;
+    }
+  }
 `;
 
 export default function App() {
@@ -424,7 +624,7 @@ export default function App() {
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [activeView, setActiveView] = useState("builder");
+  const [activeView, setActiveView] = useState("chat");
   const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
   const [isLoading, setIsLoading] = useState(true);
@@ -1164,12 +1364,12 @@ export default function App() {
         <section className="hero">
           <div className="hero-grid">
             <div>
-              <span className="eyebrow">Voxis Core Loop v1</span>
-              <h1>Build a voice the model can inhabit.</h1>
+              <span className="eyebrow">Voxis Synaptic OS</span>
+              <h1>Neural control deck</h1>
               <p>
-                Define a character, lock in their behavior, and move straight into an
-                in-character chat loop. This version focuses on durable prompt engineering,
-                fast iteration, and clean handoff to any OpenAI-compatible LLM endpoint.
+                Load a persona, inspect the live neural graph, and drive the full conversation stack from a
+                single cyberpunk dashboard. This branch is focused on cinematic control-room UX layered over
+                the existing Voxis memory, mood, and voice systems.
               </p>
                 <div className="profile-row" style={{ marginTop: 16 }}>
                   <UserButton afterSignOutUrl="/" />
@@ -1192,11 +1392,11 @@ export default function App() {
                 </div>
             </div>
             <div className="hero-callout">
-              <strong>Best input</strong>
+              <strong>Deck Notes</strong>
               <span>
-                Give the creator a specific name, a sharp description, and concrete traits or
-                quirks. The stronger the source notes you type in, the stronger the resulting
-                system prompt becomes.
+                Pick a saved persona from the thumbnail rail, watch the Neural Core react in real time,
+                and use Voice Lab for the deeper synthesis controls. The same Voxis internals are running —
+                this pass is about the interface and feel.
               </span>
             </div>
           </div>

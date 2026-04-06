@@ -149,6 +149,7 @@ What this demonstrates in minutes:
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
 - The redesign branch includes an experimental React Three Fiber Neural Core renderer for Scientist mode, with floating nodes, synaptic links, click-to-focus inspection, and an ambient companion orb.
 - Saved persona cards now surface compact avatar thumbnails for faster visual selection.
+- The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app and chat dashboard.
 
 ---
 
