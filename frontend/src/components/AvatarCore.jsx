@@ -272,6 +272,38 @@ const avatarStyles = `
     border-color: var(--aura);
     filter: blur(2px);
   }
+
+  /* ── Pre-cognition micro-reaction (avatar "decides" before speaking) ── */
+  @keyframes preThinkTilt {
+    0%   { transform: rotate(0deg) scale(1.00); }
+    30%  { transform: rotate(-2.5deg) scale(1.03); }
+    70%  { transform: rotate(1.5deg) scale(1.02); }
+    100% { transform: rotate(0deg) scale(1.00); }
+  }
+
+  @keyframes spikeFlash {
+    0%   { opacity: 1; }
+    20%  { opacity: 0.55; filter: brightness(2.2) saturate(2.0); }
+    60%  { opacity: 0.85; }
+    100% { opacity: 1; filter: none; }
+  }
+
+  .avatar-core.pre-think {
+    animation: preThinkTilt 400ms ease-in-out forwards;
+  }
+
+  .avatar-core.pre-think .eye {
+    filter: drop-shadow(0 0 10px rgba(0, 234, 255, 0.80));
+  }
+
+  .avatar-core.pre-think .avatar-aura {
+    opacity: 0.95;
+    animation-duration: 0.44s;
+  }
+
+  .avatar-core.spike-flash {
+    animation: spikeFlash 400ms ease-out forwards;
+  }
 `;
 
 function clamp(value, min, max) {
@@ -354,10 +386,23 @@ export default function AvatarCore({
   expressionPreset = "auto",
   size = "default",
   neuralActivity = 0,
+  activitySpike = false,
+  preResponseState = null,
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [animState, setAnimState] = useState("idle");
+  const [spikeFlash, setSpikeFlash] = useState(false);
+  const spikeFlashTimerRef = useRef(null);
   const recoverTimerRef = useRef(null);
+
+  // Spike flash: fires a 400ms CSS keyframe on every activitySpike rising edge
+  useEffect(() => {
+    if (!activitySpike) return;
+    setSpikeFlash(true);
+    if (spikeFlashTimerRef.current) clearTimeout(spikeFlashTimerRef.current);
+    spikeFlashTimerRef.current = window.setTimeout(() => setSpikeFlash(false), 400);
+    return () => { if (spikeFlashTimerRef.current) clearTimeout(spikeFlashTimerRef.current); };
+  }, [activitySpike]);
 
   const expression = useMemo(() => {
     const profile = expressionProfile && typeof expressionProfile === "object" ? expressionProfile : {};
@@ -464,7 +509,7 @@ export default function AvatarCore({
 
   return (
     <div
-      className={`avatar-core exp-${mood.mode} persona-${preset} state-${animState} ${size === "compact" ? "compact" : size === "large" ? "large" : ""} ${neuralActivity > 0.45 ? "activity-spike" : ""}`.trim()}
+      className={`avatar-core exp-${mood.mode} persona-${preset} state-${animState} ${size === "compact" ? "compact" : size === "large" ? "large" : ""} ${neuralActivity > 0.45 ? "activity-spike" : ""} ${preResponseState === "thinking" ? "pre-think" : ""} ${spikeFlash ? "spike-flash" : ""}`.trim()}
       style={{ "--aura": mood.aura, "--rim": mood.rim, "--neural-activity": neuralActivity }}
       aria-hidden="true"
     >

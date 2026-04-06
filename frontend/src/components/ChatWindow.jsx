@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
@@ -879,14 +879,68 @@ export default function ChatWindow({
     [displayDebug, personality?.moodState],
   );
 
-  // Derived neural activity score (0–1) — drives avatar eye/glow/tilt and chat-card pulse
+  // ── Neural activity: combines real brain heartbeat + phase signals ───────
+  const [brainActivity, setBrainActivity] = useState(0);
+  const prevActivityRef = useRef(0);
+  const [activitySpike, setActivitySpike] = useState(false);
+  const spikeTimerRef = useRef(null);
+
+  const handleBrainActivity = useCallback((activity) => {
+    setBrainActivity(activity);
+  }, []);
+
   const neuralActivity = useMemo(() => {
     const arousalBase = Math.min(0.4, Math.abs(neuralSignal.arousal) * 0.4);
     const phaseBoost = ["intent", "generation", "reply", "memory", "memory-write", "user-memory-write", "prompt", "token"].includes(livePhase) ? 0.55 : 0;
     const memBoost = neuralSignal.memoryActive ? 0.2 : 0;
     const intentBoost = neuralSignal.intentActive ? 0.18 : 0;
-    return Math.min(1, arousalBase + phaseBoost + memBoost + intentBoost);
-  }, [livePhase, neuralSignal]);
+    return Math.min(1, Math.max(brainActivity, arousalBase + phaseBoost + memBoost + intentBoost));
+  }, [brainActivity, livePhase, neuralSignal]);
+
+  // Spike detection — fires a 400ms flash when activity jumps sharply
+  useEffect(() => {
+    const delta = neuralActivity - prevActivityRef.current;
+    prevActivityRef.current = neuralActivity;
+    if (delta > 0.25) {
+      setActivitySpike(true);
+      if (spikeTimerRef.current) clearTimeout(spikeTimerRef.current);
+      spikeTimerRef.current = window.setTimeout(() => setActivitySpike(false), 400);
+    }
+    return () => { if (spikeTimerRef.current) clearTimeout(spikeTimerRef.current); };
+  }, [neuralActivity]);
+
+  // Pre-response micro-animation state — fires just before text appears
+  const [preResponseState, setPreResponseState] = useState(null);
+  const preResponseTimerRef = useRef(null);
+  useEffect(() => {
+    if (livePhase === "intent" || livePhase === "generation") {
+      setPreResponseState("thinking");
+      if (preResponseTimerRef.current) clearTimeout(preResponseTimerRef.current);
+      preResponseTimerRef.current = window.setTimeout(() => setPreResponseState(null), 400);
+    }
+    return () => { if (preResponseTimerRef.current) clearTimeout(preResponseTimerRef.current); };
+  }, [livePhase]);
+
+  // Mood CSS variables — whole UI breathes with personality emotion
+  useEffect(() => {
+    const arousal = Number(avatarMood.arousal || 0);
+    const valence = Number(avatarMood.valence || 0);
+    document.documentElement.style.setProperty("--mood-glow", `${(0.2 + Math.abs(arousal) * 0.5).toFixed(3)}`);
+    document.documentElement.style.setProperty("--mood-hue", `${Math.round(180 + valence * 60)}`);
+    document.documentElement.style.setProperty("--mood-valence", valence.toFixed(3));
+  }, [avatarMood.arousal, avatarMood.valence]);
+
+  // Reply pulse — micro-trigger on new messages arriving
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      setActivitySpike(true);
+      if (spikeTimerRef.current) clearTimeout(spikeTimerRef.current);
+      spikeTimerRef.current = window.setTimeout(() => setActivitySpike(false), 400);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
 
   useEffect(() => {
     if (!personality) {
@@ -1135,6 +1189,7 @@ export default function ChatWindow({
             liveSeq={liveSeq}
             performanceTier={performanceTier}
             voiceNarrationEnabled={Boolean(neuralProfile?.voiceNarrationEnabled)}
+            onActivityUpdate={handleBrainActivity}
           />
           <div className="chat-header">
             <div className="chat-header-top">
@@ -1165,6 +1220,8 @@ export default function ChatWindow({
                     expressionProfile={personality.expressionProfile}
                     expressionPreset={personality.expressionProfile?.preset || "auto"}
                     neuralActivity={neuralActivity}
+                    activitySpike={activitySpike}
+                    preResponseState={preResponseState}
                   />
                   <span>{personality.name}</span>
                 </span>
@@ -1242,6 +1299,8 @@ export default function ChatWindow({
                 expressionProfile={personality.expressionProfile}
                 expressionPreset={personality.expressionProfile?.preset || "auto"}
                 neuralActivity={neuralActivity}
+                activitySpike={activitySpike}
+                preResponseState={preResponseState}
               />
             </div>
             <div className="avatar-panel-name">{personality.name}</div>

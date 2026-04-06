@@ -862,6 +862,7 @@ export default function NeuralCore({
   liveSeq = 0,
   performanceTier: requestedPerformanceTier,
   voiceNarrationEnabled = false,
+  onActivityUpdate,
 }) {
   const enabled = import.meta.env.VITE_NEURAL_CORE_ENABLED !== "false";
   const [expanded, setExpanded] = useState(false);
@@ -1134,6 +1135,7 @@ export default function NeuralCore({
                 dominance={dominance}
                 livePhaseBurst={phaseBurst}
                 hideLabels
+                onActivityUpdate={onActivityUpdate}
               />
             </div>
           )}

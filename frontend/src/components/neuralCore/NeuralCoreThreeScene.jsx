@@ -524,12 +524,13 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
 // NeuralScene — owns all runtime state inside the Canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
-                       livePhaseBurst, burstSeq, controlsRef, hideLabels }) {
+                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
   const bloomRef       = useRef(1.35);
   const orbActivityRef = useRef(0);
+  const lastEmitRef    = useRef(0);
   // Persistent Hebbian strength: nodeId → { strength, lastActivated }
   const strengthRef    = useRef(new Map());
 
@@ -544,13 +545,19 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   }, [graph.nodes]);
 
   // Track global activity + per-frame orb decay (prevents permanent over-excitation)
-  useFrame((_, delta) => {
+  // Also emits heartbeat to onActivityUpdate ~4x/sec for Avatar ↔ Brain sync
+  useFrame((state, delta) => {
     const total  = graph.nodes.reduce((s, n) => s + n.activity, 0);
     const avg    = Math.min(1, total / Math.max(1, graph.nodes.length));
     // Blend: graph average can push orb up; decay pulls it down
     orbActivityRef.current = Math.max(avg, Math.max(0, orbActivityRef.current - delta * 2.1));
     // Bloom also driven by live orb activity
     bloomRef.current = Math.max(bloomRef.current, 1.35 + orbActivityRef.current * 2.2);
+    // Heartbeat: emit real brain activity to parent ~4x/sec
+    if (onActivityUpdate && state.clock.elapsedTime - lastEmitRef.current > 0.25) {
+      onActivityUpdate(orbActivityRef.current);
+      lastEmitRef.current = state.clock.elapsedTime;
+    }
   });
 
   // Bloom ref intentionally removed — mutating the Bloom effect ref causes
@@ -730,7 +737,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 export default function NeuralCoreThreeScene({
   scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
   repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
-  valence, arousal, dominance, livePhaseBurst, hideLabels = false,
+  valence, arousal, dominance, livePhaseBurst, hideLabels = false, onActivityUpdate,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
@@ -788,6 +795,7 @@ export default function NeuralCoreThreeScene({
           burstSeq={burstSeq}
           controlsRef={controlsRef}
           hideLabels={hideLabels}
+          onActivityUpdate={onActivityUpdate}
         />
       </Canvas>
 
