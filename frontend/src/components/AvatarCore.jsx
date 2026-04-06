@@ -109,6 +109,8 @@ const avatarStyles = `
 
   .avatar-core.compact {
     --size: 50px;
+    border-color: rgba(188, 241, 255, 0.10);
+    box-shadow: 0 0 10px var(--aura), 0 0 18px rgba(0, 120, 255, 0.12);
   }
 
   .avatar-core.large {

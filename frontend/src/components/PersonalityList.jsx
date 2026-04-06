@@ -91,10 +91,10 @@ const listStyles = `
     place-items: center;
     width: 60px;
     height: 60px;
-    border-radius: 16px;
-    background: linear-gradient(180deg, rgba(0, 234, 255, 0.08), rgba(184, 60, 248, 0.08));
-    border: 1px solid rgba(0, 180, 255, 0.16);
-    box-shadow: inset 0 0 18px rgba(0, 180, 255, 0.08);
+    border-radius: 999px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
   }
 
   .personality-card h3 {
