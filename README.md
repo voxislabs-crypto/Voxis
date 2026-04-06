@@ -148,7 +148,7 @@ What this demonstrates in minutes:
 - The runtime prompt package now includes dedicated sections for Big Five register, optional moral compass overlay, and expression style while preserving memory, mood, and active intent orchestration.
 - Server-side voice output through any OpenAI-compatible TTS endpoint with per-character voice settings.
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
-- The redesign branch includes an experimental React Three Fiber Neural Core renderer for Scientist mode, with floating nodes, synaptic links, click-to-focus inspection, and an ambient companion orb.
+- The 3D Neural Core renderer now features a full "living brain" upgrade: lightning-crackle synaptic connections with traveling pulse dots, per-node burst flashes triggered by live LLM phases, smooth fluid floating drift, bloom post-processing (via `@react-three/postprocessing`), breathing node orbs, a glow-halo shell on every node, and an orbiting particle ring on the companion orb.
 - Saved persona cards now surface compact avatar thumbnails for faster visual selection.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
