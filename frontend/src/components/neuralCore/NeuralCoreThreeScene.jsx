@@ -395,7 +395,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
 // GraphNode — orb + glow halo + BFS pulse + fluid drift + memory growth
 // pulseRef is { current: 0..1 } owned by NeuralScene, shared read/write
 // ─────────────────────────────────────────────────────────────────────────────
-function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef, allPulseRefs, strengthRef }) {
+function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef, allPulseRefs, strengthRef, hideLabels }) {
   const groupRef = useRef(null);
   const meshRef  = useRef(null);
   const glowRef  = useRef(null);
@@ -511,9 +511,11 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
           emissiveIntensity={1.1 + node.activity * 0.55}
           roughness={0.12} metalness={0.65} />
       </mesh>
-      <Html position={[0, -radius - 0.22, 0]} center>
-        <div ref={labelRef} className="neural-node-label">{node.label}</div>
-      </Html>
+      {!hideLabels && (
+        <Html position={[0, -radius - 0.22, 0]} center>
+          <div ref={labelRef} className="neural-node-label">{node.label}</div>
+        </Html>
+      )}
     </group>
   );
 }
@@ -522,7 +524,7 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
 // NeuralScene — owns all runtime state inside the Canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
-                       livePhaseBurst, burstSeq, controlsRef }) {
+                       livePhaseBurst, burstSeq, controlsRef, hideLabels }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
@@ -706,6 +708,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
             onSelect={handleSelect}
             pulseRef={pr} bloomIntensityRef={bloomRef}
             allPulseRefs={pulseRefs} strengthRef={strengthRef}
+            hideLabels={hideLabels}
           />
         );
       })}
@@ -727,7 +730,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 export default function NeuralCoreThreeScene({
   scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
   repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
-  valence, arousal, dominance, livePhaseBurst,
+  valence, arousal, dominance, livePhaseBurst, hideLabels = false,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
@@ -769,8 +772,8 @@ export default function NeuralCoreThreeScene({
 
   return (
     <div className="neural-three-shell neural-scene-camera" style={{ transform: "none" }}>
-      <style>{threeSceneStyles}</style>
-      <div className="neural-three-hint">3D Neural Core · click nodes to inspect and zoom</div>
+      {!hideLabels && <style>{threeSceneStyles}</style>}
+      {!hideLabels && <div className="neural-three-hint">3D Neural Core · click nodes to inspect and zoom</div>}
 
       <Canvas camera={{ position: [0, 0.15, 6], fov: 48 }}
         onPointerMissed={() => setSelectedId("core")}
@@ -784,10 +787,11 @@ export default function NeuralCoreThreeScene({
           livePhaseBurst={livePhaseBurst}
           burstSeq={burstSeq}
           controlsRef={controlsRef}
+          hideLabels={hideLabels}
         />
       </Canvas>
 
-      {selectedNode ? (
+      {!hideLabels && selectedNode ? (
         <div className="neural-three-panel">
           <h5>{selectedNode.label}</h5>
           <p>{selectedNode.meta || "Active neural cluster"}</p>

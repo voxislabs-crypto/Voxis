@@ -1133,6 +1133,7 @@ export default function NeuralCore({
                 arousal={arousal}
                 dominance={dominance}
                 livePhaseBurst={phaseBurst}
+                hideLabels
               />
             </div>
           )}
