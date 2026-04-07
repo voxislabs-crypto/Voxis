@@ -140,7 +140,7 @@ const listStyles = `
 `;
 
 export default function PersonalityList({
-  personalities,
+  personalities = [],
   activeId,
   isLoading,
   onRefresh,

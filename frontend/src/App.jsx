@@ -827,10 +827,10 @@ export default function App() {
   const { isSignedIn, isLoaded } = useAuth();
   const authFetch = useAuthFetch();
 
-  const selectedPersonality = useMemo(
-    () => personalities.find((personality) => personality.id === selectedId) || null,
-    [personalities, selectedId],
-  );
+  const selectedPersonality = useMemo(() => {
+    const list = Array.isArray(personalities) ? personalities : [];
+    return list.find((personality) => personality.id === selectedId) || null;
+  }, [personalities, selectedId]);
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || null,
@@ -1001,10 +1001,16 @@ export default function App() {
         throw new Error(data.error || "Failed to load personalities.");
       }
 
-      setPersonalities(data);
+      const personalityList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.personalities)
+        ? data.personalities
+        : [];
 
-      if (!selectedId && data.length) {
-        setSelectedId(data[0].id);
+      setPersonalities(personalityList);
+
+      if (!selectedId && personalityList.length) {
+        setSelectedId(personalityList[0].id);
       }
     } catch (error) {
       setStatus({
@@ -1042,7 +1048,7 @@ export default function App() {
   }
 
   function handlePersonalityCreated(personality) {
-    setPersonalities((current) => [personality, ...current]);
+    setPersonalities((current) => [personality, ...(Array.isArray(current) ? current : [])]);
     setSelectedId(personality.id);
     setChatLogs((current) => ({
       ...current,
@@ -1056,9 +1062,10 @@ export default function App() {
   }
 
   function handlePersonalityUpdated(personality) {
-    setPersonalities((current) =>
-      current.map((item) => (item.id === personality.id ? personality : item)),
-    );
+    setPersonalities((current) => {
+      const list = Array.isArray(current) ? current : [];
+      return list.map((item) => (item.id === personality.id ? personality : item));
+    });
     setSelectedId(personality.id);
     setStatus({
       type: "success",
@@ -1088,11 +1095,10 @@ export default function App() {
         throw new Error(data.error || "Failed to save voice profile.");
       }
 
-      setPersonalities((current) =>
-        current.map((personality) =>
-          personality.id === data.id ? data : personality,
-        ),
-      );
+      setPersonalities((current) => {
+        const list = Array.isArray(current) ? current : [];
+        return list.map((personality) => (personality.id === data.id ? data : personality));
+      });
       setStatus({
         type: "success",
         message: `Saved voice settings for ${data.name}.`,

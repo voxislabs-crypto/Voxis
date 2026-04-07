@@ -150,7 +150,7 @@ What this demonstrates in minutes:
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
 - The 3D Neural Core renderer now features a full "living brain" upgrade: lightning-crackle synaptic connections with traveling pulse dots, per-node burst flashes triggered by live LLM phases, smooth fluid floating drift, bloom post-processing (via `@react-three/postprocessing`), breathing node orbs, a glow-halo shell on every node, and an orbiting particle ring on the companion orb.
 - Saved persona cards now surface compact avatar thumbnails for faster visual selection.
-- Frontend personality metadata badges (traits, quirks, sources) now fail safe for legacy records with missing arrays, preventing `.length` runtime crashes in production bundles.
+- Frontend personality metadata badges (traits, quirks, sources) now fail safe for legacy records with missing arrays, and personality list state now normalizes API payload shape to an array, preventing `.length` runtime crashes in production bundles.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---
