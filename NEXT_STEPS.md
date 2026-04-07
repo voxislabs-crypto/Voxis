@@ -57,6 +57,8 @@ Run a focused production smoke pass on the newest commit: auth bootstrap, LLM se
 - Shader background: Implemented mood-reactive canvas layer in App.jsx (valence/arousal/dominance + live phase influence), with reduced-motion fallback and mobile opacity tuning.
 - Phase palette tuning: Expanded shader phase differentiation (memory/intent/reply/rate-limit/etc.) and tied visual energy to configurable FX intensity.
 - Saved Personas rail behavior: Sidebar now starts minimized by default and expands only when clicked.
+- Background FX quick control: Added hero-row toggle for `off` / `low` / `full` so demo operators can switch intensity without opening settings.
+- Neural HUD preview fix: Mini neuron network preview now shows in Scientist mode even when tier is `light`.
 - Performance optimization: Re-encoded cyberpunk-bg.mp4 (~27MB -> ~8.7MB) for faster background load.
 
 ### Next Steps (pending user return)

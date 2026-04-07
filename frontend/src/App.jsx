@@ -1703,6 +1703,17 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                  <label className="profile-label" htmlFor="background-fx-quick">Background FX</label>
+                  <select
+                    id="background-fx-quick"
+                    className="profile-select"
+                    value={backgroundFxIntensity}
+                    onChange={(event) => setBackgroundFxIntensity(event.target.value)}
+                  >
+                    <option value="off">off</option>
+                    <option value="low">low</option>
+                    <option value="full">full</option>
+                  </select>
                 </div>
             </div>
             <div className="hero-callout">

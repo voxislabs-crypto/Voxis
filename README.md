@@ -158,7 +158,8 @@ What this demonstrates in minutes:
 - Ambient avatar now includes micro-expression mapping (brow asymmetry, per-eye openness variance, gaze bias, and pupil dilation/constraint) driven by phase + mood/arousal so expression motion remains subtle but personality-visible before full micro-expression authoring.
 - App shell now layers a cinematic cyberpunk video backdrop with a mood-reactive shader canvas that adapts to live chat phase signals and respects reduced-motion preferences.
 - Saved Personas rail now starts minimized by default and expands on demand to reduce visual load while keeping quick persona access one click away.
-- Settings now include Background FX intensity (`off` / `low` / `full`) persisted locally, and the shader palette now differentiates live phases more clearly (memory, reply, intent, rate-limit, etc.).
+- Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
+- Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.
 - Memory Journal now supports conflict highlighting, active/disabled toggles, quick importance sliders, and one-click suppression of weaker conflicting memories for faster persona tuning.
 - Chat mode now includes a `normal` toggle (policy-aware end-to-end). In normal mode, Scientist-style section-heavy assistant replies are rendered as conversational output with the rigid "Answer" heading removed and any "Next Questions" shown as a smaller secondary block.

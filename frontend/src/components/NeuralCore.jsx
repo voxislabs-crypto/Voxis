@@ -1234,7 +1234,7 @@ export default function NeuralCore({
 
       {!expanded ? (
         <div className="neural-hud">
-          {!kidsMode && performanceTier !== "light" && (
+          {!kidsMode && (
             <div
               className="neural-mini-preview"
               onClick={() => setExpanded(true)}
