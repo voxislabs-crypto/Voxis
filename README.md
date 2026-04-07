@@ -171,6 +171,7 @@ What this demonstrates in minutes:
 - The 3D Neural Core canvas now renders with transparent clear color so the global cyberpunk background video/shader stack can bleed through behind neural geometry.
 - Neural Core now listens for `webglcontextlost`/`webglcontextrestored`, lowers max DPR on the 3D canvas, and surfaces a lightweight recovery hint while the GPU context resets.
 - Pivot path: `NeuralSceneV2` Phase 1 now ships as an opt-in layered navigation model (`VITE_NEURAL_CORE_SCENE_MODEL=layered-v2`) with scene-stack depth, camera lerp zoom between layers, current-layer-only rendering, back/home controls, and leaf-node HUD handoff to the existing detail panel.
+- Pivot path: `NeuralSceneV2` Phase 2 adds curved layer pathways with animated traveling pulses, cinematic layer-transition flash overlays, and keyboard `Esc` back-navigation for faster depth traversal during tuning sessions.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.

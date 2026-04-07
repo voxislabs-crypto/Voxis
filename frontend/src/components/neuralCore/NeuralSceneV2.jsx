@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, OrbitControls, Stars } from "@react-three/drei";
+import { Html, Line, OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 
 const sceneV2Styles = `
@@ -68,6 +68,29 @@ const sceneV2Styles = `
     white-space: nowrap;
     box-shadow: 0 0 12px rgba(0, 234, 255, 0.12);
   }
+
+  .neural-v2-transition {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    background:
+      radial-gradient(circle at 48% 50%, rgba(140, 238, 255, 0.18), rgba(7, 18, 34, 0.18) 45%, transparent 74%),
+      linear-gradient(180deg, rgba(12, 31, 56, 0.16), rgba(9, 22, 42, 0.08));
+    opacity: 0;
+    animation: neuralV2LayerShift 340ms cubic-bezier(0.21, 0.88, 0.25, 1);
+  }
+
+  @keyframes neuralV2LayerShift {
+    0% {
+      opacity: 0.34;
+      transform: scale(1.01);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
 `;
 
 function hashOffset(id = "") {
@@ -93,9 +116,8 @@ function CameraDepthRig({ depth }) {
   return null;
 }
 
-function RadialNode({ node, index, total, depth, onClick }) {
-  const meshRef = useRef(null);
-  const offset = useMemo(() => hashOffset(node.id), [node.id]);
+function computeNodePosition(nodeId, index, total, depth) {
+  const offset = hashOffset(nodeId);
   const angle = (Math.PI * 2 * index) / Math.max(1, total);
   const radius = Math.max(2.1, Math.min(3.1, 2.5 + (total - 5) * 0.06));
   const jitter = ((offset % 100) / 100 - 0.5) * 0.25;
@@ -103,10 +125,87 @@ function RadialNode({ node, index, total, depth, onClick }) {
   const yLift = Math.sin(offset * 0.01) * 0.08;
   const zBase = -depth * 8;
 
-  const position = useMemo(
-    () => [Math.cos(angle) * (radius + jitter), Math.sin(angle) * (radius + jitter) + yLift, zBase + zJitter],
-    [angle, radius, jitter, yLift, zBase, zJitter],
+  return [
+    Math.cos(angle) * (radius + jitter),
+    Math.sin(angle) * (radius + jitter) + yLift,
+    zBase + zJitter,
+  ];
+}
+
+function quadraticPoint(start, control, end, t) {
+  const inv = 1 - t;
+  const x = inv * inv * start[0] + 2 * inv * t * control[0] + t * t * end[0];
+  const y = inv * inv * start[1] + 2 * inv * t * control[1] + t * t * end[1];
+  const z = inv * inv * start[2] + 2 * inv * t * control[2] + t * t * end[2];
+  return [x, y, z];
+}
+
+function ConnectionPulse({ start, control, end, color, phaseSeed = 0 }) {
+  const pulseRef = useRef(null);
+
+  useFrame(({ clock }) => {
+    if (!pulseRef.current) return;
+    const t = (clock.getElapsedTime() * 0.42 + phaseSeed * 0.17) % 1;
+    const [x, y, z] = quadraticPoint(start, control, end, t);
+    pulseRef.current.position.set(x, y, z);
+  });
+
+  return (
+    <mesh ref={pulseRef}>
+      <sphereGeometry args={[0.05, 12, 12]} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} roughness={0.15} metalness={0.55} />
+    </mesh>
   );
+}
+
+function LayerConnections({ currentLayer }) {
+  const depth = currentLayer.depth;
+  const center = [0, 0, -depth * 8];
+
+  return (
+    <group>
+      {currentLayer.nodes.map((node, index) => {
+        const total = currentLayer.nodes.length;
+        const target = computeNodePosition(node.id, index, total, depth);
+        const arch = 0.42 + ((index % 5) * 0.08);
+        const control = [
+          (center[0] + target[0]) / 2,
+          (center[1] + target[1]) / 2 + arch,
+          (center[2] + target[2]) / 2,
+        ];
+        const color = node.type === "leaf"
+          ? "#5ae2ff"
+          : node.type === "memory"
+          ? "#ffc16b"
+          : "#9fb0ff";
+
+        return (
+          <group key={`conn-${node.id}`}>
+            <Line
+              points={[center, control, target]}
+              color={color}
+              transparent
+              opacity={0.42}
+              lineWidth={1.2}
+            />
+            <ConnectionPulse
+              start={center}
+              control={control}
+              end={target}
+              color={color}
+              phaseSeed={index + depth * 11}
+            />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function RadialNode({ node, index, total, depth, onClick }) {
+  const meshRef = useRef(null);
+  const offset = useMemo(() => hashOffset(node.id), [node.id]);
+  const position = useMemo(() => computeNodePosition(node.id, index, total, depth), [node.id, index, total, depth]);
 
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
@@ -150,6 +249,8 @@ function SceneLayer({ currentLayer, onNodeSelect }) {
         <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2} roughness={0.2} metalness={0.5} />
       </mesh>
 
+      <LayerConnections currentLayer={currentLayer} />
+
       {currentLayer.nodes.map((node, index) => {
         const total = currentLayer.nodes.length;
         return (
@@ -186,6 +287,7 @@ export default function NeuralSceneV2({
   onDepthChange,
 }) {
   const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
+  const [transitionKey, setTransitionKey] = useState(0);
   const [layerStack, setLayerStack] = useState(() => [
     {
       id: "root",
@@ -216,6 +318,26 @@ export default function NeuralSceneV2({
   useEffect(() => {
     onDepthChange?.(currentLayer.depth);
   }, [currentLayer.depth, onDepthChange]);
+
+  useEffect(() => {
+    setTransitionKey((prev) => prev + 1);
+  }, [currentLayer.id, currentLayer.depth]);
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key !== "Escape") return;
+      setLayerStack((prev) => {
+        if (prev.length <= 1) return prev;
+        return prev.slice(0, -1);
+      });
+      onLeafNodeSelect?.(null);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onLeafNodeSelect]);
 
   function handleNodeSelect(node, position) {
     onFocusNodeChange?.(node.id);
@@ -268,6 +390,8 @@ export default function NeuralSceneV2({
         <button type="button" className="neural-v2-btn" onClick={handleBack} disabled={layerStack.length <= 1}>Back</button>
         <button type="button" className="neural-v2-btn" onClick={handleHome}>Home</button>
       </div>
+
+      <div key={transitionKey} className="neural-v2-transition" />
 
       <Canvas
         camera={{ position: [0, 0.18, 6.6], fov: 48 }}
