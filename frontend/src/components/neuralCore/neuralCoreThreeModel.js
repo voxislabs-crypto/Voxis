@@ -113,6 +113,17 @@ function buildPrimaryNodes({
       type: repairActive ? "repair" : "evidence",
       meta: repairActive ? "Repair pass running" : evidenceActive ? "Citations linked" : "Evidence pending",
     },
+    {
+      id: "return-home",
+      label: "Home",
+      position: [2.9, 2.2, -0.65],
+      strength: 0.58,
+      activity: 0.28,
+      connections: [],
+      color: "#e8f6ff",
+      type: "category",
+      meta: "Return to core view",
+    },
   ];
 }
 
@@ -144,6 +155,9 @@ export function buildThreeGraphModel({
     reconditioningActive,
   });
 
+  const returnNode = primaryNodes.find((node) => node.id === "return-home") || null;
+  const focusPrimary = primaryNodes.find((node) => node.id === focusNode) || null;
+
   const childColor =
     focusNode === "memory"
       ? "#f7ce76"
@@ -173,7 +187,13 @@ export function buildThreeGraphModel({
     dataRef: child.dataRef || null,
   }));
 
-  const nodes = [...primaryNodes, ...detailNodes];
+  // Reduce clutter when drilling into a node:
+  // keep only the active branch + persistent return node.
+  const baseNodes = focusNode === "core"
+    ? primaryNodes
+    : [focusPrimary, returnNode].filter(Boolean);
+
+  const nodes = [...baseNodes, ...detailNodes];
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const connections = [];
 

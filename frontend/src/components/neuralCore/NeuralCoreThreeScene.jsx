@@ -172,17 +172,23 @@ function CortexVeins({ moodState }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
-function CameraRig({ target, speed, controlsRef, orbActivityRef }) {
+function CameraRig({ target, speed, controlsRef, orbActivityRef, paused = false }) {
   const { camera } = useThree();
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
 
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
-    const orbit = new THREE.Vector3(
-      Math.sin(t * 0.18) * 0.18,
-      Math.cos(t * 0.20) * 0.10,
-      5.5 - Math.min(0.8, Math.max(0, targetVector.length() * 0.05)),
-    );
+    const orbit = paused
+      ? new THREE.Vector3(
+          0,
+          0,
+          5.5 - Math.min(0.8, Math.max(0, targetVector.length() * 0.05)),
+        )
+      : new THREE.Vector3(
+          Math.sin(t * 0.18) * 0.18,
+          Math.cos(t * 0.20) * 0.10,
+          5.5 - Math.min(0.8, Math.max(0, targetVector.length() * 0.05)),
+        );
     // Camera shake when network activity spikes
     const act   = orbActivityRef?.current ?? 0;
     const shake = act > 0.8 ? smoothNoise(t, 18, 4.2) * 0.018 : 0;
@@ -687,7 +693,7 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, onHoverStart, onHove
 // NeuralScene — owns all runtime state inside the Canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
-                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate }) {
+                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate, hoveredNodeId, sceneHovered, setHoveredNodeId }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
@@ -734,6 +740,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   // Always-on cinematic network spin for a clear "living brain" feel.
   useFrame((state, delta) => {
     if (!networkGroupRef.current) return;
+    if (sceneHovered || hoveredNodeId) return;
     const t = state.clock.elapsedTime;
     networkGroupRef.current.rotation.y += delta * (0.16 + graph.moodState.speed * 0.08);
     networkGroupRef.current.rotation.z = Math.sin(t * 0.24) * 0.08;
@@ -852,11 +859,13 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
         speed={graph.moodState.speed} controlsRef={controlsRef}
-        orbActivityRef={orbActivityRef} />
+        orbActivityRef={orbActivityRef}
+        paused={Boolean(sceneHovered || hoveredNodeId)} />
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
         minDistance={3.5} maxDistance={18}
-        autoRotate autoRotateSpeed={0.32 + graph.moodState.speed * 0.12} />
+        autoRotate={!sceneHovered && !hoveredNodeId}
+        autoRotateSpeed={0.32 + graph.moodState.speed * 0.12} />
 
       <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
 
@@ -889,6 +898,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
             <GraphNode key={node.id} node={node}
               selectedId={selectedNode?.id} linkedIds={linkedIds}
               onSelect={handleSelect}
+              onHoverStart={(nodeId) => setHoveredNodeId(nodeId)}
+              onHoverEnd={() => setHoveredNodeId(null)}
               pulseRef={pr} bloomIntensityRef={bloomRef}
               allPulseRefs={pulseRefs} strengthRef={strengthRef}
               hideLabels={hideLabels}
@@ -914,6 +925,8 @@ export default function NeuralCoreThreeScene({
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
   const [burstSeq,   setBurstSeq]   = useState(0);
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [sceneHovered, setSceneHovered] = useState(false);
 
   useEffect(() => { setSelectedId(focusNode || "core"); }, [focusNode]);
   useEffect(() => { if (livePhaseBurst) setBurstSeq((n) => n + 1); }, [livePhaseBurst]);
@@ -942,6 +955,12 @@ export default function NeuralCoreThreeScene({
 
   function handleSelect(node) {
     setSelectedId(node.id);
+    if (node.id === "return-home") {
+      setFocusNode?.("core");
+      onLeafNodeSelect?.(null);
+      return;
+    }
+
     if (["core", "memory", "intent", "identity", "evidence"].includes(node.id)) {
       setFocusNode?.(node.id);
       onLeafNodeSelect?.(null);
@@ -969,6 +988,11 @@ export default function NeuralCoreThreeScene({
       <Canvas
         camera={{ position: [0, 0.15, 6], fov: 48 }}
         gl={{ powerPreference: "low-power", antialias: false, failIfMajorPerformanceCaveat: false }}
+        onPointerEnter={() => setSceneHovered(true)}
+        onPointerLeave={() => {
+          setSceneHovered(false);
+          setHoveredNodeId(null);
+        }}
         onPointerMissed={() => {
           setSelectedId("core");
           setFocusNode?.("core");
@@ -986,6 +1010,9 @@ export default function NeuralCoreThreeScene({
           controlsRef={controlsRef}
           hideLabels={hideLabels}
           onActivityUpdate={onActivityUpdate}
+          hoveredNodeId={hoveredNodeId}
+          sceneHovered={sceneHovered}
+          setHoveredNodeId={setHoveredNodeId}
         />
       </Canvas>
 
