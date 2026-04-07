@@ -814,10 +814,14 @@ export default function ChatWindow({
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [speechEnergy, setSpeechEnergy] = useState(0);
   const [debugMode, setDebugMode] = useState(true);
   const lastGeneratedRef = useRef("");
   const lastNarrationRef = useRef("");
   const messageListRef = useRef(null);
+  const audioRef = useRef(null);
+  const speechEnergyTimerRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -965,11 +969,50 @@ export default function ChatWindow({
 
   useEffect(() => {
     return () => {
+      if (speechEnergyTimerRef.current) {
+        window.clearInterval(speechEnergyTimerRef.current);
+        speechEnergyTimerRef.current = null;
+      }
+
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
       }
     };
   }, [audioUrl]);
+
+  useEffect(() => {
+    if (speechEnergyTimerRef.current) {
+      window.clearInterval(speechEnergyTimerRef.current);
+      speechEnergyTimerRef.current = null;
+    }
+
+    if (!isAudioPlaying) {
+      setSpeechEnergy(0);
+      return;
+    }
+
+    speechEnergyTimerRef.current = window.setInterval(() => {
+      const audioElement = audioRef.current;
+      if (!(audioElement instanceof HTMLAudioElement)) {
+        setSpeechEnergy(0);
+        return;
+      }
+
+      const t = Number(audioElement.currentTime || 0);
+      const pulseA = Math.abs(Math.sin(t * 17.5));
+      const pulseB = Math.abs(Math.sin(t * 39.2 + 0.85));
+      const pulseC = Math.abs(Math.sin(t * 6.8 + 0.23));
+      const combined = 0.2 + pulseA * 0.45 + pulseB * 0.25 + pulseC * 0.1;
+      setSpeechEnergy(Math.min(1, combined));
+    }, 42);
+
+    return () => {
+      if (speechEnergyTimerRef.current) {
+        window.clearInterval(speechEnergyTimerRef.current);
+        speechEnergyTimerRef.current = null;
+      }
+    };
+  }, [isAudioPlaying]);
 
   useEffect(() => {
     if (!voiceProfile.enabled || !voiceProfile.autoplay || !latestAssistantMessage) {
@@ -1063,11 +1106,14 @@ export default function ChatWindow({
   }
 
   function stopSpeaking() {
-    const audioElement = document.getElementById("voxis-audio-player");
+    const audioElement = audioRef.current;
     if (audioElement instanceof HTMLAudioElement) {
       audioElement.pause();
       audioElement.currentTime = 0;
     }
+
+    setIsAudioPlaying(false);
+    setSpeechEnergy(0);
   }
 
   async function generateAudio(text) {
@@ -1112,7 +1158,7 @@ export default function ChatWindow({
       setAudioUrl(nextAudioUrl);
 
       requestAnimationFrame(() => {
-        const audioElement = document.getElementById("voxis-audio-player");
+        const audioElement = audioRef.current;
         if (audioElement instanceof HTMLAudioElement) {
           void audioElement.play().catch(() => {});
         }
@@ -1176,6 +1222,8 @@ export default function ChatWindow({
     );
   }
 
+  const avatarSpeaking = Boolean(liveReply) || isAudioPlaying;
+
   return (
     <>
       <style>{chatStyles}</style>
@@ -1214,7 +1262,7 @@ export default function ChatWindow({
                     valence={avatarMood.valence}
                     arousal={avatarMood.arousal}
                     phase={livePhase}
-                    speaking={Boolean(liveReply)}
+                    speaking={avatarSpeaking}
                     mode={activeMode || "scientist"}
                     personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                     expressionProfile={personality.expressionProfile}
@@ -1222,6 +1270,7 @@ export default function ChatWindow({
                     neuralActivity={neuralActivity}
                     activitySpike={activitySpike}
                     preResponseState={preResponseState}
+                    speechEnergy={speechEnergy}
                   />
                   <span>{personality.name}</span>
                 </span>
@@ -1282,7 +1331,18 @@ export default function ChatWindow({
               </button>
             </div>
 
-            {audioUrl ? <audio id="voxis-audio-player" className="audio-player" controls src={audioUrl} /> : null}
+            {audioUrl ? (
+              <audio
+                id="voxis-audio-player"
+                ref={audioRef}
+                className="audio-player"
+                controls
+                src={audioUrl}
+                onPlay={() => setIsAudioPlaying(true)}
+                onPause={() => setIsAudioPlaying(false)}
+                onEnded={() => setIsAudioPlaying(false)}
+              />
+            ) : null}
           </div>
 
           {/* ── Ambient Avatar Panel ──────────────────────────────── */}
@@ -1293,7 +1353,7 @@ export default function ChatWindow({
                 valence={avatarMood.valence}
                 arousal={avatarMood.arousal}
                 phase={livePhase}
-                speaking={Boolean(liveReply)}
+                speaking={avatarSpeaking}
                 mode={activeMode || "scientist"}
                 personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                 expressionProfile={personality.expressionProfile}
@@ -1301,6 +1361,7 @@ export default function ChatWindow({
                 neuralActivity={neuralActivity}
                 activitySpike={activitySpike}
                 preResponseState={preResponseState}
+                speechEnergy={speechEnergy}
               />
             </div>
             <div className="avatar-panel-name">{personality.name}</div>

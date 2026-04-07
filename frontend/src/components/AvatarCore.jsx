@@ -369,6 +369,36 @@ function resolveExpressionMode({ valence, arousal, phase, animState }) {
   return "focused";
 }
 
+function resolveMouthPhaseStyle({ phase, valence, arousal }) {
+  const phaseKey = String(phase || "").trim().toLowerCase();
+
+  if (["intent", "prompt"].includes(phaseKey)) {
+    return { color: "#ffb05f", glow: "rgba(255, 170, 96, 0.62)", chaos: 1.05 };
+  }
+
+  if (["memory", "memory-write", "user-memory-write"].includes(phaseKey)) {
+    return { color: "#ffd16f", glow: "rgba(255, 209, 111, 0.66)", chaos: 0.9 };
+  }
+
+  if (["generation", "token"].includes(phaseKey)) {
+    return { color: "#5effd1", glow: "rgba(94, 255, 209, 0.62)", chaos: 1.22 };
+  }
+
+  if (["reply", "reply-complete"].includes(phaseKey)) {
+    return { color: "#66f3ff", glow: "rgba(102, 243, 255, 0.68)", chaos: 1.12 };
+  }
+
+  if (["rate-limit", "rate-limit-retry", "rate-limit-fallback", "repair", "scientist"].includes(phaseKey)) {
+    return { color: "#ff6ca1", glow: "rgba(255, 108, 161, 0.62)", chaos: 1.18 };
+  }
+
+  if (Number(valence) < -0.2 || Number(arousal) > 0.68) {
+    return { color: "#8fb6ff", glow: "rgba(143, 182, 255, 0.6)", chaos: 1.06 };
+  }
+
+  return { color: "#00eaff", glow: "rgba(0, 234, 255, 0.58)", chaos: 1.0 };
+}
+
 export default function AvatarCore({
   valence = 0,
   arousal = 0,
@@ -382,6 +412,7 @@ export default function AvatarCore({
   neuralActivity = 0,
   activitySpike = false,
   preResponseState = null,
+  speechEnergy = 0,
 }) {
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [animState, setAnimState] = useState("idle");
@@ -497,10 +528,15 @@ export default function AvatarCore({
   const pupilOffsetY = clamp(gaze.y * 1.8, -1.6, 1.6);
 
   const speakingWave = animState === "speak" || ["generation", "reply", "reply-complete"].includes(phase);
+  const mouthPhaseStyle = useMemo(
+    () => resolveMouthPhaseStyle({ phase, valence, arousal }),
+    [phase, valence, arousal],
+  );
   const mouthIntensity = clamp(
     (speakingWave ? 0.38 : 0) +
       Math.max(0, Number(arousal) || 0) * 0.3 +
-      Number(neuralActivity || 0) * 0.7 +
+      Number(neuralActivity || 0) * 0.46 +
+      clamp(Number(speechEnergy || 0), 0, 1) * 0.52 +
       (["intent", "generation", "reply", "reply-complete"].includes(phase) ? 0.2 : 0),
     0,
     1,
@@ -519,7 +555,7 @@ export default function AvatarCore({
 
     const tickMs = Math.max(26, Math.round(62 - mouthIntensity * 28));
     mouthTimerRef.current = window.setInterval(() => {
-      const chaos = 0.4 + mouthIntensity * 1.35;
+      const chaos = (0.4 + mouthIntensity * 1.35) * mouthPhaseStyle.chaos;
       setMouthJitter({
         y: (Math.random() * 2 - 1) * 1.8 * chaos,
         scaleX: clamp(0.78 + Math.random() * 0.46 * chaos, 0.72, 1.42),
@@ -534,7 +570,7 @@ export default function AvatarCore({
         mouthTimerRef.current = null;
       }
     };
-  }, [mouthIntensity, speakingWave]);
+  }, [mouthIntensity, mouthPhaseStyle.chaos, speakingWave]);
 
   return (
     <div
@@ -557,6 +593,8 @@ export default function AvatarCore({
       <div
         className={`energy-mouth ${speakingWave ? "active" : ""} ${activitySpike || spikeFlash ? "spike" : ""}`.trim()}
         style={{
+          background: mouthPhaseStyle.color,
+          boxShadow: `0 0 8px ${mouthPhaseStyle.glow}, 0 0 18px ${mouthPhaseStyle.glow}`,
           transform: `translateX(-50%) translateY(${mouthJitter.y.toFixed(2)}px) scaleX(${mouthJitter.scaleX.toFixed(3)}) skewX(${mouthJitter.skew.toFixed(2)}deg)`,
           filter: `blur(${(mouthIntensity * 1.35).toFixed(2)}px) brightness(${(1 + mouthIntensity * 0.9).toFixed(2)}) saturate(${(1 + mouthIntensity).toFixed(2)})`,
           "--mouth-split": `${mouthJitter.split.toFixed(2)}px`,

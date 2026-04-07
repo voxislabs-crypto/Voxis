@@ -154,6 +154,7 @@ What this demonstrates in minutes:
 - Neural Core 3D now runs without the `@react-three/postprocessing` bloom pass in production to avoid an upstream EffectComposer runtime fault that was surfacing as `Cannot read properties of undefined (reading 'length')`.
 - Frontend bootstrap now installs runtime guards (`window.error`, `unhandledrejection`) plus a React error boundary. Captured reports are buffered in `localStorage` under `voxis:runtime-errors` (capped history) and can optionally be forwarded by setting `VITE_RUNTIME_TELEMETRY_ENDPOINT`.
 - Ambient avatar mouth animation was reworked into a high-frequency reactive signal line that appears only while speaking, jitters with neural/speech intensity, supports split/fracture layers, and disappears entirely at idle.
+- Ambient avatar mouth now also supports phase-aware color/chaos mapping (intent, memory, generation, reply, recovery) and chat avatars bind mouth movement to actual audio playback state so Piper/web audio playback animates the mouth even after text streaming completes.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---
