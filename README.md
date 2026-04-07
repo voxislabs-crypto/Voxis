@@ -134,7 +134,7 @@ What this demonstrates in minutes:
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
 - Configure LLM providers at runtime from the UI with a provider-first flow (provider -> API key -> models -> active model), with optional auto-detect as a helper.
-- Select a user profile and chat mode (`kids` or `scientist`) at runtime; age-band policy enforces safe mode fallback automatically when requested mode is not allowed.
+- Select a user profile and chat mode (`kids`, `normal`, or `scientist`) at runtime; age-band policy enforces safe mode fallback automatically when requested mode is not allowed.
 - Chat policy now fails closed: if `userId` is missing or invalid, requests default to strict kids policy.
 - Mode is session-locked per `(userId, personalityId)` conversation thread to prevent policy bleed from mid-thread mode switches.
 - Scientist mode now validates response structure (`Answer`, `Evidence`, `Uncertainty`, `Next Questions`) and performs one repair pass when required sections or citations are missing.
@@ -159,6 +159,9 @@ What this demonstrates in minutes:
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.
 - Memory Journal now supports conflict highlighting, active/disabled toggles, quick importance sliders, and one-click suppression of weaker conflicting memories for faster persona tuning.
 - Chat mode now includes a `normal` toggle (policy-aware end-to-end). In normal mode, Scientist-style section-heavy assistant replies are rendered as conversational output with the rigid "Answer" heading removed and any "Next Questions" shown as a smaller secondary block.
+- Saved personas are now minimized by default with expandable details and an explicit `Choose Persona` action for cleaner selection flow.
+- Neural Core focus now opens a readable side panel (especially for memory focus) with line-by-line retrieval details while suppressing memory-child visual clutter.
+- Added a dedicated `Persona Editor` tab to edit core persona identity, behavior lists, and neural-expression/mood baseline controls in one place, with Memory Journal controls embedded.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---

@@ -341,6 +341,44 @@ const neuralStyles = `
     max-width: min(52%, 460px);
   }
 
+  .neural-focus-panel {
+    position: absolute;
+    right: 14px;
+    top: 76px;
+    width: min(380px, calc(100% - 28px));
+    max-height: calc(100% - 172px);
+    overflow: auto;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 180, 255, 0.2);
+    background: rgba(4, 10, 20, 0.76);
+    backdrop-filter: blur(8px);
+    padding: 10px;
+    color: #dff4ff;
+  }
+
+  .neural-focus-panel h5 {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8ddfff;
+  }
+
+  .neural-focus-line {
+    margin: 0;
+    padding: 7px 9px;
+    border-radius: 10px;
+    background: rgba(5, 16, 32, 0.66);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.74rem;
+    line-height: 1.45;
+  }
+
+  .neural-focus-lines {
+    display: grid;
+    gap: 6px;
+  }
+
   .neural-focus-btn {
     border: 1px solid rgba(0, 180, 255, 0.22);
     background: rgba(6, 16, 30, 0.68);
@@ -728,7 +766,7 @@ function getSproutLimit({ performanceTier, kidsMode, focusNode }) {
   }
 
   if (focusNode === "memory") {
-    return performanceTier === "full" ? 5 : 4;
+    return 0;
   }
 
   return performanceTier === "full" ? 4 : 3;
@@ -794,6 +832,85 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
   }
 
   return [];
+}
+
+function buildFocusPanel(focusNode, latestDebug, personality, mode) {
+  const kidsMode = mode === "kids";
+
+  if (focusNode === "memory") {
+    const memories = [
+      ...(latestDebug?.memoryInjected || []).map((item, index) => ({
+        id: `inject-${index}`,
+        source: "injected",
+        label: item?.type || "memory",
+        content: item?.content || "",
+      })),
+      ...(latestDebug?.userMemoryRetrieved || []).map((item, index) => ({
+        id: `retrieved-${index}`,
+        source: "retrieved",
+        label: item?.memory_type || item?.type || "memory",
+        content: item?.content || "",
+      })),
+    ];
+
+    if (!memories.length) {
+      return {
+        title: kidsMode ? "Memory Notes" : "Memory Reads",
+        lines: [kidsMode ? "No big memories loaded this turn." : "No memories were loaded for this turn."],
+      };
+    }
+
+    return {
+      title: kidsMode ? "Memory Notes" : "Memory Reads",
+      lines: memories.slice(0, 14).map((item, index) => {
+        const sourceLabel = item.source === "injected" ? "Prompt" : "Store";
+        return `${index + 1}. [${sourceLabel}] ${String(item.label || "memory").replaceAll("_", " ")} - ${item.content}`;
+      }),
+    };
+  }
+
+  if (focusNode === "intent") {
+    const goal = latestDebug?.goal?.goal || "No active intent selected";
+    const source = latestDebug?.goal?.source || "unknown";
+    return {
+      title: "Intent Trace",
+      lines: [`Goal: ${goal}`, `Source: ${source}`],
+    };
+  }
+
+  if (focusNode === "identity") {
+    const lines = [
+      `Persona: ${personality?.name || "unknown"}`,
+      `Mood: ${personality?.moodLabel || personality?.mood || "neutral"}`,
+      `Reconditioned: ${latestDebug?.flags?.reconditioned ? "yes" : "no"}`,
+      `Repair Attempted: ${latestDebug?.scientist?.repairAttempted ? "yes" : "no"}`,
+    ];
+    return {
+      title: "Identity State",
+      lines,
+    };
+  }
+
+  if (focusNode === "evidence") {
+    const violations = latestDebug?.scientist?.validation?.violations || [];
+    return {
+      title: "Evidence Status",
+      lines: [
+        `Citations linked: ${latestDebug?.scientist?.validation?.hasCitation ? "yes" : "no"}`,
+        `Source count: ${latestDebug?.scientist?.sourceCount || 0}`,
+        `Violations: ${violations.length ? violations.join(", ") : "none"}`,
+      ],
+    };
+  }
+
+  return {
+    title: "Core State",
+    lines: [
+      `Persona: ${personality?.name || "unknown"}`,
+      `Mode: ${mode}`,
+      `Memory links: ${(latestDebug?.memoryInjected || []).length + (latestDebug?.userMemoryRetrieved || []).length}`,
+    ],
+  };
 }
 
 function resolvePerformanceTier(requestedTier, mode, prefersReducedMotion) {
@@ -1091,6 +1208,11 @@ export default function NeuralCore({
     [focusNode, focusPos, kidsMode, reconditioningActive, repairActive, visibleChildNodes],
   );
 
+  const focusPanel = useMemo(
+    () => buildFocusPanel(focusNode, latestDebug, personality, mode),
+    [focusNode, latestDebug, personality, mode],
+  );
+
   if (!enabled || !personality) {
     return null;
   }
@@ -1301,6 +1423,17 @@ export default function NeuralCore({
                   Evidence
                 </button>
               ) : null}
+            </div>
+
+            <div className="neural-focus-panel">
+              <h5>{focusPanel.title}</h5>
+              <div className="neural-focus-lines">
+                {focusPanel.lines.map((line, index) => (
+                  <p key={`${focusNode}-${index}`} className="neural-focus-line">
+                    {line}
+                  </p>
+                ))}
+              </div>
             </div>
           </div>
         </div>

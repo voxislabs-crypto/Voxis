@@ -7,6 +7,7 @@ import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
 import VoiceLab from "./components/VoiceLab.jsx";
 import MemoryJournal from "./components/MemoryJournal.jsx";
+import PersonaEditor from "./components/PersonaEditor.jsx";
 import HarnessReport from "./components/HarnessReport.jsx";
 import LlmSettingsPanel from "./components/LlmSettingsPanel.jsx";
 
@@ -1452,6 +1453,13 @@ export default function App() {
               </button>
               <button
                 type="button"
+                className={`tab ${activeView === "persona-editor" ? "active" : ""}`}
+                onClick={() => setActiveView("persona-editor")}
+              >
+                Persona Editor
+              </button>
+              <button
+                type="button"
                 className={`tab ${activeView === "eval" ? "active" : ""}`}
                 onClick={() => setActiveView("eval")}
               >
@@ -1505,6 +1513,12 @@ export default function App() {
                 </>
               ) : activeView === "journal" ? (
                 <MemoryJournal personality={selectedPersonality} />
+              ) : activeView === "persona-editor" ? (
+                <PersonaEditor
+                  personality={selectedPersonality}
+                  onUpdated={handlePersonalityUpdated}
+                  onStatus={setStatus}
+                />
               ) : activeView === "voice" ? (
                 <>
                   <h2 className="section-heading">Tune voice in Voice Lab</h2>

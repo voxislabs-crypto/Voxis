@@ -1,55 +1,55 @@
+import { useEffect, useState } from "react";
 import AvatarCore from "./AvatarCore.jsx";
 
 const listStyles = `
   .list-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 18px;
+    font-weight: 700;
+    color: var(--text);
   }
 
-  .list-header h2 {
-    margin: 0;
-    font-size: 1.6rem;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    background: linear-gradient(135deg, #ffffff 50%, var(--accent));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .list-header button {
-    padding: 9px 14px;
-    border: 1px solid rgba(0, 180, 255, 0.18);
-    border-radius: 999px;
+  .personality-expand {
+    border: 1px solid rgba(0, 180, 255, 0.2);
     background: rgba(0, 180, 255, 0.06);
     color: var(--accent);
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
     font-weight: 700;
-    transition: background 180ms, border-color 180ms;
   }
 
-  .list-header button:hover {
-    background: rgba(0, 180, 255, 0.12);
-    border-color: rgba(0, 180, 255, 0.32);
+  .personality-detail {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(0, 180, 255, 0.12);
+    display: grid;
+    gap: 8px;
   }
 
-  .list-copy {
-    margin: 0 0 18px;
-    color: var(--muted);
-    line-height: 1.6;
-    font-size: 0.92rem;
-  }
-
-  .personality-stack {
+  .personality-actions {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    justify-content: flex-end;
+  }
+
+  .choose-persona {
+    border: 1px solid rgba(0, 180, 255, 0.28);
+    background: linear-gradient(135deg, rgba(0, 200, 255, 0.18), rgba(0, 80, 220, 0.2));
+    color: #dff4ff;
+    border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .choose-persona:disabled {
+    opacity: 0.6;
   }
 
   .personality-card {
-    padding: 14px 16px;
+    padding: 10px 12px;
     border-radius: 18px;
     border: 1px solid rgba(0, 180, 255, 0.08);
     background: rgba(6, 14, 28, 0.72);
@@ -68,22 +68,11 @@ const listStyles = `
     transform: translateY(-1px);
   }
 
-  .personality-card button {
-    display: block;
-    width: 100%;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    text-align: left;
-    color: inherit;
-  }
-
-  .personality-card-top {
+  .personality-card-header {
     display: grid;
-    grid-template-columns: 60px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    margin-bottom: 10px;
+    gap: 10px;
   }
 
   .personality-avatar {
@@ -98,8 +87,47 @@ const listStyles = `
   }
 
   .personality-card h3 {
-    margin: 0 0 5px;
+    margin: 0;
     font-size: 1rem;
+      .personality-expand {
+        border: 1px solid rgba(0, 180, 255, 0.2);
+        background: rgba(0, 180, 255, 0.06);
+        color: var(--accent);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+
+      .personality-detail {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(0, 180, 255, 0.12);
+        display: grid;
+        gap: 8px;
+      }
+
+      .personality-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .choose-persona {
+        border: 1px solid rgba(0, 180, 255, 0.28);
+        background: linear-gradient(135deg, rgba(0, 200, 255, 0.18), rgba(0, 80, 220, 0.2));
+        color: #dff4ff;
+        border-radius: 999px;
+        padding: 7px 12px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .choose-persona:disabled {
+        opacity: 0.6;
+      }
+
     font-weight: 700;
     color: var(--text);
   }
@@ -147,6 +175,14 @@ export default function PersonalityList({
   onSelect,
   onOpenChat,
 }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    if (activeId) {
+      setExpandedId((current) => current ?? activeId);
+    }
+  }, [activeId]);
+
   return (
     <>
       <style>{listStyles}</style>
@@ -180,42 +216,61 @@ export default function PersonalityList({
                 key={personality.id}
                 className={`personality-card ${isActive ? "active" : ""}`}
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelect(personality.id);
-                    onOpenChat();
-                  }}
-                >
-                  <div className="personality-card-top">
-                    <div className="personality-avatar">
-                      <AvatarCore
-                        size="compact"
-                        valence={Number(personality.moodState?.valence || 0)}
-                        arousal={Number(personality.moodState?.arousal || 0)}
-                        phase="idle"
-                        speaking={false}
-                        mode="scientist"
-                        personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
-                        expressionProfile={personality.expressionProfile}
-                        expressionPreset={personality.expressionProfile?.preset || "auto"}
-                      />
+                <div className="personality-card-header">
+                  <div className="personality-avatar">
+                    <AvatarCore
+                      size="compact"
+                      valence={Number(personality.moodState?.valence || 0)}
+                      arousal={Number(personality.moodState?.arousal || 0)}
+                      phase="idle"
+                      speaking={false}
+                      mode="scientist"
+                      personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
+                      expressionProfile={personality.expressionProfile}
+                      expressionPreset={personality.expressionProfile?.preset || "auto"}
+                    />
+                  </div>
+                  <h3>{personality.name}</h3>
+                  <button
+                    type="button"
+                    className="personality-expand"
+                    onClick={() =>
+                      setExpandedId((current) =>
+                        current === personality.id ? null : personality.id,
+                      )
+                    }
+                  >
+                    {expandedId === personality.id ? "Hide" : "Details"}
+                  </button>
+                </div>
+
+                {expandedId === personality.id ? (
+                  <div className="personality-detail">
+                    <p>{personality.description}</p>
+                    <div className="personality-meta">
+                      <span>{personality.moodLabel || personality.mood}</span>
+                      {personality.creativeContext && personality.creativeContext !== "default" && (
+                        <span>{personality.creativeContext.replace(/_/g, " ")}</span>
+                      )}
+                      <span>{traitCount} traits</span>
+                      <span>{quirkCount} quirks</span>
+                      <span>{sourceCount} sources</span>
                     </div>
-                    <div>
-                      <h3>{personality.name}</h3>
-                      <p>{personality.description}</p>
+                    <div className="personality-actions">
+                      <button
+                        type="button"
+                        className="choose-persona"
+                        disabled={isActive}
+                        onClick={() => {
+                          onSelect(personality.id);
+                          onOpenChat();
+                        }}
+                      >
+                        {isActive ? "Selected" : "Choose Persona"}
+                      </button>
                     </div>
                   </div>
-                  <div className="personality-meta">
-                    <span>{personality.moodLabel || personality.mood}</span>
-                    {personality.creativeContext && personality.creativeContext !== "default" && (
-                      <span>{personality.creativeContext.replace(/_/g, " ")}</span>
-                    )}
-                    <span>{traitCount} traits</span>
-                    <span>{quirkCount} quirks</span>
-                    <span>{sourceCount} sources</span>
-                  </div>
-                </button>
+                ) : null}
               </div>
             );
           })}
