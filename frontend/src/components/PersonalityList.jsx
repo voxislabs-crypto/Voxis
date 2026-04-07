@@ -167,6 +167,13 @@ export default function PersonalityList({
         <div className="personality-stack">
           {personalities.map((personality) => {
             const isActive = personality.id === activeId;
+            const traitCount = Array.isArray(personality.traits) ? personality.traits.length : 0;
+            const quirkCount = Array.isArray(personality.quirks) ? personality.quirks.length : 0;
+            const sourceCount = Array.isArray(personality.researchSources)
+              ? personality.researchSources.length
+              : Array.isArray(personality.sourceUrls)
+              ? personality.sourceUrls.length
+              : 0;
 
             return (
               <div
@@ -204,9 +211,9 @@ export default function PersonalityList({
                     {personality.creativeContext && personality.creativeContext !== "default" && (
                       <span>{personality.creativeContext.replace(/_/g, " ")}</span>
                     )}
-                    <span>{personality.traits.length} traits</span>
-                    <span>{personality.quirks.length} quirks</span>
-                    <span>{personality.researchSources?.length || personality.sourceUrls.length} sources</span>
+                    <span>{traitCount} traits</span>
+                    <span>{quirkCount} quirks</span>
+                    <span>{sourceCount} sources</span>
                   </div>
                 </button>
               </div>

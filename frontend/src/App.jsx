@@ -1661,6 +1661,18 @@ export default function App() {
 
                   {selectedPersonality ? (
                     <div className="meta-row">
+                      {(() => {
+                        const traitCount = Array.isArray(selectedPersonality.traits)
+                          ? selectedPersonality.traits.length
+                          : 0;
+                        const sourceCount = Array.isArray(selectedPersonality.researchSources)
+                          ? selectedPersonality.researchSources.length
+                          : Array.isArray(selectedPersonality.sourceUrls)
+                          ? selectedPersonality.sourceUrls.length
+                          : 0;
+
+                        return (
+                          <>
                       <span className="meta-pill">Active: {selectedPersonality.name}</span>
                       {selectedUser ? (
                         <span className="meta-pill">Age band: {selectedUser.ageBand}</span>
@@ -1676,11 +1688,14 @@ export default function App() {
                         <span className="meta-pill">{selectedPersonality.creativeContext.replace(/_/g, " ")}</span>
                       )}
                       <span className="meta-pill">
-                        Traits: {selectedPersonality.traits.length}
+                        Traits: {traitCount}
                       </span>
                       <span className="meta-pill">
-                        Sources: {selectedPersonality.researchSources?.length || selectedPersonality.sourceUrls.length}
+                        Sources: {sourceCount}
                       </span>
+                          </>
+                        );
+                      })()}
                     </div>
                   ) : null}
 
