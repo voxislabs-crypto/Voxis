@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import MemoryJournal from "./MemoryJournal.jsx";
 
@@ -200,12 +200,60 @@ export default function PersonaEditor({ personality, onUpdated, onStatus }) {
   const [draft, setDraft] = useState(() => buildDraft(personality));
   const [isSaving, setIsSaving] = useState(false);
   const [activeSection, setActiveSection] = useState("basic");
+  const [dirtySections, setDirtySections] = useState({});
+  const lastDraftRef = useRef(null);
+  const [pendingSection, setPendingSection] = useState(null);
 
   useEffect(() => {
-    setDraft(buildDraft(personality));
+    const newDraft = buildDraft(personality);
+    setDraft(newDraft);
+    lastDraftRef.current = newDraft;
+    setDirtySections({});
   }, [personality]);
 
   const hasPersonality = Boolean(personality && draft);
+
+  // Section field lists for dirty tracking
+  const sectionFields = {
+    basic: [
+      "name", "creativeContext", "mood", "moodLabel", "description", "systemPrompt", "sourceUrls", "notablePhrases"
+    ],
+    behavior: [
+      "speechStyle", "styleEnergy", "traits", "quirks", "goals", "values", "behaviorRules", "styleSentence", "styleInterruptionRate", "styleRules"
+    ],
+    neural: [
+      "baselineValence", "baselineArousal", "baselineDominance", "moodSensitivity", "alignmentEnabled", "alignment",
+      "bigFiveOpenness", "bigFiveConscientiousness", "bigFiveExtraversion", "bigFiveAgreeableness", "bigFiveNeuroticism",
+      "expressionPreset", "expressionCalmness", "expressionIntensity", "expressionBlinkRate", "expressionGazeDrift"
+    ],
+    memory: [] // MemoryJournal is managed separately
+  };
+
+  // Dirty tracking
+  useEffect(() => {
+    if (!lastDraftRef.current) return;
+    const dirty = {};
+    for (const section of Object.keys(sectionFields)) {
+      dirty[section] = sectionFields[section].some(
+        (field) => draft[field] !== lastDraftRef.current[field]
+      );
+    }
+    setDirtySections(dirty);
+  }, [draft]);
+
+  // Unsaved changes guard
+  function handleSectionSwitch(nextSection) {
+    if (dirtySections[activeSection]) {
+      setPendingSection(nextSection);
+      if (window.confirm("You have unsaved changes in this section. Save or discard before switching?")) {
+        setPendingSection(null);
+        setActiveSection(nextSection);
+      }
+      // else: stay on current section
+    } else {
+      setActiveSection(nextSection);
+    }
+  }
 
   const payload = useMemo(() => {
     if (!hasPersonality) {
@@ -319,28 +367,28 @@ export default function PersonaEditor({ personality, onUpdated, onStatus }) {
         <button
           type="button"
           className={`persona-section-tab ${activeSection === "basic" ? "active" : ""}`}
-          onClick={() => setActiveSection("basic")}
+          onClick={() => handleSectionSwitch("basic")}
         >
-          Basic
+          Basic{dirtySections.basic ? " *" : ""}
         </button>
         <button
           type="button"
           className={`persona-section-tab ${activeSection === "behavior" ? "active" : ""}`}
-          onClick={() => setActiveSection("behavior")}
+          onClick={() => handleSectionSwitch("behavior")}
         >
-          Behavior
+          Behavior{dirtySections.behavior ? " *" : ""}
         </button>
         <button
           type="button"
           className={`persona-section-tab ${activeSection === "neural" ? "active" : ""}`}
-          onClick={() => setActiveSection("neural")}
+          onClick={() => handleSectionSwitch("neural")}
         >
-          Neural
+          Neural{dirtySections.neural ? " *" : ""}
         </button>
         <button
           type="button"
           className={`persona-section-tab ${activeSection === "memory" ? "active" : ""}`}
-          onClick={() => setActiveSection("memory")}
+          onClick={() => handleSectionSwitch("memory")}
         >
           Memory
         </button>
@@ -676,8 +724,15 @@ export default function PersonaEditor({ personality, onUpdated, onStatus }) {
       ) : null}
 
       <div className="persona-editor-actions">
-        <p className="persona-editor-hint">Edits are staged across sections and saved together.</p>
-        <button type="button" className="persona-save-btn" onClick={savePersona} disabled={isSaving}>
+        <p className="persona-editor-hint">
+          {Object.values(dirtySections).some(Boolean)
+            ? "* Unsaved changes in one or more sections."
+            : "Edits are staged across sections and saved together."}
+        </p>
+        <button type="button" className="persona-save-btn" onClick={() => {
+          savePersona();
+          lastDraftRef.current = draft;
+        }} disabled={isSaving}>
           {isSaving ? "Saving" : "Save Persona"}
         </button>
       </div>
