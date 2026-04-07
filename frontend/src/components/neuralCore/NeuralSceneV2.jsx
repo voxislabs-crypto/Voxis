@@ -100,6 +100,51 @@ const sceneV2Styles = `
     animation-duration: 420ms;
   }
 
+  .neural-v2-leaf-hud {
+    pointer-events: auto;
+    min-width: 168px;
+    max-width: 260px;
+    border-radius: 11px;
+    border: 1px solid rgba(105, 228, 255, 0.4);
+    background: linear-gradient(180deg, rgba(7, 20, 38, 0.78), rgba(6, 14, 28, 0.8));
+    backdrop-filter: blur(8px);
+    box-shadow: 0 14px 24px rgba(0, 9, 24, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.13);
+    color: #ccf4ff;
+    padding: 10px 10px 8px;
+  }
+
+  .neural-v2-leaf-hud-title {
+    margin: 0;
+    font-size: 0.7rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #e0fbff;
+  }
+
+  .neural-v2-leaf-hud-meta {
+    margin: 5px 0 0;
+    font-size: 0.56rem;
+    color: rgba(197, 238, 255, 0.88);
+  }
+
+  .neural-v2-leaf-hud-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  .neural-v2-leaf-hud-btn {
+    border: 1px solid rgba(111, 226, 255, 0.4);
+    border-radius: 999px;
+    background: rgba(13, 35, 56, 0.74);
+    color: #d4f6ff;
+    font-size: 0.52rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
   @keyframes neuralV2LayerShift {
     0% {
       opacity: 0.34;
@@ -328,6 +373,26 @@ function SceneLayer({ currentLayer, onNodeSelect, personaState }) {
   );
 }
 
+function LeafNodeHud({ leafNode, onClose }) {
+  if (!leafNode?.position) return null;
+
+  const [x, y, z] = leafNode.position;
+
+  return (
+    <Html position={[x + 0.36, y + 0.18, z]} transform distanceFactor={8}>
+      <div className="neural-v2-leaf-hud" onPointerDown={(event) => event.stopPropagation()}>
+        <h3 className="neural-v2-leaf-hud-title">{leafNode.label}</h3>
+        <p className="neural-v2-leaf-hud-meta">Type: {leafNode.meta || "leaf"}</p>
+        <p className="neural-v2-leaf-hud-meta">Data: {leafNode.dataRef || "N/A"}</p>
+        <p className="neural-v2-leaf-hud-meta">Click deeper nodes to keep diving.</p>
+        <div className="neural-v2-leaf-hud-actions">
+          <button type="button" className="neural-v2-leaf-hud-btn" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </Html>
+  );
+}
+
 function normalizeNodes(nodes = []) {
   return nodes.map((node) => ({
     id: node.id,
@@ -353,6 +418,7 @@ export default function NeuralSceneV2({
   const [activeNodeId, setActiveNodeId] = useState("core");
   const [navigationCount, setNavigationCount] = useState(0);
   const [controlsResetToken, setControlsResetToken] = useState(0);
+  const [selectedLeafNode, setSelectedLeafNode] = useState(null);
   const [layerStack, setLayerStack] = useState(() => [
     {
       id: "root",
@@ -374,6 +440,7 @@ export default function NeuralSceneV2({
     setActiveNodeId("core");
     setNavigationCount(0);
     setControlsResetToken((prev) => prev + 1);
+    setSelectedLeafNode(null);
   }, [normalizedRoot]);
 
   const currentLayer = layerStack[layerStack.length - 1] || {
@@ -400,6 +467,7 @@ export default function NeuralSceneV2({
           return prev.slice(0, -1);
         });
         setNavigationCount((prev) => prev + 1);
+        setSelectedLeafNode(null);
         onLeafNodeSelect?.(null);
         return;
       }
@@ -410,6 +478,7 @@ export default function NeuralSceneV2({
         setActiveNodeId("core");
         setNavigationCount((prev) => prev + 1);
         setControlsResetToken((prev) => prev + 1);
+        setSelectedLeafNode(null);
         onLeafNodeSelect?.(null);
         onFocusNodeChange?.("core");
       }
@@ -427,6 +496,7 @@ export default function NeuralSceneV2({
 
     if (Array.isArray(node.children) && node.children.length > 0) {
       setTransitionMode("forward");
+      setSelectedLeafNode(null);
       onLeafNodeSelect?.(null);
       setLayerStack((prev) => [
         ...prev,
@@ -441,7 +511,7 @@ export default function NeuralSceneV2({
       return;
     }
 
-    onLeafNodeSelect?.({
+    const leafPayload = {
       id: node.id,
       label: node.label,
       dataRef: node.dataRef || null,
@@ -450,7 +520,10 @@ export default function NeuralSceneV2({
       parentId: currentLayer.parentNode?.id || "root",
       source: currentLayer.parentNode?.id || "root",
       meta: node.type || "leaf",
-    });
+    };
+
+    setSelectedLeafNode(leafPayload);
+    onLeafNodeSelect?.(leafPayload);
   }
 
   function handleBack() {
@@ -460,6 +533,7 @@ export default function NeuralSceneV2({
       return prev.slice(0, -1);
     });
     setNavigationCount((prev) => prev + 1);
+    setSelectedLeafNode(null);
     onLeafNodeSelect?.(null);
   }
 
@@ -469,6 +543,7 @@ export default function NeuralSceneV2({
     setActiveNodeId("core");
     setNavigationCount((prev) => prev + 1);
     setControlsResetToken((prev) => prev + 1);
+    setSelectedLeafNode(null);
     onLeafNodeSelect?.(null);
     onFocusNodeChange?.("core");
   }
@@ -491,6 +566,10 @@ export default function NeuralSceneV2({
         onCreated={({ gl }) => {
           gl.setClearColor("#000000", 0);
         }}
+        onPointerMissed={() => {
+          setSelectedLeafNode(null);
+          onLeafNodeSelect?.(null);
+        }}
       >
         <fog attach="fog" args={["#071422", 8, 24]} />
         <ambientLight intensity={0.3} />
@@ -503,6 +582,10 @@ export default function NeuralSceneV2({
         <NeuralMetricsProbe onSample={setFps} />
 
         <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} personaState={personaState} />
+        <LeafNodeHud leafNode={selectedLeafNode} onClose={() => {
+          setSelectedLeafNode(null);
+          onLeafNodeSelect?.(null);
+        }} />
       </Canvas>
 
       <div className="neural-v2-debug">
