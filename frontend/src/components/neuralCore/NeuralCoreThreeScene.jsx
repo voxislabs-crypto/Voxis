@@ -14,7 +14,7 @@ import { buildThreeGraphModel } from "./neuralCoreThreeModel.js";
 // CSS
 // ─────────────────────────────────────────────────────────────────────────────
 const threeSceneStyles = `
-  .neural-three-shell { position: absolute; inset: 0; }
+  .neural-three-shell { position: absolute; inset: 0; background: transparent; }
 
   .neural-three-panel {
     position: absolute; right: 14px; bottom: 84px; z-index: 2;
@@ -846,8 +846,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
   return (
     <>
-      <color attach="background" args={[graph.moodState.background[0]]} />
-      <fog   attach="fog"        args={[graph.moodState.background[1], 8, 24]} />
+      <fog attach="fog" args={["#081321", 10, 28]} />
       <ambientLight intensity={0.22} />
       <pointLight position={[8,  8, 8]} intensity={1.4} color={graph.moodState.secondary} />
       <pointLight position={[-6,-4, 5]} intensity={0.8} color={graph.moodState.accent}    />
@@ -987,7 +986,15 @@ export default function NeuralCoreThreeScene({
 
       <Canvas
         camera={{ position: [0, 0.15, 6], fov: 48 }}
-        gl={{ powerPreference: "low-power", antialias: false, failIfMajorPerformanceCaveat: false }}
+        gl={{
+          powerPreference: "low-power",
+          antialias: false,
+          alpha: true,
+          failIfMajorPerformanceCaveat: false,
+        }}
+        onCreated={({ gl }) => {
+          gl.setClearColor("#000000", 0);
+        }}
         onPointerEnter={() => setSceneHovered(true)}
         onPointerLeave={() => {
           setSceneHovered(false);
