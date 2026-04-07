@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { buildThreeGraphModel } from "./neuralCoreThreeModel.js";
 
@@ -561,9 +560,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
     }
   });
 
-  // Bloom ref intentionally removed — mutating the Bloom effect ref causes
-  // THREE.WebGLRenderTarget circular JSON serialization → Context Lost.
-  // Static bloom at 1.8; node emissiveIntensity spikes drive visual bloom naturally.
+  // Keep a lightweight internal bloom energy value so node pulses can still
+  // influence brightness without relying on postprocessing passes.
   useFrame((_, delta) => {
     bloomRef.current = Math.max(1.35, bloomRef.current - delta * 2.8);
   });
@@ -721,13 +719,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
         );
       })}
 
-      {/* Static bloom — do NOT attach a ref here; THREE.WebGLRenderTarget is not serializable */}
-      <EffectComposer>
-        <Bloom
-          intensity={1.8} luminanceThreshold={0.06}
-          luminanceSmoothing={0.88} mipmapBlur
-        />
-      </EffectComposer>
+      {/* Disabled postprocessing bloom due production instability in EffectComposer. */}
     </>
   );
 }
