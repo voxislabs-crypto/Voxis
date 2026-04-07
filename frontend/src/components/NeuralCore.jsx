@@ -791,6 +791,7 @@ function extractMemoryRows(latestDebug) {
   };
 
   addRows(latestDebug?.memoryInjected, "injected");
+  addRows(latestDebug?.memoryRetrieved, "retrieved");
   addRows(latestDebug?.userMemoryRetrieved, "retrieved");
   addRows(latestDebug?.memoryExtracted, "extracted");
   addRows(latestDebug?.userMemoryExtracted, "user-extracted");
