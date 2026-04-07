@@ -152,6 +152,7 @@ What this demonstrates in minutes:
 - Saved persona cards now surface compact avatar thumbnails for faster visual selection.
 - Frontend personality metadata badges (traits, quirks, sources) now fail safe for legacy records with missing arrays, and personality list state now normalizes API payload shape to an array, preventing `.length` runtime crashes in production bundles.
 - Neural Core 3D now runs without the `@react-three/postprocessing` bloom pass in production to avoid an upstream EffectComposer runtime fault that was surfacing as `Cannot read properties of undefined (reading 'length')`.
+- Frontend bootstrap now installs runtime guards (`window.error`, `unhandledrejection`) plus a React error boundary. Captured reports are buffered in `localStorage` under `voxis:runtime-errors` (capped history) and can optionally be forwarded by setting `VITE_RUNTIME_TELEMETRY_ENDPOINT`.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---
