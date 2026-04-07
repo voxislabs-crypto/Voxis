@@ -163,6 +163,7 @@ What this demonstrates in minutes:
 - Memory labels in Neural Core and Persona Editor now use smart descriptive titles with redacted previews (URLs/emails/phones/name patterns masked) to reduce raw sensitive text exposure in visual overlays.
 - 3D Neural Core now pauses rotational drift while hovered so node inspection is stable, and drilling into a node collapses sibling clusters to reduce clutter.
 - A persistent top-right `Home` node remains available as an uncluttered return control back to the full core graph.
+- Background FX now always attempts to render the uploaded MP4 whenever FX is not `off`, with a cache-busted source path and graceful fallback to shader-only mode if video decode fails.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.

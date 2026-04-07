@@ -448,8 +448,8 @@ const appStyles = `
     width: 108%;
     height: 108%;
     object-fit: cover;
-    opacity: 0.22;
-    filter: blur(8px) saturate(1.06) contrast(1.05);
+    opacity: 0.34;
+    filter: blur(4px) saturate(1.1) contrast(1.06);
     transform: scale(1.05);
     animation: bgDrift 22s ease-in-out infinite alternate;
   }
@@ -734,6 +734,8 @@ const appStyles = `
 `;
 
 export default function App() {
+  const BACKGROUND_VIDEO_SRC = "/cyberpunk-bg.mp4?v=20260407";
+
   const storedSidebarOpen =
     typeof window !== "undefined" && window.localStorage
       ? window.localStorage.getItem("voxis:sidebar-open")
@@ -769,6 +771,8 @@ export default function App() {
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
   const [neuralToast, setNeuralToast] = useState(null);
+  const [backgroundVideoReady, setBackgroundVideoReady] = useState(false);
+  const [backgroundVideoError, setBackgroundVideoError] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(storedSidebarOpen != null ? storedSidebarOpen === "1" : false);
   const [backgroundFxIntensity, setBackgroundFxIntensity] = useState(
     storedBackgroundFx === "off" || storedBackgroundFx === "low" || storedBackgroundFx === "full"
@@ -1235,16 +1239,25 @@ export default function App() {
 
   const backgroundLayer = (
     <div className="background-stack" aria-hidden="true">
-      {!prefersReducedMotion && backgroundFxIntensity !== "off" ? (
+      {backgroundFxIntensity !== "off" && !backgroundVideoError ? (
         <video
           className="cyberpunk-bg-video"
-          src="/cyberpunk-bg.mp4"
+          src={BACKGROUND_VIDEO_SRC}
           autoPlay
           loop
           muted
           playsInline
           preload="metadata"
           tabIndex={-1}
+          onLoadedData={() => {
+            setBackgroundVideoReady(true);
+            setBackgroundVideoError(false);
+          }}
+          onError={() => {
+            setBackgroundVideoReady(false);
+            setBackgroundVideoError(true);
+          }}
+          style={{ opacity: backgroundVideoReady ? 0.34 : 0.0 }}
         />
       ) : null}
       <canvas
