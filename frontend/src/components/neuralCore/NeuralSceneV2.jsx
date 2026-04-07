@@ -81,6 +81,25 @@ const sceneV2Styles = `
     animation: neuralV2LayerShift 340ms cubic-bezier(0.21, 0.88, 0.25, 1);
   }
 
+  .neural-v2-transition.is-forward {
+    background:
+      radial-gradient(circle at 49% 50%, rgba(138, 235, 255, 0.22), rgba(9, 23, 42, 0.18) 45%, transparent 74%),
+      linear-gradient(180deg, rgba(12, 31, 56, 0.2), rgba(9, 22, 42, 0.1));
+  }
+
+  .neural-v2-transition.is-back {
+    background:
+      radial-gradient(circle at 41% 48%, rgba(255, 178, 114, 0.2), rgba(12, 26, 46, 0.2) 45%, transparent 74%),
+      linear-gradient(180deg, rgba(14, 30, 48, 0.2), rgba(8, 17, 34, 0.12));
+  }
+
+  .neural-v2-transition.is-home {
+    background:
+      radial-gradient(circle at 50% 45%, rgba(176, 255, 227, 0.24), rgba(8, 23, 42, 0.22) 46%, transparent 76%),
+      linear-gradient(180deg, rgba(11, 36, 48, 0.22), rgba(7, 17, 32, 0.12));
+    animation-duration: 420ms;
+  }
+
   @keyframes neuralV2LayerShift {
     0% {
       opacity: 0.34;
@@ -111,6 +130,23 @@ function CameraDepthRig({ depth }) {
     const desired = new THREE.Vector3(0, 0.18, targetZ + 6.6);
     camera.position.lerp(desired, 1 - Math.exp(-delta * 4.6));
     camera.lookAt(target);
+  });
+
+  return null;
+}
+
+function NeuralMetricsProbe({ onSample }) {
+  const frameCounter = useRef(0);
+  const elapsed = useRef(0);
+
+  useFrame((_, delta) => {
+    frameCounter.current += 1;
+    elapsed.current += delta;
+    if (elapsed.current < 0.5) return;
+    const fps = Math.max(1, Math.round(frameCounter.current / elapsed.current));
+    onSample?.(fps);
+    frameCounter.current = 0;
+    elapsed.current = 0;
   });
 
   return null;
@@ -288,6 +324,11 @@ export default function NeuralSceneV2({
 }) {
   const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
   const [transitionKey, setTransitionKey] = useState(0);
+  const [transitionMode, setTransitionMode] = useState("forward");
+  const [fps, setFps] = useState(0);
+  const [activeNodeId, setActiveNodeId] = useState("core");
+  const [navigationCount, setNavigationCount] = useState(0);
+  const [controlsResetToken, setControlsResetToken] = useState(0);
   const [layerStack, setLayerStack] = useState(() => [
     {
       id: "root",
@@ -306,6 +347,9 @@ export default function NeuralSceneV2({
         parentNode: null,
       },
     ]);
+    setActiveNodeId("core");
+    setNavigationCount(0);
+    setControlsResetToken((prev) => prev + 1);
   }, [normalizedRoot]);
 
   const currentLayer = layerStack[layerStack.length - 1] || {
@@ -325,12 +369,26 @@ export default function NeuralSceneV2({
 
   useEffect(() => {
     function onKeyDown(event) {
-      if (event.key !== "Escape") return;
-      setLayerStack((prev) => {
-        if (prev.length <= 1) return prev;
-        return prev.slice(0, -1);
-      });
-      onLeafNodeSelect?.(null);
+      if (event.key === "Escape") {
+        setTransitionMode("back");
+        setLayerStack((prev) => {
+          if (prev.length <= 1) return prev;
+          return prev.slice(0, -1);
+        });
+        setNavigationCount((prev) => prev + 1);
+        onLeafNodeSelect?.(null);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "h") {
+        setTransitionMode("home");
+        setLayerStack((prev) => (prev.length > 0 ? [prev[0]] : prev));
+        setActiveNodeId("core");
+        setNavigationCount((prev) => prev + 1);
+        setControlsResetToken((prev) => prev + 1);
+        onLeafNodeSelect?.(null);
+        onFocusNodeChange?.("core");
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -340,9 +398,11 @@ export default function NeuralSceneV2({
   }, [onLeafNodeSelect]);
 
   function handleNodeSelect(node, position) {
+    setActiveNodeId(node.id);
     onFocusNodeChange?.(node.id);
 
     if (Array.isArray(node.children) && node.children.length > 0) {
+      setTransitionMode("forward");
       onLeafNodeSelect?.(null);
       setLayerStack((prev) => [
         ...prev,
@@ -353,6 +413,7 @@ export default function NeuralSceneV2({
           parentNode: node,
         },
       ]);
+      setNavigationCount((prev) => prev + 1);
       return;
     }
 
@@ -369,15 +430,21 @@ export default function NeuralSceneV2({
   }
 
   function handleBack() {
+    setTransitionMode("back");
     setLayerStack((prev) => {
       if (prev.length <= 1) return prev;
       return prev.slice(0, -1);
     });
+    setNavigationCount((prev) => prev + 1);
     onLeafNodeSelect?.(null);
   }
 
   function handleHome() {
+    setTransitionMode("home");
     setLayerStack((prev) => (prev.length > 0 ? [prev[0]] : prev));
+    setActiveNodeId("core");
+    setNavigationCount((prev) => prev + 1);
+    setControlsResetToken((prev) => prev + 1);
     onLeafNodeSelect?.(null);
     onFocusNodeChange?.("core");
   }
@@ -391,7 +458,7 @@ export default function NeuralSceneV2({
         <button type="button" className="neural-v2-btn" onClick={handleHome}>Home</button>
       </div>
 
-      <div key={transitionKey} className="neural-v2-transition" />
+      <div key={transitionKey} className={`neural-v2-transition is-${transitionMode}`} />
 
       <Canvas
         camera={{ position: [0, 0.18, 6.6], fov: 48 }}
@@ -408,15 +475,20 @@ export default function NeuralSceneV2({
         <Stars radius={28} depth={14} count={120} factor={0.85} saturation={0} fade />
 
         <CameraDepthRig depth={currentLayer.depth} />
-        <OrbitControls enablePan={false} enableZoom minDistance={3.2} maxDistance={13} />
+        <OrbitControls key={controlsResetToken} enablePan={false} enableZoom minDistance={3.2} maxDistance={13} />
+        <NeuralMetricsProbe onSample={setFps} />
 
         <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} />
       </Canvas>
 
       <div className="neural-v2-debug">
+        <span className="neural-v2-pill">FPS {fps || "--"}</span>
         <span className="neural-v2-pill">Depth {currentLayer.depth}</span>
         <span className="neural-v2-pill">Nodes {currentLayer.nodes.length}</span>
         <span className="neural-v2-pill">Layer {currentLayer.id}</span>
+        <span className="neural-v2-pill">Focus {activeNodeId}</span>
+        <span className="neural-v2-pill">Moves {navigationCount}</span>
+        <span className="neural-v2-pill">Esc Back / H Home</span>
       </div>
     </div>
   );
