@@ -373,30 +373,175 @@ function resolveMouthPhaseStyle({ phase, valence, arousal }) {
   const phaseKey = String(phase || "").trim().toLowerCase();
 
   if (["intent", "prompt"].includes(phaseKey)) {
-    return { color: "#ffb05f", glow: "rgba(255, 170, 96, 0.62)", chaos: 1.05 };
+    return {
+      color: "#ffb05f",
+      glow: "rgba(255, 170, 96, 0.64)",
+      chaos: 1.08,
+      tickBase: 50,
+      tickSpan: 20,
+      splitMax: 2.8,
+      skewMax: 7,
+      yMax: 1.6,
+      scaleMin: 0.78,
+      scaleMax: 1.22,
+    };
   }
 
   if (["memory", "memory-write", "user-memory-write"].includes(phaseKey)) {
-    return { color: "#ffd16f", glow: "rgba(255, 209, 111, 0.66)", chaos: 0.9 };
+    return {
+      color: "#ffd16f",
+      glow: "rgba(255, 209, 111, 0.7)",
+      chaos: 0.86,
+      tickBase: 58,
+      tickSpan: 18,
+      splitMax: 2.2,
+      skewMax: 5.8,
+      yMax: 1.35,
+      scaleMin: 0.82,
+      scaleMax: 1.16,
+    };
   }
 
   if (["generation", "token"].includes(phaseKey)) {
-    return { color: "#5effd1", glow: "rgba(94, 255, 209, 0.62)", chaos: 1.22 };
+    return {
+      color: "#5effd1",
+      glow: "rgba(94, 255, 209, 0.66)",
+      chaos: 1.26,
+      tickBase: 44,
+      tickSpan: 18,
+      splitMax: 3.4,
+      skewMax: 8.8,
+      yMax: 2.1,
+      scaleMin: 0.74,
+      scaleMax: 1.34,
+    };
   }
 
   if (["reply", "reply-complete"].includes(phaseKey)) {
-    return { color: "#66f3ff", glow: "rgba(102, 243, 255, 0.68)", chaos: 1.12 };
+    return {
+      color: "#66f3ff",
+      glow: "rgba(102, 243, 255, 0.72)",
+      chaos: 1.14,
+      tickBase: 48,
+      tickSpan: 20,
+      splitMax: 3.1,
+      skewMax: 8,
+      yMax: 1.9,
+      scaleMin: 0.76,
+      scaleMax: 1.3,
+    };
   }
 
   if (["rate-limit", "rate-limit-retry", "rate-limit-fallback", "repair", "scientist"].includes(phaseKey)) {
-    return { color: "#ff6ca1", glow: "rgba(255, 108, 161, 0.62)", chaos: 1.18 };
+    return {
+      color: "#ff6ca1",
+      glow: "rgba(255, 108, 161, 0.66)",
+      chaos: 1.2,
+      tickBase: 46,
+      tickSpan: 16,
+      splitMax: 3.6,
+      skewMax: 9.4,
+      yMax: 2.2,
+      scaleMin: 0.72,
+      scaleMax: 1.38,
+    };
   }
 
   if (Number(valence) < -0.2 || Number(arousal) > 0.68) {
-    return { color: "#8fb6ff", glow: "rgba(143, 182, 255, 0.6)", chaos: 1.06 };
+    return {
+      color: "#8fb6ff",
+      glow: "rgba(143, 182, 255, 0.62)",
+      chaos: 1.08,
+      tickBase: 50,
+      tickSpan: 20,
+      splitMax: 2.9,
+      skewMax: 7.2,
+      yMax: 1.8,
+      scaleMin: 0.78,
+      scaleMax: 1.22,
+    };
   }
 
-  return { color: "#00eaff", glow: "rgba(0, 234, 255, 0.58)", chaos: 1.0 };
+  return {
+    color: "#00eaff",
+    glow: "rgba(0, 234, 255, 0.58)",
+    chaos: 1.0,
+    tickBase: 54,
+    tickSpan: 18,
+    splitMax: 2.6,
+    skewMax: 6.5,
+    yMax: 1.5,
+    scaleMin: 0.8,
+    scaleMax: 1.18,
+  };
+}
+
+function resolveMicroExpression({ valence, arousal, phase, neuralActivity }) {
+  const v = clamp(Number(valence) || 0, -1, 1);
+  const a = clamp(Number(arousal) || 0, -1, 1);
+  const phaseKey = String(phase || "").trim().toLowerCase();
+  const activity = clamp(Number(neuralActivity) || 0, 0, 1);
+
+  let browLeftOffset = 0;
+  let browRightOffset = 0;
+  let eyeLeftScale = 1;
+  let eyeRightScale = 1;
+  let gazeBiasX = 0;
+  let gazeBiasY = 0;
+  let pupilScale = 1;
+
+  if (["intent", "prompt"].includes(phaseKey)) {
+    browLeftOffset -= 1.8;
+    browRightOffset += 0.7;
+    gazeBiasX += 0.5;
+    gazeBiasY -= 0.08;
+    pupilScale = 0.95;
+  }
+
+  if (["memory", "memory-write", "user-memory-write"].includes(phaseKey)) {
+    browLeftOffset += 0.6;
+    browRightOffset += 0.6;
+    eyeLeftScale = 0.95;
+    eyeRightScale = 0.95;
+    gazeBiasY += 0.2;
+    pupilScale = 0.9;
+  }
+
+  if (["generation", "reply", "reply-complete", "token"].includes(phaseKey)) {
+    browLeftOffset -= 0.6;
+    browRightOffset -= 0.4;
+    eyeLeftScale += 0.06;
+    eyeRightScale += 0.08;
+    pupilScale += 0.08;
+  }
+
+  if (a > 0.65 || v < -0.25) {
+    eyeLeftScale -= 0.1;
+    eyeRightScale -= 0.13;
+    browLeftOffset -= 1.1;
+    browRightOffset -= 0.8;
+    pupilScale -= 0.06;
+  }
+
+  if (v > 0.38 && a > 0.12) {
+    eyeLeftScale += 0.05;
+    eyeRightScale += 0.05;
+    browLeftOffset += 0.3;
+    browRightOffset += 0.3;
+    pupilScale += 0.07;
+  }
+
+  gazeBiasX += (Math.sin(activity * Math.PI * 1.7) * 0.12);
+
+  return {
+    browLeftOffset: clamp(browLeftOffset, -3.2, 2.6),
+    browRightOffset: clamp(browRightOffset, -3.2, 2.6),
+    eyeLeftScale: clamp(eyeLeftScale, 0.72, 1.22),
+    eyeRightScale: clamp(eyeRightScale, 0.72, 1.22),
+    gazeBiasX: clamp(gazeBiasX, -0.8, 0.8),
+    gazeBiasY: clamp(gazeBiasY, -0.45, 0.45),
+    pupilScale: clamp(pupilScale, 0.78, 1.2),
+  };
 }
 
 export default function AvatarCore({
@@ -526,6 +671,12 @@ export default function AvatarCore({
 
   const pupilOffsetX = clamp(gaze.x * 2.3, -2.2, 2.2);
   const pupilOffsetY = clamp(gaze.y * 1.8, -1.6, 1.6);
+  const microExpression = useMemo(
+    () => resolveMicroExpression({ valence, arousal, phase, neuralActivity }),
+    [arousal, neuralActivity, phase, valence],
+  );
+  const adjustedPupilOffsetX = clamp(pupilOffsetX + microExpression.gazeBiasX * 2.6, -2.6, 2.6);
+  const adjustedPupilOffsetY = clamp(pupilOffsetY + microExpression.gazeBiasY * 1.9, -1.8, 1.8);
 
   const speakingWave = animState === "speak" || ["generation", "reply", "reply-complete"].includes(phase);
   const mouthPhaseStyle = useMemo(
@@ -553,14 +704,21 @@ export default function AvatarCore({
       return;
     }
 
-    const tickMs = Math.max(26, Math.round(62 - mouthIntensity * 28));
+    const tickMs = Math.max(
+      22,
+      Math.round(mouthPhaseStyle.tickBase - mouthIntensity * mouthPhaseStyle.tickSpan),
+    );
     mouthTimerRef.current = window.setInterval(() => {
       const chaos = (0.4 + mouthIntensity * 1.35) * mouthPhaseStyle.chaos;
       setMouthJitter({
-        y: (Math.random() * 2 - 1) * 1.8 * chaos,
-        scaleX: clamp(0.78 + Math.random() * 0.46 * chaos, 0.72, 1.42),
-        skew: (Math.random() * 2 - 1) * 8 * chaos,
-        split: clamp(Math.random() * 1.8 * chaos, 0, 3.4),
+        y: (Math.random() * 2 - 1) * mouthPhaseStyle.yMax * chaos,
+        scaleX: clamp(
+          mouthPhaseStyle.scaleMin + Math.random() * (mouthPhaseStyle.scaleMax - mouthPhaseStyle.scaleMin) * chaos,
+          0.66,
+          1.46,
+        ),
+        skew: (Math.random() * 2 - 1) * mouthPhaseStyle.skewMax * chaos,
+        split: clamp(Math.random() * mouthPhaseStyle.splitMax * chaos, 0, 4),
       });
     }, tickMs);
 
@@ -570,7 +728,18 @@ export default function AvatarCore({
         mouthTimerRef.current = null;
       }
     };
-  }, [mouthIntensity, mouthPhaseStyle.chaos, speakingWave]);
+  }, [
+    mouthIntensity,
+    mouthPhaseStyle.chaos,
+    mouthPhaseStyle.scaleMax,
+    mouthPhaseStyle.scaleMin,
+    mouthPhaseStyle.skewMax,
+    mouthPhaseStyle.splitMax,
+    mouthPhaseStyle.tickBase,
+    mouthPhaseStyle.tickSpan,
+    mouthPhaseStyle.yMax,
+    speakingWave,
+  ]);
 
   return (
     <div
@@ -581,13 +750,33 @@ export default function AvatarCore({
       <style>{avatarStyles}</style>
       <div className="avatar-aura" />
       <svg className="avatar-face" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <path className="brow" d={`M 26 ${32 + mood.browTilt} Q 35 ${26 + mood.browTilt} 43 ${32 + mood.browTilt}`} />
-        <path className="brow" d={`M 57 ${32 - mood.browTilt} Q 65 ${26 - mood.browTilt} 74 ${32 - mood.browTilt}`} />
+        <path
+          className="brow"
+          d={`M 26 ${32 + mood.browTilt + microExpression.browLeftOffset} Q 35 ${26 + mood.browTilt + microExpression.browLeftOffset} 43 ${32 + mood.browTilt + microExpression.browLeftOffset}`}
+        />
+        <path
+          className="brow"
+          d={`M 57 ${32 - mood.browTilt + microExpression.browRightOffset} Q 65 ${26 - mood.browTilt + microExpression.browRightOffset} 74 ${32 - mood.browTilt + microExpression.browRightOffset}`}
+        />
 
-        <ellipse className="eye" cx="34" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
-        <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
-        <circle className="pupil" cx={36 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
-        <circle className="pupil" cx={64 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
+        <ellipse
+          className="eye"
+          cx="34"
+          cy="48"
+          rx="10"
+          ry={mood.eyeOpen * microExpression.eyeLeftScale}
+          style={{ animationDuration: mood.blinkDuration }}
+        />
+        <ellipse
+          className="eye"
+          cx="66"
+          cy="48"
+          rx="10"
+          ry={mood.eyeOpen * microExpression.eyeRightScale}
+          style={{ animationDuration: mood.blinkDuration }}
+        />
+        <circle className="pupil" cx={36 + adjustedPupilOffsetX} cy={48 + adjustedPupilOffsetY} r={2.2 * microExpression.pupilScale} />
+        <circle className="pupil" cx={64 + adjustedPupilOffsetX} cy={48 + adjustedPupilOffsetY} r={2.2 * microExpression.pupilScale} />
       </svg>
 
       <div

@@ -155,6 +155,7 @@ What this demonstrates in minutes:
 - Frontend bootstrap now installs runtime guards (`window.error`, `unhandledrejection`) plus a React error boundary. Captured reports are buffered in `localStorage` under `voxis:runtime-errors` (capped history) and can optionally be forwarded by setting `VITE_RUNTIME_TELEMETRY_ENDPOINT`.
 - Ambient avatar mouth animation was reworked into a high-frequency reactive signal line that appears only while speaking, jitters with neural/speech intensity, supports split/fracture layers, and disappears entirely at idle.
 - Ambient avatar mouth now also supports phase-aware color/chaos mapping (intent, memory, generation, reply, recovery) and chat avatars bind mouth movement to actual audio playback state so Piper/web audio playback animates the mouth even after text streaming completes.
+- Ambient avatar now includes micro-expression mapping (brow asymmetry, per-eye openness variance, gaze bias, and pupil dilation/constraint) driven by phase + mood/arousal so expression motion remains subtle but personality-visible before full micro-expression authoring.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---
