@@ -552,6 +552,10 @@ const appStyles = `
     align-items: start;
   }
 
+  .workspace.sidebar-collapsed {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
   .panel {
     position: relative;
     border-radius: 24px;
@@ -578,6 +582,49 @@ const appStyles = `
     max-height: calc(100vh - 32px);
     overflow: auto;
     padding: 18px;
+  }
+
+  .sidebar-toggle {
+    width: 100%;
+    border: 1px solid rgba(0, 234, 255, 0.18);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(0, 234, 255, 0.10), rgba(34, 94, 255, 0.14));
+    color: #9cecff;
+    font-weight: 800;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 10px 10px;
+  }
+
+  .sidebar.collapsed {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    justify-items: stretch;
+    padding: 12px;
+    overflow: hidden;
+  }
+
+  .sidebar-mini {
+    display: grid;
+    gap: 8px;
+    color: #8fa6c5;
+    text-align: center;
+    font-size: 0.72rem;
+  }
+
+  .sidebar-mini strong {
+    color: #b8f5ff;
+    font-size: 0.74rem;
+    line-height: 1.25;
+  }
+
+  .fx-option-note {
+    margin-top: 6px;
+    color: #7f95b3;
+    font-size: 0.8rem;
+    line-height: 1.45;
   }
 
   .tabs {
@@ -640,9 +687,26 @@ const appStyles = `
       grid-template-columns: 1fr;
     }
 
+    .workspace.sidebar-collapsed {
+      grid-template-columns: 1fr;
+    }
+
     .sidebar {
       position: static;
       max-height: none;
+    }
+
+    .sidebar.collapsed {
+      justify-items: start;
+    }
+
+    .sidebar-toggle {
+      width: auto;
+      min-width: 200px;
+    }
+
+    .sidebar-mini {
+      text-align: left;
     }
   }
 
@@ -669,6 +733,15 @@ const appStyles = `
 `;
 
 export default function App() {
+  const storedSidebarOpen =
+    typeof window !== "undefined" && window.localStorage
+      ? window.localStorage.getItem("voxis:sidebar-open")
+      : null;
+  const storedBackgroundFx =
+    typeof window !== "undefined" && window.localStorage
+      ? window.localStorage.getItem("voxis:background-fx")
+      : null;
+
   const [personalities, setPersonalities] = useState([]);
   const [users, setUsers] = useState([]);
   const [userProfiles, setUserProfiles] = useState({});
@@ -693,6 +766,12 @@ export default function App() {
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
   const [neuralToast, setNeuralToast] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(storedSidebarOpen === "1");
+  const [backgroundFxIntensity, setBackgroundFxIntensity] = useState(
+    storedBackgroundFx === "off" || storedBackgroundFx === "low" || storedBackgroundFx === "full"
+      ? storedBackgroundFx
+      : "full",
+  );
   const backgroundCanvasRef = useRef(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -877,6 +956,20 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+    window.localStorage.setItem("voxis:sidebar-open", isSidebarOpen ? "1" : "0");
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+    window.localStorage.setItem("voxis:background-fx", backgroundFxIntensity);
+  }, [backgroundFxIntensity]);
+
+  useEffect(() => {
     if (!neuralToast) {
       return;
     }
@@ -918,6 +1011,12 @@ export default function App() {
   }, [selectedPersonality]);
 
   const activePhase = selectedId ? liveChatState[selectedId]?.phase || "" : "";
+  const backgroundFxMultiplier =
+    backgroundFxIntensity === "off"
+      ? 0
+      : backgroundFxIntensity === "low"
+      ? 0.55
+      : 1;
 
   const authPath = useMemo(() => {
     if (typeof window === "undefined") {
@@ -1031,35 +1130,57 @@ export default function App() {
       const height = window.innerHeight;
       const time = timeMs * 0.001;
 
-      const phaseBoost = activePhase === "thinking" || activePhase === "llm"
-        ? 18
-        : activePhase === "memory"
-        ? -10
-        : 0;
-      const hueA = 194 + backgroundMood.valence * 44 + phaseBoost;
-      const hueB = 306 + backgroundMood.dominance * 36;
-      const drift = 0.12 + backgroundMood.arousal * 0.38;
+      if (backgroundFxMultiplier <= 0) {
+        context.clearRect(0, 0, width, height);
+        return;
+      }
+
+      const phaseToken = String(activePhase || "");
+      const normalizedPhase = phaseToken.startsWith("memory")
+        ? "memory"
+        : phaseToken.startsWith("rate-limit")
+        ? "rate-limit"
+        : phaseToken || "idle";
+      const phasePalette = {
+        idle: { hueShift: 0, energy: 0.92 },
+        thinking: { hueShift: 14, energy: 1.02 },
+        llm: { hueShift: 18, energy: 1.1 },
+        prompt: { hueShift: 26, energy: 1.08 },
+        intent: { hueShift: 36, energy: 1.12 },
+        memory: { hueShift: -22, energy: 0.88 },
+        mood: { hueShift: -8, energy: 0.94 },
+        reply: { hueShift: 10, energy: 1.18 },
+        "rate-limit": { hueShift: 54, energy: 1.34 },
+      };
+      const phaseStyle = phasePalette[normalizedPhase] || phasePalette.idle;
+
+      const hueA = 194 + backgroundMood.valence * 44 + phaseStyle.hueShift;
+      const hueB = 306 + backgroundMood.dominance * 36 + phaseStyle.hueShift * 0.55;
+      const drift = (0.12 + backgroundMood.arousal * 0.38) * phaseStyle.energy * backgroundFxMultiplier;
+      const fxAlpha = 0.65 * backgroundFxMultiplier;
 
       context.clearRect(0, 0, width, height);
 
       const gradient = context.createLinearGradient(0, 0, width, height);
-      gradient.addColorStop(0, `hsla(${hueA.toFixed(1)}, 88%, 42%, 0.16)`);
-      gradient.addColorStop(0.55, `hsla(${(hueA + 20).toFixed(1)}, 78%, 38%, 0.11)`);
-      gradient.addColorStop(1, `hsla(${hueB.toFixed(1)}, 76%, 48%, 0.14)`);
+      gradient.addColorStop(0, `hsla(${hueA.toFixed(1)}, 88%, 42%, ${(0.14 * fxAlpha).toFixed(3)})`);
+      gradient.addColorStop(0.55, `hsla(${(hueA + 20).toFixed(1)}, 78%, 38%, ${(0.1 * fxAlpha).toFixed(3)})`);
+      gradient.addColorStop(1, `hsla(${hueB.toFixed(1)}, 76%, 48%, ${(0.13 * fxAlpha).toFixed(3)})`);
       context.fillStyle = gradient;
       context.fillRect(0, 0, width, height);
 
-      const orbCount = prefersReducedMotion ? 2 : 5;
+      const orbCount = prefersReducedMotion
+        ? Math.max(1, Math.round(2 * backgroundFxMultiplier))
+        : Math.max(2, Math.round(5 * backgroundFxMultiplier));
       for (let i = 0; i < orbCount; i += 1) {
         const ratio = (i + 1) / (orbCount + 1);
         const wobbleX = Math.sin(time * (0.3 + ratio * drift) + i * 1.7);
         const wobbleY = Math.cos(time * (0.28 + ratio * drift) + i * 2.1);
         const cx = width * ratio + wobbleX * width * 0.08;
         const cy = height * (0.26 + ratio * 0.48) + wobbleY * height * 0.08;
-        const radius = Math.max(width, height) * (0.12 + ratio * 0.08);
+        const radius = Math.max(width, height) * (0.1 + ratio * 0.08) * (0.75 + backgroundFxMultiplier * 0.45);
         const orb = context.createRadialGradient(cx, cy, radius * 0.06, cx, cy, radius);
-        orb.addColorStop(0, `hsla(${(hueA + i * 10).toFixed(1)}, 98%, 70%, 0.20)`);
-        orb.addColorStop(0.44, `hsla(${(hueB - i * 8).toFixed(1)}, 84%, 58%, 0.08)`);
+        orb.addColorStop(0, `hsla(${(hueA + i * 10).toFixed(1)}, 98%, 70%, ${(0.18 * fxAlpha).toFixed(3)})`);
+        orb.addColorStop(0.44, `hsla(${(hueB - i * 8).toFixed(1)}, 84%, 58%, ${(0.08 * fxAlpha).toFixed(3)})`);
         orb.addColorStop(1, "rgba(0, 0, 0, 0)");
         context.fillStyle = orb;
         context.beginPath();
@@ -1087,11 +1208,11 @@ export default function App() {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [activePhase, backgroundMood, prefersReducedMotion]);
+  }, [activePhase, backgroundMood, backgroundFxMultiplier, prefersReducedMotion]);
 
   const backgroundLayer = (
     <div className="background-stack" aria-hidden="true">
-      {!prefersReducedMotion ? (
+      {!prefersReducedMotion && backgroundFxIntensity !== "off" ? (
         <video
           className="cyberpunk-bg-video"
           src="/cyberpunk-bg.mp4"
@@ -1103,7 +1224,11 @@ export default function App() {
           tabIndex={-1}
         />
       ) : null}
-      <canvas ref={backgroundCanvasRef} className="cyberpunk-bg-shader" />
+      <canvas
+        ref={backgroundCanvasRef}
+        className="cyberpunk-bg-shader"
+        style={{ opacity: backgroundFxIntensity === "off" ? 0 : backgroundFxIntensity === "low" ? 0.46 : 0.72 }}
+      />
     </div>
   );
 
@@ -1591,16 +1716,31 @@ export default function App() {
           </div>
         </section>
 
-        <section className="workspace">
-          <aside className="panel sidebar">
-            <PersonalityList
-              personalities={personalities}
-              activeId={selectedId}
-              isLoading={isLoading}
-              onRefresh={loadPersonalities}
-              onSelect={handleSelectPersonality}
-              onOpenChat={() => setActiveView("chat")}
-            />
+        <section className={`workspace ${isSidebarOpen ? "" : "sidebar-collapsed"}`}>
+          <aside className={`panel sidebar ${isSidebarOpen ? "" : "collapsed"}`}>
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={() => setIsSidebarOpen((current) => !current)}
+            >
+              {isSidebarOpen ? "Hide Personas" : `Saved Personas${personalities.length ? ` (${personalities.length})` : ""}`}
+            </button>
+
+            {isSidebarOpen ? (
+              <PersonalityList
+                personalities={personalities}
+                activeId={selectedId}
+                isLoading={isLoading}
+                onRefresh={loadPersonalities}
+                onSelect={handleSelectPersonality}
+                onOpenChat={() => setActiveView("chat")}
+              />
+            ) : (
+              <div className="sidebar-mini">
+                <strong>{selectedPersonality?.name || "No active persona"}</strong>
+                <span>{selectedPersonality ? "Active in chat" : "Open to choose one"}</span>
+              </div>
+            )}
           </aside>
 
           <main className="panel main-panel">
@@ -1732,6 +1872,27 @@ export default function App() {
                     Select your provider first, add key and optional custom base URL,
                     then fetch and choose the active model for all chat, memory, and eval calls.
                   </p>
+                  <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+                    <h3 style={{ marginTop: 0 }}>Visual Effects</h3>
+                    <p className="section-copy" style={{ marginBottom: 12 }}>
+                      Control cyberpunk background intensity. Phase color palettes still react to live chat state at any non-off level.
+                    </p>
+                    <label style={{ display: "grid", gap: 6, maxWidth: 340 }}>
+                      <span className="profile-label">Background FX</span>
+                      <select
+                        className="profile-select"
+                        value={backgroundFxIntensity}
+                        onChange={(event) => setBackgroundFxIntensity(event.target.value)}
+                      >
+                        <option value="off">Off</option>
+                        <option value="low">Low</option>
+                        <option value="full">Full</option>
+                      </select>
+                    </label>
+                    <p className="fx-option-note">
+                      Off: static atmosphere only. Low: lighter motion + lower glow. Full: cinematic video + full shader energy.
+                    </p>
+                  </div>
                   <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0 }}>User Policy Profile</h3>
                     <p className="section-copy" style={{ marginBottom: 12 }}>

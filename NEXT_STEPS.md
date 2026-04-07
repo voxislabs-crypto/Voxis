@@ -55,10 +55,12 @@ Run a focused production smoke pass on the newest commit: auth bootstrap, LLM se
 - Emotion-mapped mouth animation: Already implemented and validated in AvatarCore (valence/arousal/phase → mouth motion, color, style).
 - Video background: Added cyberpunk-bg.mp4 as a visually pleasant, blurred, low-opacity background. File moved to frontend/public/ for static serving.
 - Shader background: Implemented mood-reactive canvas layer in App.jsx (valence/arousal/dominance + live phase influence), with reduced-motion fallback and mobile opacity tuning.
+- Phase palette tuning: Expanded shader phase differentiation (memory/intent/reply/rate-limit/etc.) and tied visual energy to configurable FX intensity.
+- Saved Personas rail behavior: Sidebar now starts minimized by default and expands only when clicked.
+- Performance optimization: Re-encoded cyberpunk-bg.mp4 (~27MB -> ~8.7MB) for faster background load.
 
 ### Next Steps (pending user return)
-- Validate video background loads and performs well in longer sessions (desktop + mobile).
-- (Optional) Further compress/optimize video if needed for performance.
-- Tune shader color/energy mapping against real chat phases (thinking/memory/reply/rate-limit) if stronger differentiation is desired.
-- Review and polish any remaining UI/UX details for the cyberpunk background layer.
+- Validate long-session behavior with Background FX at each intensity setting (`off` / `low` / `full`).
+- Consider adding an explicit mobile default of `low` FX if thermal/perf metrics suggest it.
+- Review and polish any remaining UI/UX details for the minimized Saved Personas entry state.
 - Update README and commit/push after major visual changes (per user workflow preference).
