@@ -29,6 +29,10 @@ const appStyles = `
     --accent-warm: #ff7a38;
     --accent-magenta: #b83cf8;
     --shadow: 0 24px 64px rgba(0, 40, 120, 0.40);
+    --glass-bg: linear-gradient(180deg, rgba(198, 242, 255, 0.14), rgba(18, 42, 76, 0.24));
+    --glass-border: rgba(135, 228, 255, 0.34);
+    --glass-specular: rgba(255, 255, 255, 0.28);
+    --glass-shadow: 0 10px 28px rgba(0, 18, 42, 0.4);
   }
 
   * {
@@ -532,9 +536,12 @@ const appStyles = `
 
   .profile-select {
     border-radius: 12px;
-    background: rgba(2, 10, 24, 0.96);
-    border-color: rgba(0, 234, 255, 0.18);
-    box-shadow: inset 0 0 14px rgba(0, 234, 255, 0.05);
+    background: var(--glass-bg), rgba(2, 10, 24, 0.96);
+    border-color: var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 var(--glass-specular),
+      inset 0 -12px 22px rgba(0, 0, 0, 0.24),
+      var(--glass-shadow);
   }
 
   .hero-callout {
@@ -587,15 +594,33 @@ const appStyles = `
 
   .sidebar-toggle {
     width: 100%;
-    border: 1px solid rgba(0, 234, 255, 0.18);
+    border: 1px solid var(--glass-border);
     border-radius: 12px;
-    background: linear-gradient(135deg, rgba(0, 234, 255, 0.10), rgba(34, 94, 255, 0.14));
+    background: var(--glass-bg), linear-gradient(135deg, rgba(0, 234, 255, 0.1), rgba(34, 94, 255, 0.16));
     color: #9cecff;
     font-weight: 800;
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     padding: 10px 10px;
+    box-shadow:
+      inset 0 1px 0 var(--glass-specular),
+      inset 0 -10px 18px rgba(0, 0, 0, 0.22),
+      var(--glass-shadow);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  .sidebar-toggle:hover {
+    transform: translateY(-2px);
+    border-color: rgba(165, 241, 255, 0.52);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      inset 0 -10px 18px rgba(0, 0, 0, 0.2),
+      0 14px 28px rgba(0, 160, 255, 0.22);
+  }
+
+  .sidebar-toggle:active {
+    transform: translateY(1px) scale(0.995);
   }
 
   .sidebar.collapsed {
@@ -641,15 +666,40 @@ const appStyles = `
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.76rem;
-    background: rgba(0, 234, 255, 0.04);
-    border-color: rgba(0, 234, 255, 0.12);
+    background: var(--glass-bg), rgba(0, 234, 255, 0.04);
+    border-color: var(--glass-border);
     color: #8ca6c8;
+    box-shadow:
+      inset 0 1px 0 var(--glass-specular),
+      inset 0 -8px 16px rgba(0, 0, 0, 0.2),
+      0 8px 18px rgba(0, 14, 34, 0.32);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  .tab:hover {
+    transform: translateY(-2px);
+    color: #d8f4ff;
+    border-color: rgba(176, 244, 255, 0.48);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.36),
+      inset 0 -8px 16px rgba(0, 0, 0, 0.16),
+      0 14px 26px rgba(0, 168, 255, 0.18);
+  }
+
+  .tab:active {
+    transform: translateY(1px) scale(0.995);
   }
 
   .tab.active {
-    background: linear-gradient(135deg, rgba(0, 234, 255, 0.96), rgba(168, 84, 255, 0.92));
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 34%),
+      linear-gradient(135deg, rgba(0, 234, 255, 0.96), rgba(168, 84, 255, 0.92));
     color: #04111c;
-    box-shadow: 0 0 24px rgba(0, 234, 255, 0.16);
+    border-color: rgba(206, 244, 255, 0.38);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.46),
+      0 0 24px rgba(0, 234, 255, 0.16),
+      0 14px 28px rgba(0, 168, 255, 0.22);
   }
 
   .main-content {

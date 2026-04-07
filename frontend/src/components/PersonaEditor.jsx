@@ -121,19 +121,39 @@ const editorStyles = `
   .persona-section-tab {
     padding: 8px 12px;
     border-radius: 999px;
-    border: 1px solid rgba(0, 180, 255, 0.2);
-    background: rgba(0, 180, 255, 0.06);
+    border: 1px solid rgba(134, 232, 255, 0.34);
+    background: linear-gradient(180deg, rgba(210, 248, 255, 0.14), rgba(18, 38, 72, 0.24));
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-size: 0.72rem;
     font-weight: 700;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      inset 0 -8px 14px rgba(0, 0, 0, 0.2),
+      0 8px 18px rgba(0, 16, 38, 0.32);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  .persona-section-tab:hover {
+    transform: translateY(-2px);
+    color: #d9f4ff;
+    border-color: rgba(176, 244, 255, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      inset 0 -8px 14px rgba(0, 0, 0, 0.16),
+      0 12px 22px rgba(0, 164, 255, 0.22);
   }
 
   .persona-section-tab.active {
-    color: #fff;
-    border-color: transparent;
-    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #f4fdff;
+    border-color: rgba(194, 245, 255, 0.48);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 34%),
+      linear-gradient(135deg, var(--accent), var(--accent-deep));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 14px 26px rgba(0, 164, 255, 0.26);
   }
 
   .persona-editor-grid {
@@ -199,11 +219,29 @@ const editorStyles = `
     border: 0;
     border-radius: 999px;
     padding: 10px 16px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 34%),
+      linear-gradient(135deg, var(--accent), var(--accent-deep));
     color: #fff;
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    border: 1px solid rgba(194, 245, 255, 0.48);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 12px 22px rgba(0, 172, 255, 0.24);
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .persona-save-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.46),
+      0 16px 30px rgba(0, 172, 255, 0.3);
+  }
+
+  .persona-save-btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.995);
   }
 
   .persona-save-btn:disabled {

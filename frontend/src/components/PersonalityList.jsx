@@ -10,13 +10,27 @@ const listStyles = `
   }
 
   .personality-expand {
-    border: 1px solid rgba(0, 180, 255, 0.2);
-    background: rgba(0, 180, 255, 0.06);
+    border: 1px solid rgba(134, 232, 255, 0.34);
+    background: linear-gradient(180deg, rgba(208, 248, 255, 0.16), rgba(18, 40, 74, 0.24));
     color: var(--accent);
     border-radius: 999px;
     padding: 6px 10px;
     font-size: 0.72rem;
     font-weight: 700;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -8px 14px rgba(0, 0, 0, 0.2),
+      0 8px 16px rgba(0, 18, 42, 0.32);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  .personality-expand:hover {
+    transform: translateY(-2px);
+    border-color: rgba(176, 244, 255, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.36),
+      inset 0 -8px 14px rgba(0, 0, 0, 0.16),
+      0 12px 22px rgba(0, 164, 255, 0.2);
   }
 
   .personality-detail {
@@ -33,8 +47,10 @@ const listStyles = `
   }
 
   .choose-persona {
-    border: 1px solid rgba(0, 180, 255, 0.28);
-    background: linear-gradient(135deg, rgba(0, 200, 255, 0.18), rgba(0, 80, 220, 0.2));
+    border: 1px solid rgba(149, 237, 255, 0.38);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 34%),
+      linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(0, 80, 220, 0.26));
     color: #dff4ff;
     border-radius: 999px;
     padding: 7px 12px;
@@ -42,6 +58,20 @@ const listStyles = `
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      inset 0 -8px 16px rgba(0, 0, 0, 0.2),
+      0 10px 20px rgba(0, 166, 255, 0.2);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  .choose-persona:hover:not(:disabled) {
+    transform: translateY(-2px);
+    border-color: rgba(188, 246, 255, 0.56);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      inset 0 -8px 16px rgba(0, 0, 0, 0.16),
+      0 14px 24px rgba(0, 172, 255, 0.26);
   }
 
   .choose-persona:disabled {
