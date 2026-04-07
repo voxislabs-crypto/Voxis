@@ -17,8 +17,9 @@ const threeSceneStyles = `
   .neural-three-shell { position: absolute; inset: 0; }
 
   .neural-three-panel {
-    position: absolute; right: 18px; bottom: 18px; z-index: 2;
-    width: min(320px, calc(100% - 36px)); padding: 14px 16px;
+    position: absolute; right: 14px; bottom: 10px; z-index: 2;
+    width: min(286px, calc(100% - 28px)); max-height: 40vh; overflow: auto;
+    padding: 10px 12px;
     border-radius: 18px; border: 1px solid rgba(0,234,255,0.22);
     background: linear-gradient(180deg, rgba(4,12,24,0.9), rgba(5,10,22,0.78));
     box-shadow: 0 0 24px rgba(0,234,255,0.12); backdrop-filter: blur(14px);
@@ -89,7 +90,7 @@ function smoothNoise(t, freq, phase) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
-function CameraRig({ target, speed, controlsRef, orbActivityRef, paused = false }) {
+function CameraRig({ target, speed, controlsRef, orbActivityRef }) {
   const { camera } = useThree();
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
 
@@ -394,7 +395,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
 // GraphNode — orb + glow halo + BFS pulse + fluid drift + memory growth
 // pulseRef is { current: 0..1 } owned by NeuralScene, shared read/write
 // ─────────────────────────────────────────────────────────────────────────────
-function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomIntensityRef, allPulseRefs, strengthRef, hideLabels }) {
+function GraphNode({ node, selectedId, linkedIds, onSelect, onHoverStart, onHoverEnd, pulseRef, bloomIntensityRef, allPulseRefs, strengthRef, hideLabels }) {
   const groupRef = useRef(null);
   const meshRef  = useRef(null);
   const glowRef  = useRef(null);
@@ -489,6 +490,8 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
   return (
     <group ref={groupRef} position={node.position}
       onClick={(e) => { e.stopPropagation(); onSelect(node); }}
+      onPointerOver={(e) => { e.stopPropagation(); onHoverStart?.(node.id); }}
+      onPointerOut={(e) => { e.stopPropagation(); onHoverEnd?.(node.id); }}
     >
       {/* Tight diffuse shell */}
       <mesh ref={glowRef}>
@@ -523,12 +526,13 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
 // NeuralScene — owns all runtime state inside the Canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
-                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate, isHovered = false }) {
+                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
   const bloomRef       = useRef(1.35);
   const orbActivityRef = useRef(0);
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const lastEmitRef    = useRef(0);
   // Persistent Hebbian strength: nodeId → { strength, lastActivated }
   const strengthRef    = useRef(new Map());
@@ -676,11 +680,11 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
         speed={graph.moodState.speed} controlsRef={controlsRef}
-        orbActivityRef={orbActivityRef} paused={isHovered} />
+        orbActivityRef={orbActivityRef} />
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
         minDistance={3.5} maxDistance={18}
-        autoRotate={!isHovered} autoRotateSpeed={0.18 * graph.moodState.speed} />
+        autoRotate={!hoveredNodeId} autoRotateSpeed={0.18 * graph.moodState.speed} />
 
       <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
 
@@ -712,6 +716,10 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
           <GraphNode key={node.id} node={node}
             selectedId={selectedNode?.id} linkedIds={linkedIds}
             onSelect={handleSelect}
+            onHoverStart={setHoveredNodeId}
+            onHoverEnd={(nodeId) => {
+              setHoveredNodeId((current) => (current === nodeId ? null : current));
+            }}
             pulseRef={pr} bloomIntensityRef={bloomRef}
             allPulseRefs={pulseRefs} strengthRef={strengthRef}
             hideLabels={hideLabels}
@@ -731,7 +739,6 @@ export default function NeuralCoreThreeScene({
   scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
   repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
   valence, arousal, dominance, livePhaseBurst, hideLabels = false, onActivityUpdate,
-  isHovered = false,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
@@ -792,7 +799,6 @@ export default function NeuralCoreThreeScene({
           controlsRef={controlsRef}
           hideLabels={hideLabels}
           onActivityUpdate={onActivityUpdate}
-          isHovered={isHovered}
         />
       </Canvas>
 

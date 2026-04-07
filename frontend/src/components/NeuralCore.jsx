@@ -71,8 +71,10 @@ const neuralStyles = `
 
   .neural-overlay {
     position: absolute;
-    inset: 0;
+    inset: 10px;
     z-index: 10;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 180, 255, 0.18);
     background:
       radial-gradient(circle at 20% 14%, rgba(0, 200, 255, 0.14), transparent 38%),
       radial-gradient(circle at 82% 86%, rgba(196, 72, 255, 0.14), transparent 44%),
@@ -344,9 +346,9 @@ const neuralStyles = `
   .neural-focus-panel {
     position: absolute;
     right: 14px;
-    top: 76px;
-    width: min(380px, calc(100% - 28px));
-    max-height: calc(100% - 172px);
+    bottom: 70px;
+    width: min(340px, calc(100% - 28px));
+    max-height: min(42vh, calc(100% - 150px));
     overflow: auto;
     border-radius: 14px;
     border: 1px solid rgba(0, 180, 255, 0.2);
@@ -1061,7 +1063,6 @@ export default function NeuralCore({
   const [clickedNode, setClickedNode] = useState(null); // Track explicit user clicks
   const [tick, setTick] = useState(0);
   const [phaseBurst, setPhaseBurst] = useState("");
-  const [hovering, setHovering] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const performanceTier = resolvePerformanceTier(requestedPerformanceTier, mode, prefersReducedMotion);
@@ -1387,8 +1388,6 @@ export default function NeuralCore({
 
           <div
             className="neural-scene"
-            onMouseEnter={() => setHovering(true)}
-            onMouseLeave={() => setHovering(false)}
           >
             <div className="neural-assistive">
               {kidsMode
@@ -1423,7 +1422,6 @@ export default function NeuralCore({
             <NeuralCoreRenderer
               rendererType={rendererType}
               compact={false}
-              isHovered={hovering}
               performanceTier={performanceTier}
               kidsMode={kidsMode}
               repairActive={repairActive}
