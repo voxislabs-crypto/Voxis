@@ -17,8 +17,8 @@ const threeSceneStyles = `
   .neural-three-shell { position: absolute; inset: 0; }
 
   .neural-three-panel {
-    position: absolute; right: 14px; bottom: 10px; z-index: 2;
-    width: min(286px, calc(100% - 28px)); max-height: 40vh; overflow: auto;
+    position: absolute; right: 14px; bottom: 84px; z-index: 2;
+    width: min(312px, calc(100% - 28px)); max-height: 38vh; overflow: auto;
     padding: 10px 12px;
     border-radius: 18px; border: 1px solid rgba(0,234,255,0.22);
     background: linear-gradient(180deg, rgba(4,12,24,0.9), rgba(5,10,22,0.78));
@@ -300,7 +300,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
 
   useEffect(() => { startRef.current = start; endRef.current = end; }, [start, end]);
 
-  const SEGS = 5; // 5-segment polyline → more complex crackle
+  const SEGS = 9; // smoother pathway curve (brain-like fiber look)
 
   const { mainLine, mainPos, mainMat } = useMemo(() => {
     const arr = new Float32Array((SEGS + 1) * 3);
@@ -336,7 +336,7 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
     const e  = endRef.current;
     const t  = state.clock.elapsedTime * 0.5;
     const np = noisePhase.current;
-    const jScale = (highlighted ? 0.062 : 0.018) * (0.5 + weight * 0.5);
+    const jScale = (highlighted ? 0.032 : 0.012) * (0.5 + weight * 0.5);
 
     for (let i = 0; i <= SEGS; i++) {
       const f = i / SEGS;
@@ -355,12 +355,12 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
     }
     mainLine.geometry.attributes.position.needsUpdate = true;
 
-    const flicker = smoothNoise(t, highlighted ? 14 : 5.5, np);
+    const flicker = smoothNoise(t, highlighted ? 9 : 3.8, np);
     mainMat.opacity =
-      0.12 + flicker * 0.065 + weight * 0.30 + (highlighted ? 0.24 : 0) + activity * 0.12;
+      0.22 + flicker * 0.05 + weight * 0.34 + (highlighted ? 0.16 : 0) + activity * 0.14;
 
     // Fork — fires when highlighted and noise crosses threshold
-    const doFork = highlighted && smoothNoise(t, 2.1, np * 0.5) > 0.55;
+    const doFork = highlighted && smoothNoise(t, 1.8, np * 0.5) > 0.68;
     if (doFork) {
       const mf = 0.45 + smoothNoise(t, 1.3, np) * 0.1;
       const mx = s[0] + (e[0]-s[0])*mf;
@@ -532,7 +532,7 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   const pulseRefs      = useRef({});
   const bloomRef       = useRef(1.35);
   const orbActivityRef = useRef(0);
-  const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const networkGroupRef = useRef(null);
   const lastEmitRef    = useRef(0);
   // Persistent Hebbian strength: nodeId → { strength, lastActivated }
   const strengthRef    = useRef(new Map());
@@ -568,6 +568,15 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
   // influence brightness without relying on postprocessing passes.
   useFrame((_, delta) => {
     bloomRef.current = Math.max(1.35, bloomRef.current - delta * 2.8);
+  });
+
+  // Always-on cinematic network spin for a clear "living brain" feel.
+  useFrame((state, delta) => {
+    if (!networkGroupRef.current) return;
+    const t = state.clock.elapsedTime;
+    networkGroupRef.current.rotation.y += delta * (0.16 + graph.moodState.speed * 0.08);
+    networkGroupRef.current.rotation.z = Math.sin(t * 0.24) * 0.08;
+    networkGroupRef.current.rotation.x = Math.cos(t * 0.18) * 0.03;
   });
 
   // Build adjacency map for BFS
@@ -684,48 +693,46 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
         minDistance={3.5} maxDistance={18}
-        autoRotate={!hoveredNodeId} autoRotateSpeed={0.18 * graph.moodState.speed} />
+        autoRotate autoRotateSpeed={0.32 + graph.moodState.speed * 0.12} />
 
       <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
 
-      {/* Synaptic connections */}
-      {graph.connections.map((conn) => {
-        const src = graph.nodeMap.get(conn.sourceId);
-        const tgt = graph.nodeMap.get(conn.targetId);
-        if (!src || !tgt) return null;
-        const highlighted =
-          conn.sourceId === selectedNode?.id || conn.targetId === selectedNode?.id;
-        const onPulseArrive = () => {
-          const ref = pulseRefs.current[conn.targetId];
-          if (ref) ref.current = Math.max(ref.current, 0.45);
-        };
-        return (
-          <LightningConnection key={conn.key}
-            start={src.position} end={tgt.position}
-            color={conn.color} weight={conn.weight}
-            highlighted={highlighted} activity={conn.weight}
-            onPulseArrive={onPulseArrive}
-          />
-        );
-      })}
+      <group ref={networkGroupRef}>
+        {/* Synaptic connections */}
+        {graph.connections.map((conn) => {
+          const src = graph.nodeMap.get(conn.sourceId);
+          const tgt = graph.nodeMap.get(conn.targetId);
+          if (!src || !tgt) return null;
+          const highlighted =
+            conn.sourceId === selectedNode?.id || conn.targetId === selectedNode?.id;
+          const onPulseArrive = () => {
+            const ref = pulseRefs.current[conn.targetId];
+            if (ref) ref.current = Math.max(ref.current, 0.45);
+          };
+          return (
+            <LightningConnection key={conn.key}
+              start={src.position} end={tgt.position}
+              color={conn.color} weight={conn.weight}
+              highlighted={highlighted} activity={conn.weight}
+              onPulseArrive={onPulseArrive}
+            />
+          );
+        })}
 
-      {/* Nodes */}
-      {graph.nodes.map((node) => {
-        const pr = pulseRefs.current[node.id] || { current: 0 };
-        return (
-          <GraphNode key={node.id} node={node}
-            selectedId={selectedNode?.id} linkedIds={linkedIds}
-            onSelect={handleSelect}
-            onHoverStart={setHoveredNodeId}
-            onHoverEnd={(nodeId) => {
-              setHoveredNodeId((current) => (current === nodeId ? null : current));
-            }}
-            pulseRef={pr} bloomIntensityRef={bloomRef}
-            allPulseRefs={pulseRefs} strengthRef={strengthRef}
-            hideLabels={hideLabels}
-          />
-        );
-      })}
+        {/* Nodes */}
+        {graph.nodes.map((node) => {
+          const pr = pulseRefs.current[node.id] || { current: 0 };
+          return (
+            <GraphNode key={node.id} node={node}
+              selectedId={selectedNode?.id} linkedIds={linkedIds}
+              onSelect={handleSelect}
+              pulseRef={pr} bloomIntensityRef={bloomRef}
+              allPulseRefs={pulseRefs} strengthRef={strengthRef}
+              hideLabels={hideLabels}
+            />
+          );
+        })}
+      </group>
 
       {/* Disabled postprocessing bloom due production instability in EffectComposer. */}
     </>
