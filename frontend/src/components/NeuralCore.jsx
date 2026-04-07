@@ -834,38 +834,86 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
   return [];
 }
 
+// Categorize memory by type
+function categorizeMemory(memoryItem) {
+  const type = String(memoryItem?.memory_type || memoryItem?.type || "unknown").toLowerCase();
+  
+  if (type.includes("self") || type.includes("identity") || type.includes("core")) {
+    return "Personal (Self)";
+  }
+  if (type.includes("user") || type.includes("human")) {
+    return "Personal (User)";
+  }
+  if (type.includes("event") || type.includes("interaction")) {
+    return "Event Log";
+  }
+  if (type.includes("correction") || type.includes("repair") || type.includes("fix")) {
+    return "Corrections";
+  }
+  if (type.includes("emotion") || type.includes("mood") || type.includes("feeling")) {
+    return "Emotional Context";
+  }
+  return "General";
+}
+
 function buildFocusPanel(focusNode, latestDebug, personality, mode) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
-    const memories = [
+    const allMemories = [
       ...(latestDebug?.memoryInjected || []).map((item, index) => ({
         id: `inject-${index}`,
         source: "injected",
         label: item?.type || "memory",
         content: item?.content || "",
+        rawItem: item,
       })),
       ...(latestDebug?.userMemoryRetrieved || []).map((item, index) => ({
         id: `retrieved-${index}`,
         source: "retrieved",
         label: item?.memory_type || item?.type || "memory",
         content: item?.content || "",
+        rawItem: item,
       })),
     ];
 
-    if (!memories.length) {
+    if (!allMemories.length) {
       return {
         title: kidsMode ? "Memory Notes" : "Memory Reads",
         lines: [kidsMode ? "No big memories loaded this turn." : "No memories were loaded for this turn."],
+        isLeaf: false,
+        hasContent: false,
       };
     }
 
+    // Group memories by category
+    const categorized = {};
+    allMemories.forEach((mem) => {
+      const category = categorizeMemory(mem.rawItem);
+      if (!categorized[category]) {
+        categorized[category] = [];
+      }
+      categorized[category].push(mem);
+    });
+
+    // Build formatted lines with category headers
+    const lines = [];
+    Object.entries(categorized).forEach(([category, memories]) => {
+      lines.push(`[${category}]`);
+      memories.slice(0, 3).forEach((mem, idx) => {
+        const sourceLabel = mem.source === "injected" ? "Prompt" : "Store";
+        lines.push(`  ${idx + 1}. [${sourceLabel}] ${String(mem.label || "memory").replaceAll("_", " ")}`);
+        if (mem.content) {
+          lines.push(`      "${mem.content.substring(0, 60)}${mem.content.length > 60 ? "..." : ""}"`);
+        }
+      });
+    });
+
     return {
       title: kidsMode ? "Memory Notes" : "Memory Reads",
-      lines: memories.slice(0, 14).map((item, index) => {
-        const sourceLabel = item.source === "injected" ? "Prompt" : "Store";
-        return `${index + 1}. [${sourceLabel}] ${String(item.label || "memory").replaceAll("_", " ")} - ${item.content}`;
-      }),
+      lines: lines.slice(0, 24),
+      isLeaf: true,
+      hasContent: true,
     };
   }
 
@@ -875,6 +923,8 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
     return {
       title: "Intent Trace",
       lines: [`Goal: ${goal}`, `Source: ${source}`],
+      isLeaf: true,
+      hasContent: !!goal,
     };
   }
 
@@ -888,6 +938,8 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
     return {
       title: "Identity State",
       lines,
+      isLeaf: true,
+      hasContent: !!personality,
     };
   }
 
@@ -900,6 +952,8 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
         `Source count: ${latestDebug?.scientist?.sourceCount || 0}`,
         `Violations: ${violations.length ? violations.join(", ") : "none"}`,
       ],
+      isLeaf: true,
+      hasContent: true,
     };
   }
 
@@ -910,6 +964,8 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
       `Mode: ${mode}`,
       `Memory links: ${(latestDebug?.memoryInjected || []).length + (latestDebug?.userMemoryRetrieved || []).length}`,
     ],
+    isLeaf: false,
+    hasContent: false,
   };
 }
 
@@ -984,12 +1040,24 @@ export default function NeuralCore({
   const enabled = import.meta.env.VITE_NEURAL_CORE_ENABLED !== "false";
   const [expanded, setExpanded] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
+  const [clickedNode, setClickedNode] = useState(null); // Track explicit user clicks
   const [tick, setTick] = useState(0);
   const [phaseBurst, setPhaseBurst] = useState("");
   const [hovering, setHovering] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const performanceTier = resolvePerformanceTier(requestedPerformanceTier, mode, prefersReducedMotion);
+
+  // Handler for node clicks: tracks clicked node and shows panel only for leaf nodes
+  const handleNodeClick = (nodeName) => {
+    setFocusNode(nodeName);
+    // Only set clickedNode if it's a leaf node that will have a panel
+    if (nodeName !== "core") {
+      setClickedNode(nodeName);
+    } else {
+      setClickedNode(null); // Core is not a leaf, so don't show panel
+    }
+  };
 
   useEffect(() => {
     if (!enabled) {
@@ -1366,7 +1434,7 @@ export default function NeuralCore({
               dominance={dominance}
               personality={personality}
               focusNode={focusNode}
-              setFocusNode={setFocusNode}
+                setFocusNode={handleNodeClick}
               citationIssue={citationIssue}
               citationValid={citationValid}
               livePhaseBurst={phaseBurst}
@@ -1389,28 +1457,28 @@ export default function NeuralCore({
               <button
                 type="button"
                 className={`neural-focus-btn ${focusNode === "core" ? "active" : ""}`}
-                onClick={() => setFocusNode("core")}
+                onClick={() => handleNodeClick("core")}
               >
                 Core
               </button>
               <button
                 type="button"
                 className={`neural-focus-btn ${focusNode === "memory" ? "active" : ""}`}
-                onClick={() => setFocusNode("memory")}
+                onClick={() => handleNodeClick("memory")}
               >
                 Memory
               </button>
               <button
                 type="button"
                 className={`neural-focus-btn ${focusNode === "intent" ? "active" : ""}`}
-                onClick={() => setFocusNode("intent")}
+                onClick={() => handleNodeClick("intent")}
               >
                 Intent
               </button>
               <button
                 type="button"
                 className={`neural-focus-btn ${focusNode === "identity" ? "active" : ""}`}
-                onClick={() => setFocusNode("identity")}
+                onClick={() => handleNodeClick("identity")}
               >
                 Identity
               </button>
@@ -1418,23 +1486,26 @@ export default function NeuralCore({
                 <button
                   type="button"
                   className={`neural-focus-btn ${focusNode === "evidence" ? "active" : ""}`}
-                  onClick={() => setFocusNode("evidence")}
+                  onClick={() => handleNodeClick("evidence")}
                 >
                   Evidence
                 </button>
               ) : null}
             </div>
 
-            <div className="neural-focus-panel">
-              <h5>{focusPanel.title}</h5>
-              <div className="neural-focus-lines">
-                {focusPanel.lines.map((line, index) => (
-                  <p key={`${focusNode}-${index}`} className="neural-focus-line">
-                    {line}
-                  </p>
-                ))}
+            {/* Only show focus panel if: user clicked a node AND it's a leaf node AND has content */}
+            {clickedNode && focusPanel.isLeaf && focusPanel.hasContent && (
+              <div className="neural-focus-panel">
+                <h5>{focusPanel.title}</h5>
+                <div className="neural-focus-lines">
+                  {focusPanel.lines.map((line, index) => (
+                    <p key={`${focusNode}-${index}`} className="neural-focus-line">
+                      {line}
+                    </p>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
