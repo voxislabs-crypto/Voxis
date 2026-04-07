@@ -170,6 +170,7 @@ What this demonstrates in minutes:
 - UI control surfaces now include a futuristic glass-material pass (tabs, sidebar toggles, persona action buttons, and editor section controls) with specular highlights, layered depth shadows, and press/hover depth states.
 - The 3D Neural Core canvas now renders with transparent clear color so the global cyberpunk background video/shader stack can bleed through behind neural geometry.
 - Neural Core now listens for `webglcontextlost`/`webglcontextrestored`, lowers max DPR on the 3D canvas, and surfaces a lightweight recovery hint while the GPU context resets.
+- Pivot path: `NeuralSceneV2` Phase 1 now ships as an opt-in layered navigation model (`VITE_NEURAL_CORE_SCENE_MODEL=layered-v2`) with scene-stack depth, camera lerp zoom between layers, current-layer-only rendering, back/home controls, and leaf-node HUD handoff to the existing detail panel.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.
@@ -294,6 +295,7 @@ npm run dev
 - Frontend: `http://localhost:3100`
 
 > On the redesign branch, the Scientist-mode Neural Core defaults to the new 3D renderer. Set `VITE_NEURAL_CORE_RENDERER=svg` if you want to force the legacy SVG view.
+> Phase 1 pivot mode is opt-in: set `VITE_NEURAL_CORE_SCENE_MODEL=layered-v2` to use the new scene-stack/camera-depth `NeuralSceneV2` explorer.
 
 **Run services individually:**
 
