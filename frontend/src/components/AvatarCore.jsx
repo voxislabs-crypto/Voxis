@@ -144,22 +144,6 @@ const avatarStyles = `
     height: 100%;
   }
 
-  .avatar-face .mouth {
-    fill: none;
-    stroke: var(--eye);
-    stroke-width: 1.1;
-    stroke-linecap: round;
-    opacity: 0;
-    transform-origin: 50px 68px;
-    transform: scaleX(0.4);
-    transition: opacity 160ms ease, transform 160ms ease;
-  }
-
-  .avatar-core.state-speak .avatar-face .mouth {
-    opacity: 0.72;
-    transform: scaleX(1);
-  }
-
   .avatar-face .eye {
     fill: rgba(40, 216, 255, 0.18);
     stroke: var(--eye);
@@ -182,38 +166,48 @@ const avatarStyles = `
     opacity: 0.92;
   }
 
-  .avatar-wave {
+  .energy-mouth {
     position: absolute;
     left: 50%;
-    bottom: 19%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 3px;
-    align-items: flex-end;
-    pointer-events: none;
-  }
-
-  .avatar-wave span {
-    width: 3px;
+    bottom: 20%;
+    width: clamp(28px, 40%, 60px);
+    height: 2px;
     border-radius: 999px;
-    background: linear-gradient(180deg, var(--wave), #6d35ff);
-    box-shadow: 0 0 9px rgba(200, 72, 255, 0.62);
-    animation: avatarSpeak 760ms ease-in-out infinite;
+    background: rgba(0, 234, 255, 0.9);
+    box-shadow:
+      0 0 8px rgba(0, 234, 255, 0.55),
+      0 0 18px rgba(0, 234, 255, 0.22);
+    pointer-events: none;
+    transform: translateX(-50%) translateY(0) scaleX(0.72) skewX(0deg);
+    opacity: 0;
+    transition: opacity 120ms ease;
+    will-change: transform, filter, opacity;
   }
 
-  .avatar-wave.idle span {
-    animation-duration: 1.8s;
-    opacity: 0.62;
+  .energy-mouth.active {
+    opacity: 1;
   }
 
-  .avatar-wave.recover span {
-    animation-duration: 1.25s;
-    opacity: 0.74;
+  .energy-mouth::before,
+  .energy-mouth::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: inherit;
+    opacity: 0.5;
   }
 
-  .avatar-wave.burst span {
-    background: linear-gradient(180deg, var(--warm), var(--wave));
-    box-shadow: 0 0 10px rgba(255, 165, 89, 0.72);
+  .energy-mouth.active::before {
+    transform: translateY(calc(-1px - var(--mouth-split, 0px)));
+  }
+
+  .energy-mouth.active::after {
+    transform: translateY(calc(1px + var(--mouth-split, 0px)));
+  }
+
+  .energy-mouth.spike {
+    animation: mouthSpike 400ms ease-out;
   }
 
   .avatar-ghost-tail {
@@ -246,10 +240,10 @@ const avatarStyles = `
     100% { transform: scaleX(0.92); opacity: 0.44; }
   }
 
-  @keyframes avatarSpeak {
-    0% { transform: scaleY(0.34); opacity: 0.42; }
-    45% { transform: scaleY(1); opacity: 1; }
-    100% { transform: scaleY(0.34); opacity: 0.42; }
+  @keyframes mouthSpike {
+    0% { filter: brightness(1) blur(0px); }
+    45% { filter: brightness(2.1) blur(1.6px); }
+    100% { filter: brightness(1) blur(0px); }
   }
 
   @keyframes avatarBlink {
@@ -392,8 +386,10 @@ export default function AvatarCore({
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [animState, setAnimState] = useState("idle");
   const [spikeFlash, setSpikeFlash] = useState(false);
+  const [mouthJitter, setMouthJitter] = useState({ y: 0, scaleX: 1, skew: 0, split: 0 });
   const spikeFlashTimerRef = useRef(null);
   const recoverTimerRef = useRef(null);
+  const mouthTimerRef = useRef(null);
 
   // Spike flash: fires a 400ms CSS keyframe on every activitySpike rising edge
   useEffect(() => {
@@ -501,11 +497,44 @@ export default function AvatarCore({
   const pupilOffsetY = clamp(gaze.y * 1.8, -1.6, 1.6);
 
   const speakingWave = animState === "speak" || ["generation", "reply", "reply-complete"].includes(phase);
-  const waveClass = speakingWave
-    ? (phase === "intent" || phase === "mood" ? "burst" : "")
-    : animState === "recover"
-    ? "recover"
-    : "idle";
+  const mouthIntensity = clamp(
+    (speakingWave ? 0.38 : 0) +
+      Math.max(0, Number(arousal) || 0) * 0.3 +
+      Number(neuralActivity || 0) * 0.7 +
+      (["intent", "generation", "reply", "reply-complete"].includes(phase) ? 0.2 : 0),
+    0,
+    1,
+  );
+
+  useEffect(() => {
+    if (mouthTimerRef.current) {
+      window.clearInterval(mouthTimerRef.current);
+      mouthTimerRef.current = null;
+    }
+
+    if (!speakingWave) {
+      setMouthJitter({ y: 0, scaleX: 1, skew: 0, split: 0 });
+      return;
+    }
+
+    const tickMs = Math.max(26, Math.round(62 - mouthIntensity * 28));
+    mouthTimerRef.current = window.setInterval(() => {
+      const chaos = 0.4 + mouthIntensity * 1.35;
+      setMouthJitter({
+        y: (Math.random() * 2 - 1) * 1.8 * chaos,
+        scaleX: clamp(0.78 + Math.random() * 0.46 * chaos, 0.72, 1.42),
+        skew: (Math.random() * 2 - 1) * 8 * chaos,
+        split: clamp(Math.random() * 1.8 * chaos, 0, 3.4),
+      });
+    }, tickMs);
+
+    return () => {
+      if (mouthTimerRef.current) {
+        window.clearInterval(mouthTimerRef.current);
+        mouthTimerRef.current = null;
+      }
+    };
+  }, [mouthIntensity, speakingWave]);
 
   return (
     <div
@@ -523,14 +552,16 @@ export default function AvatarCore({
         <ellipse className="eye" cx="66" cy="48" rx="10" ry={mood.eyeOpen} style={{ animationDuration: mood.blinkDuration }} />
         <circle className="pupil" cx={36 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
         <circle className="pupil" cx={64 + pupilOffsetX} cy={48 + pupilOffsetY} r="2.2" />
-        <path className="mouth" d="M 44 68 Q 50 71 56 68" />
       </svg>
 
-      <div className={`avatar-wave ${waveClass}`.trim()}>
-        {[10, 16, 12, 20, 13, 17, 10].map((h, index) => (
-          <span key={`bar-${index}`} style={{ height: `${h}px`, animationDelay: `${index * 65}ms` }} />
-        ))}
-      </div>
+      <div
+        className={`energy-mouth ${speakingWave ? "active" : ""} ${activitySpike || spikeFlash ? "spike" : ""}`.trim()}
+        style={{
+          transform: `translateX(-50%) translateY(${mouthJitter.y.toFixed(2)}px) scaleX(${mouthJitter.scaleX.toFixed(3)}) skewX(${mouthJitter.skew.toFixed(2)}deg)`,
+          filter: `blur(${(mouthIntensity * 1.35).toFixed(2)}px) brightness(${(1 + mouthIntensity * 0.9).toFixed(2)}) saturate(${(1 + mouthIntensity).toFixed(2)})`,
+          "--mouth-split": `${mouthJitter.split.toFixed(2)}px`,
+        }}
+      />
 
       <div className="avatar-ghost-tail" />
     </div>
