@@ -166,6 +166,7 @@ What this demonstrates in minutes:
 - Background FX now always attempts to render the uploaded MP4 whenever FX is not `off`, with a cache-busted source path and graceful fallback to shader-only mode if video decode fails.
 - UI control surfaces now include a futuristic glass-material pass (tabs, sidebar toggles, persona action buttons, and editor section controls) with specular highlights, layered depth shadows, and press/hover depth states.
 - The 3D Neural Core canvas now renders with transparent clear color so the global cyberpunk background video/shader stack can bleed through behind neural geometry.
+- Neural Core now listens for `webglcontextlost`/`webglcontextrestored`, lowers max DPR on the 3D canvas, and surfaces a lightweight recovery hint while the GPU context resets.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.

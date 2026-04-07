@@ -926,9 +926,24 @@ export default function NeuralCoreThreeScene({
   const [burstSeq,   setBurstSeq]   = useState(0);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [sceneHovered, setSceneHovered] = useState(false);
+  const [contextLost, setContextLost] = useState(false);
+  const glCanvasRef = useRef(null);
+  const contextLostHandlerRef = useRef(null);
+  const contextRestoredHandlerRef = useRef(null);
 
   useEffect(() => { setSelectedId(focusNode || "core"); }, [focusNode]);
   useEffect(() => { if (livePhaseBurst) setBurstSeq((n) => n + 1); }, [livePhaseBurst]);
+
+  useEffect(() => {
+    return () => {
+      const canvas = glCanvasRef.current;
+      const onLost = contextLostHandlerRef.current;
+      const onRestored = contextRestoredHandlerRef.current;
+      if (!canvas) return;
+      if (onLost) canvas.removeEventListener("webglcontextlost", onLost, false);
+      if (onRestored) canvas.removeEventListener("webglcontextrestored", onRestored, false);
+    };
+  }, []);
 
   const graph = useMemo(() =>
     buildThreeGraphModel({
@@ -986,6 +1001,7 @@ export default function NeuralCoreThreeScene({
 
       <Canvas
         camera={{ position: [0, 0.15, 6], fov: 48 }}
+        dpr={[1, 1.2]}
         gl={{
           powerPreference: "low-power",
           antialias: false,
@@ -994,6 +1010,22 @@ export default function NeuralCoreThreeScene({
         }}
         onCreated={({ gl }) => {
           gl.setClearColor("#000000", 0);
+          glCanvasRef.current = gl.domElement;
+
+          const handleContextLost = (event) => {
+            event.preventDefault();
+            setContextLost(true);
+          };
+
+          const handleContextRestored = () => {
+            setContextLost(false);
+          };
+
+          contextLostHandlerRef.current = handleContextLost;
+          contextRestoredHandlerRef.current = handleContextRestored;
+
+          gl.domElement.addEventListener("webglcontextlost", handleContextLost, false);
+          gl.domElement.addEventListener("webglcontextrestored", handleContextRestored, false);
         }}
         onPointerEnter={() => setSceneHovered(true)}
         onPointerLeave={() => {
@@ -1022,6 +1054,12 @@ export default function NeuralCoreThreeScene({
           setHoveredNodeId={setHoveredNodeId}
         />
       </Canvas>
+
+      {contextLost && !hideLabels ? (
+        <div className="neural-three-hint" style={{ top: 46 }}>
+          GPU context reset detected. Recovering Neural Core...
+        </div>
+      ) : null}
 
       {!hideLabels && selectedNode && graph.nodes.length > 0 ? (
         <div className="neural-three-panel">
