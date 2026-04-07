@@ -96,6 +96,79 @@ function hashString(input = "") {
   return Math.abs(h);
 }
 
+function CortexVeins({ moodState }) {
+  const VEIN_COUNT = 14;
+  const SEGS = 14;
+
+  const veins = useMemo(() => {
+    return Array.from({ length: VEIN_COUNT }, (_, idx) => {
+      const arr = new Float32Array((SEGS + 1) * 3);
+      const geo = new THREE.BufferGeometry();
+      const attr = new THREE.BufferAttribute(arr, 3);
+      attr.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute("position", attr);
+
+      const color = idx % 3 === 0 ? moodState.accent : idx % 3 === 1 ? moodState.secondary : "#7cc7ff";
+      const mat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.06,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const line = new THREE.Line(geo, mat);
+
+      return {
+        line,
+        arr,
+        mat,
+        seed: idx * 17.31 + 3.7,
+        baseX: -7 + ((idx % 7) * 2.1),
+        baseY: -3.6 + (Math.floor(idx / 7) * 3.6),
+        z: -2.8 - (idx % 4) * 0.22,
+      };
+    });
+  }, [moodState.accent, moodState.secondary]);
+
+  useEffect(() => () => {
+    veins.forEach((vein) => {
+      vein.line.geometry.dispose();
+      vein.mat.dispose();
+    });
+  }, [veins]);
+
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    const speed = 0.2 + moodState.speed * 0.3;
+
+    veins.forEach((vein, index) => {
+      const seed = vein.seed;
+      for (let i = 0; i <= SEGS; i += 1) {
+        const f = i / SEGS;
+        const spread = 3.3 + (index % 5) * 0.28;
+        const drift = Math.sin(t * speed + seed + f * 6.2) * 0.18;
+        const branch = Math.sin(t * (speed * 1.7) + seed * 0.7 + f * 12.5) * 0.12;
+
+        vein.arr[i * 3] = vein.baseX + (f - 0.5) * spread + drift;
+        vein.arr[(i * 3) + 1] = vein.baseY + Math.sin(f * Math.PI * 2.1 + seed) * 0.72 + branch;
+        vein.arr[(i * 3) + 2] = vein.z + Math.cos(t * 0.22 + f * 5.6 + seed) * 0.05;
+      }
+
+      vein.line.geometry.attributes.position.needsUpdate = true;
+      vein.mat.opacity = 0.035 + Math.sin(t * 1.3 + seed) * 0.012 + moodState.speed * 0.018;
+    });
+  });
+
+  return (
+    <group>
+      {veins.map((vein, idx) => (
+        <primitive key={`cortex-vein-${idx}`} object={vein.line} />
+      ))}
+    </group>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
@@ -774,6 +847,8 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
       <Stars radius={28} depth={18} count={160} factor={0.8}
         saturation={0} fade speed={graph.moodState.speed * 0.3} />
+
+      <CortexVeins moodState={graph.moodState} />
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
         speed={graph.moodState.speed} controlsRef={controlsRef}
