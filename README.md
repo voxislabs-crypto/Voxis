@@ -161,7 +161,7 @@ What this demonstrates in minutes:
 - Chat mode now includes a `normal` toggle (policy-aware end-to-end). In normal mode, Scientist-style section-heavy assistant replies are rendered as conversational output with the rigid "Answer" heading removed and any "Next Questions" shown as a smaller secondary block.
 - Saved personas are now minimized by default with expandable details and an explicit `Choose Persona` action for cleaner selection flow.
 - Neural Core focus now opens a readable side panel (especially for memory focus) with line-by-line retrieval details while suppressing memory-child visual clutter.
-- Added a dedicated `Persona Editor` tab to edit core persona identity, behavior lists, and neural-expression/mood baseline controls in one place, with Memory Journal controls embedded.
+- Added a dedicated `Persona Editor` tab with split sections (`Basic`, `Behavior`, `Neural`, `Memory`) to edit core identity, style rules, Big Five/alignment, expression tuning, and memory controls without leaving the editor flow.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
 ---
