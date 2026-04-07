@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, Line, OrbitControls, Stars } from "@react-three/drei";
+import { Html, OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 
 const sceneV2Styles = `
@@ -168,47 +168,57 @@ function computeNodePosition(nodeId, index, total, depth) {
   ];
 }
 
-function quadraticPoint(start, control, end, t) {
-  const inv = 1 - t;
-  const x = inv * inv * start[0] + 2 * inv * t * control[0] + t * t * end[0];
-  const y = inv * inv * start[1] + 2 * inv * t * control[1] + t * t * end[1];
-  const z = inv * inv * start[2] + 2 * inv * t * control[2] + t * t * end[2];
-  return [x, y, z];
-}
-
-function ConnectionPulse({ start, control, end, color, phaseSeed = 0 }) {
+function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
   const pulseRef = useRef(null);
 
+  const { lineObj, points } = useMemo(() => {
+    const archX = (start[0] + end[0]) / 2 + (((phaseSeed * 317) % 100) / 100 - 0.5) * 0.18;
+    const archY = (start[1] + end[1]) / 2 + 0.24 + ((phaseSeed % 7) * 0.03);
+    const archZ = (start[2] + end[2]) / 2;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(start[0], start[1], start[2]),
+      new THREE.Vector3(archX, archY, archZ),
+      new THREE.Vector3(end[0], end[1], end[2]),
+    ]);
+    const pts = curve.getPoints(42);
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.42 });
+    return { lineObj: new THREE.Line(geo, mat), points: pts };
+  }, [phaseSeed]); // phaseSeed encodes layer+index; layer change remounts this component
+
+  useEffect(() => () => {
+    lineObj.geometry.dispose();
+    lineObj.material.dispose();
+  }, [lineObj]);
+
   useFrame(({ clock }) => {
-    if (!pulseRef.current) return;
+    if (!pulseRef.current || !points.length) return;
     const t = (clock.getElapsedTime() * 0.42 + phaseSeed * 0.17) % 1;
-    const [x, y, z] = quadraticPoint(start, control, end, t);
-    pulseRef.current.position.set(x, y, z);
+    const idx = Math.min(Math.floor(t * points.length), points.length - 1);
+    const pt = points[idx];
+    pulseRef.current.position.set(pt.x, pt.y, pt.z);
   });
 
   return (
-    <mesh ref={pulseRef}>
-      <sphereGeometry args={[0.04, 12, 12]} />
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} roughness={0.15} metalness={0.55} />
-    </mesh>
+    <group>
+      <primitive object={lineObj} />
+      <mesh ref={pulseRef}>
+        <sphereGeometry args={[0.04, 8, 8]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} roughness={0.1} metalness={0.5} />
+      </mesh>
+    </group>
   );
 }
 
 function LayerConnections({ currentLayer }) {
   const depth = currentLayer.depth;
-  const center = [0, 0, -depth * 8];
+  const center = useMemo(() => [0, 0, -depth * 8], [depth]);
 
   return (
     <group>
       {currentLayer.nodes.map((node, index) => {
         const total = currentLayer.nodes.length;
         const target = computeNodePosition(node.id, index, total, depth);
-        const arch = 0.32 + ((index % 5) * 0.06);
-        const control = [
-          (center[0] + target[0]) / 2,
-          (center[1] + target[1]) / 2 + arch,
-          (center[2] + target[2]) / 2,
-        ];
         const color = node.type === "leaf"
           ? "#5ae2ff"
           : node.type === "memory"
@@ -216,22 +226,13 @@ function LayerConnections({ currentLayer }) {
           : "#9fb0ff";
 
         return (
-          <group key={`conn-${node.id}`}>
-            <Line
-              points={[center, control, target]}
-              color={color}
-              transparent
-              opacity={0.42}
-              lineWidth={0.9}
-            />
-            <ConnectionPulse
-              start={center}
-              control={control}
-              end={target}
-              color={color}
-              phaseSeed={index + depth * 11}
-            />
-          </group>
+          <ConnectionLine
+            key={`conn-${node.id}`}
+            start={center}
+            end={target}
+            color={color}
+            phaseSeed={index + depth * 11}
+          />
         );
       })}
     </group>
@@ -239,16 +240,21 @@ function LayerConnections({ currentLayer }) {
 }
 
 function RadialNode({ node, index, total, depth, onClick }) {
+  const groupRef = useRef(null);
   const meshRef = useRef(null);
   const offset = useMemo(() => hashOffset(node.id), [node.id]);
-  const position = useMemo(() => computeNodePosition(node.id, index, total, depth), [node.id, index, total, depth]);
+  const basePosition = useMemo(() => computeNodePosition(node.id, index, total, depth), [node.id, index, total, depth]);
 
   useFrame(({ clock }) => {
-    if (!meshRef.current) return;
     const t = clock.getElapsedTime() + (offset % 17) * 0.11;
-    const pulse = 1 + Math.sin(t * 2.2) * 0.06;
-    meshRef.current.scale.setScalar(pulse);
-    meshRef.current.material.emissiveIntensity = 1.2 + Math.sin(t * 1.7) * 0.35;
+    if (groupRef.current) {
+      groupRef.current.position.y = basePosition[1] + Math.sin(t * 0.82 + offset * 0.003) * 0.09;
+    }
+    if (meshRef.current) {
+      const pulse = 1 + Math.sin(t * 2.2) * 0.05;
+      meshRef.current.scale.setScalar(pulse);
+      meshRef.current.material.emissiveIntensity = 1.2 + Math.sin(t * 1.7) * 0.35;
+    }
   });
 
   const color = node.type === "leaf"
@@ -258,15 +264,15 @@ function RadialNode({ node, index, total, depth, onClick }) {
     : "#96a2ff";
 
   return (
-    <group>
-      <mesh ref={meshRef} position={position} onClick={(event) => { event.stopPropagation(); onClick(node, position); }}>
+    <group ref={groupRef} position={basePosition}>
+      <mesh ref={meshRef} onClick={(event) => { event.stopPropagation(); onClick(node, basePosition); }}>
         <sphereGeometry args={[0.23, 28, 28]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.3} roughness={0.2} metalness={0.55} />
       </mesh>
-      <Html position={[position[0], position[1] - 0.41, position[2]]} center>
+      <Html position={[0, -0.41, 0]} center>
         <div className="neural-v2-label">{node.label}</div>
       </Html>
-      <mesh position={[position[0], position[1], position[2]]}>
+      <mesh>
         <ringGeometry args={[0.27, 0.32, 32]} />
         <meshBasicMaterial color={color} transparent opacity={0.32} side={THREE.DoubleSide} />
       </mesh>
