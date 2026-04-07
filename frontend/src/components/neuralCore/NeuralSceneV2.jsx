@@ -24,11 +24,11 @@ const sceneV2Styles = `
     border-radius: 999px;
     background: linear-gradient(180deg, rgba(214, 248, 255, 0.16), rgba(14, 30, 56, 0.24));
     color: #c9f4ff;
-    font-size: 0.68rem;
+    font-size: 0.51rem;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-weight: 800;
-    padding: 6px 10px;
+    padding: 4px 8px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 18px rgba(0, 16, 38, 0.3);
   }
 
@@ -48,20 +48,20 @@ const sceneV2Styles = `
     border: 1px solid rgba(100, 220, 255, 0.24);
     background: rgba(6, 18, 34, 0.72);
     color: #9fe7ff;
-    padding: 4px 9px;
-    font-size: 0.68rem;
+    padding: 3px 7px;
+    font-size: 0.51rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-weight: 700;
   }
 
   .neural-v2-label {
-    padding: 3px 8px;
+    padding: 2px 6px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(4, 14, 28, 0.82);
     color: #d9f8ff;
-    font-size: 10px;
+    font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -155,10 +155,10 @@ function NeuralMetricsProbe({ onSample }) {
 function computeNodePosition(nodeId, index, total, depth) {
   const offset = hashOffset(nodeId);
   const angle = (Math.PI * 2 * index) / Math.max(1, total);
-  const radius = Math.max(2.1, Math.min(3.1, 2.5 + (total - 5) * 0.06));
-  const jitter = ((offset % 100) / 100 - 0.5) * 0.25;
-  const zJitter = (((offset / 100) % 100) / 100 - 0.5) * 0.5;
-  const yLift = Math.sin(offset * 0.01) * 0.08;
+  const radius = Math.max(1.05, Math.min(1.55, 1.25 + (total - 5) * 0.03));
+  const jitter = ((offset % 100) / 100 - 0.5) * 0.19;
+  const zJitter = (((offset / 100) % 100) / 100 - 0.5) * 0.38;
+  const yLift = Math.sin(offset * 0.01) * 0.06;
   const zBase = -depth * 8;
 
   return [
@@ -188,7 +188,7 @@ function ConnectionPulse({ start, control, end, color, phaseSeed = 0 }) {
 
   return (
     <mesh ref={pulseRef}>
-      <sphereGeometry args={[0.05, 12, 12]} />
+      <sphereGeometry args={[0.04, 12, 12]} />
       <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} roughness={0.15} metalness={0.55} />
     </mesh>
   );
@@ -203,7 +203,7 @@ function LayerConnections({ currentLayer }) {
       {currentLayer.nodes.map((node, index) => {
         const total = currentLayer.nodes.length;
         const target = computeNodePosition(node.id, index, total, depth);
-        const arch = 0.42 + ((index % 5) * 0.08);
+        const arch = 0.32 + ((index % 5) * 0.06);
         const control = [
           (center[0] + target[0]) / 2,
           (center[1] + target[1]) / 2 + arch,
@@ -222,7 +222,7 @@ function LayerConnections({ currentLayer }) {
               color={color}
               transparent
               opacity={0.42}
-              lineWidth={1.2}
+              lineWidth={0.9}
             />
             <ConnectionPulse
               start={center}
@@ -260,14 +260,14 @@ function RadialNode({ node, index, total, depth, onClick }) {
   return (
     <group>
       <mesh ref={meshRef} position={position} onClick={(event) => { event.stopPropagation(); onClick(node, position); }}>
-        <sphereGeometry args={[0.3, 28, 28]} />
+        <sphereGeometry args={[0.23, 28, 28]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.3} roughness={0.2} metalness={0.55} />
       </mesh>
-      <Html position={[position[0], position[1] - 0.54, position[2]]} center>
+      <Html position={[position[0], position[1] - 0.41, position[2]]} center>
         <div className="neural-v2-label">{node.label}</div>
       </Html>
       <mesh position={[position[0], position[1], position[2]]}>
-        <ringGeometry args={[0.36, 0.42, 32]} />
+        <ringGeometry args={[0.27, 0.32, 32]} />
         <meshBasicMaterial color={color} transparent opacity={0.32} side={THREE.DoubleSide} />
       </mesh>
     </group>
@@ -281,7 +281,7 @@ function SceneLayer({ currentLayer, onNodeSelect }) {
   return (
     <>
       <mesh position={center}>
-        <sphereGeometry args={[0.45, 32, 32]} />
+        <sphereGeometry args={[0.34, 32, 32]} />
         <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2} roughness={0.2} metalness={0.5} />
       </mesh>
 
