@@ -124,12 +124,14 @@ function hashOffset(id = "") {
 function CameraDepthRig({ depth }) {
   const { camera } = useThree();
 
-  useFrame((_, delta) => {
+  useFrame(({ clock }, delta) => {
+    const t = clock.getElapsedTime();
     const targetZ = -depth * 8;
-    const target = new THREE.Vector3(0, 0, targetZ);
-    const desired = new THREE.Vector3(0, 0.18, targetZ + 6.6);
+    const idleX = Math.sin(t * 0.18) * 0.14;
+    const idleY = Math.cos(t * 0.14) * 0.09;
+    const desired = new THREE.Vector3(idleX, 0.18 + idleY, targetZ + 6.6);
     camera.position.lerp(desired, 1 - Math.exp(-delta * 4.6));
-    camera.lookAt(target);
+    camera.lookAt(new THREE.Vector3(0, 0, targetZ));
   });
 
   return null;
@@ -169,48 +171,62 @@ function computeNodePosition(nodeId, index, total, depth) {
 }
 
 function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
-  const pulseRef = useRef(null);
+  const particlesRef = useRef(null);
+  const PARTICLE_COUNT = 8;
 
-  const { lineObj, points } = useMemo(() => {
+  const { lineObj, curve } = useMemo(() => {
     const archX = (start[0] + end[0]) / 2 + (((phaseSeed * 317) % 100) / 100 - 0.5) * 0.18;
     const archY = (start[1] + end[1]) / 2 + 0.24 + ((phaseSeed % 7) * 0.03);
     const archZ = (start[2] + end[2]) / 2;
-    const curve = new THREE.CatmullRomCurve3([
+    const c = new THREE.CatmullRomCurve3([
       new THREE.Vector3(start[0], start[1], start[2]),
       new THREE.Vector3(archX, archY, archZ),
       new THREE.Vector3(end[0], end[1], end[2]),
     ]);
-    const pts = curve.getPoints(42);
+    const pts = c.getPoints(42);
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.42 });
-    return { lineObj: new THREE.Line(geo, mat), points: pts };
-  }, [phaseSeed]); // phaseSeed encodes layer+index; layer change remounts this component
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.38 });
+    return { lineObj: new THREE.Line(geo, mat), curve: c };
+  }, [phaseSeed]);
+
+  const particleGeo = useMemo(() => {
+    const arr = new Float32Array(PARTICLE_COUNT * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+    return geo;
+  }, []);
 
   useEffect(() => () => {
     lineObj.geometry.dispose();
     lineObj.material.dispose();
-  }, [lineObj]);
+    particleGeo.dispose();
+  }, [lineObj, particleGeo]);
 
   useFrame(({ clock }) => {
-    if (!pulseRef.current || !points.length) return;
-    const t = (clock.getElapsedTime() * 0.42 + phaseSeed * 0.17) % 1;
-    const idx = Math.min(Math.floor(t * points.length), points.length - 1);
-    const pt = points[idx];
-    pulseRef.current.position.set(pt.x, pt.y, pt.z);
+    if (!particlesRef.current) return;
+    const t = (clock.getElapsedTime() * 0.32 + phaseSeed * 0.07) % 1;
+    const positions = particlesRef.current.geometry.attributes.position.array;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const offset = (i / PARTICLE_COUNT + t) % 1;
+      const pt = curve.getPoint(offset);
+      positions[i * 3] = pt.x;
+      positions[i * 3 + 1] = pt.y;
+      positions[i * 3 + 2] = pt.z;
+    }
+    particlesRef.current.geometry.attributes.position.needsUpdate = true;
   });
 
   return (
     <group>
       <primitive object={lineObj} />
-      <mesh ref={pulseRef}>
-        <sphereGeometry args={[0.04, 8, 8]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} roughness={0.1} metalness={0.5} />
-      </mesh>
+      <points ref={particlesRef} geometry={particleGeo}>
+        <pointsMaterial color={color} size={0.055} transparent opacity={0.9} sizeAttenuation />
+      </points>
     </group>
   );
 }
 
-function LayerConnections({ currentLayer }) {
+function LayerConnections({ currentLayer, personaState }) {
   const depth = currentLayer.depth;
   const center = useMemo(() => [0, 0, -depth * 8], [depth]);
 
@@ -219,11 +235,12 @@ function LayerConnections({ currentLayer }) {
       {currentLayer.nodes.map((node, index) => {
         const total = currentLayer.nodes.length;
         const target = computeNodePosition(node.id, index, total, depth);
-        const color = node.type === "leaf"
+        const typeColor = node.type === "leaf"
           ? "#5ae2ff"
           : node.type === "memory"
           ? "#ffc16b"
           : "#9fb0ff";
+        const color = personaState?.moodColor || typeColor;
 
         return (
           <ConnectionLine
@@ -280,7 +297,7 @@ function RadialNode({ node, index, total, depth, onClick }) {
   );
 }
 
-function SceneLayer({ currentLayer, onNodeSelect }) {
+function SceneLayer({ currentLayer, onNodeSelect, personaState }) {
   const depth = currentLayer.depth;
   const center = [0, 0, -depth * 8];
 
@@ -291,7 +308,7 @@ function SceneLayer({ currentLayer, onNodeSelect }) {
         <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2} roughness={0.2} metalness={0.5} />
       </mesh>
 
-      <LayerConnections currentLayer={currentLayer} />
+      <LayerConnections currentLayer={currentLayer} personaState={personaState} />
 
       {currentLayer.nodes.map((node, index) => {
         const total = currentLayer.nodes.length;
@@ -327,6 +344,7 @@ export default function NeuralSceneV2({
   onLeafNodeSelect,
   onFocusNodeChange,
   onDepthChange,
+  personaState = null,
 }) {
   const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
   const [transitionKey, setTransitionKey] = useState(0);
@@ -484,7 +502,7 @@ export default function NeuralSceneV2({
         <OrbitControls key={controlsResetToken} enablePan={false} enableZoom minDistance={3.2} maxDistance={13} />
         <NeuralMetricsProbe onSample={setFps} />
 
-        <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} />
+        <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} personaState={personaState} />
       </Canvas>
 
       <div className="neural-v2-debug">
