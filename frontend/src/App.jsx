@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth, UserButton, SignIn, SignUp } from "@clerk/react";
 
 import { useAuthFetch } from "./hooks/useAuthFetch.js";
+import usePrefersReducedMotion from "./hooks/usePrefersReducedMotion.js";
 import PersonalityForm from "./components/PersonalityForm.jsx";
 import PersonalityList from "./components/PersonalityList.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
@@ -56,6 +57,7 @@ const appStyles = `
   }
 
   #root {
+    position: relative;
     min-height: 100vh;
   }
 
@@ -431,8 +433,44 @@ const appStyles = `
     mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
   }
 
+  .background-stack {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .cyberpunk-bg-video {
+    position: absolute;
+    inset: -4%;
+    width: 108%;
+    height: 108%;
+    object-fit: cover;
+    opacity: 0.22;
+    filter: blur(8px) saturate(1.06) contrast(1.05);
+    transform: scale(1.05);
+    animation: bgDrift 22s ease-in-out infinite alternate;
+  }
+
+  .cyberpunk-bg-shader {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.72;
+    mix-blend-mode: screen;
+  }
+
+  @keyframes bgDrift {
+    0% { transform: scale(1.05) translate3d(-1.2%, -0.8%, 0); }
+    50% { transform: scale(1.09) translate3d(1.2%, 0.6%, 0); }
+    100% { transform: scale(1.07) translate3d(-0.4%, 1.1%, 0); }
+  }
+
   .app-shell {
     position: relative;
+    z-index: 2;
     width: min(1500px, calc(100vw - 24px));
     padding: 18px 0 26px;
   }
@@ -607,6 +645,27 @@ const appStyles = `
       max-height: none;
     }
   }
+
+  @media (max-width: 720px) {
+    .cyberpunk-bg-video {
+      opacity: 0.17;
+      filter: blur(6px) saturate(1.04);
+    }
+
+    .cyberpunk-bg-shader {
+      opacity: 0.6;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cyberpunk-bg-video {
+      animation: none;
+    }
+
+    .cyberpunk-bg-shader {
+      opacity: 0.48;
+    }
+  }
 `;
 
 export default function App() {
@@ -634,6 +693,12 @@ export default function App() {
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
   const [neuralToast, setNeuralToast] = useState(null);
+  const backgroundCanvasRef = useRef(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
 
   function parseSseEvent(chunk) {
     const lines = String(chunk || "").split("\n");
@@ -843,6 +908,17 @@ export default function App() {
     [selectedUserId, userProfiles],
   );
 
+  const backgroundMood = useMemo(() => {
+    const rawMood = selectedPersonality?.moodState || {};
+    return {
+      valence: clamp(Number(rawMood.valence || 0), -1, 1),
+      arousal: clamp(Number(rawMood.arousal || 0.35), 0, 1),
+      dominance: clamp(Number(rawMood.dominance || 0), -1, 1),
+    };
+  }, [selectedPersonality]);
+
+  const activePhase = selectedId ? liveChatState[selectedId]?.phase || "" : "";
+
   const authPath = useMemo(() => {
     if (typeof window === "undefined") {
       return "/";
@@ -926,6 +1002,110 @@ export default function App() {
       supervisedAdvancedMode: Boolean(selectedUserProfile.supervisedAdvancedMode),
     });
   }, [selectedUserProfile]);
+
+  useEffect(() => {
+    const canvas = backgroundCanvasRef.current;
+    if (!canvas) {
+      return undefined;
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return undefined;
+    }
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let frameId = 0;
+
+    function resize() {
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.scale(dpr, dpr);
+    }
+
+    function paint(timeMs) {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const time = timeMs * 0.001;
+
+      const phaseBoost = activePhase === "thinking" || activePhase === "llm"
+        ? 18
+        : activePhase === "memory"
+        ? -10
+        : 0;
+      const hueA = 194 + backgroundMood.valence * 44 + phaseBoost;
+      const hueB = 306 + backgroundMood.dominance * 36;
+      const drift = 0.12 + backgroundMood.arousal * 0.38;
+
+      context.clearRect(0, 0, width, height);
+
+      const gradient = context.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, `hsla(${hueA.toFixed(1)}, 88%, 42%, 0.16)`);
+      gradient.addColorStop(0.55, `hsla(${(hueA + 20).toFixed(1)}, 78%, 38%, 0.11)`);
+      gradient.addColorStop(1, `hsla(${hueB.toFixed(1)}, 76%, 48%, 0.14)`);
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, width, height);
+
+      const orbCount = prefersReducedMotion ? 2 : 5;
+      for (let i = 0; i < orbCount; i += 1) {
+        const ratio = (i + 1) / (orbCount + 1);
+        const wobbleX = Math.sin(time * (0.3 + ratio * drift) + i * 1.7);
+        const wobbleY = Math.cos(time * (0.28 + ratio * drift) + i * 2.1);
+        const cx = width * ratio + wobbleX * width * 0.08;
+        const cy = height * (0.26 + ratio * 0.48) + wobbleY * height * 0.08;
+        const radius = Math.max(width, height) * (0.12 + ratio * 0.08);
+        const orb = context.createRadialGradient(cx, cy, radius * 0.06, cx, cy, radius);
+        orb.addColorStop(0, `hsla(${(hueA + i * 10).toFixed(1)}, 98%, 70%, 0.20)`);
+        orb.addColorStop(0.44, `hsla(${(hueB - i * 8).toFixed(1)}, 84%, 58%, 0.08)`);
+        orb.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = orb;
+        context.beginPath();
+        context.arc(cx, cy, radius, 0, Math.PI * 2);
+        context.fill();
+      }
+
+      if (!prefersReducedMotion) {
+        frameId = window.requestAnimationFrame(paint);
+      }
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+
+    if (prefersReducedMotion) {
+      paint(0);
+    } else {
+      frameId = window.requestAnimationFrame(paint);
+    }
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [activePhase, backgroundMood, prefersReducedMotion]);
+
+  const backgroundLayer = (
+    <div className="background-stack" aria-hidden="true">
+      {!prefersReducedMotion ? (
+        <video
+          className="cyberpunk-bg-video"
+          src="/cyberpunk-bg.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="metadata"
+          tabIndex={-1}
+        />
+      ) : null}
+      <canvas ref={backgroundCanvasRef} className="cyberpunk-bg-shader" />
+    </div>
+  );
 
   async function loadCurrentUser() {
     try {
@@ -1336,7 +1516,8 @@ export default function App() {
     return (
       <>
         <style>{appStyles}</style>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
+        {backgroundLayer}
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", position: "relative", zIndex: 2 }}>
           {showSignUp ? (
             <SignUp
               routing="virtual"
@@ -1358,6 +1539,7 @@ export default function App() {
   return (
     <>
       <style>{appStyles}</style>
+      {backgroundLayer}
       {neuralToast ? (
         <div className="global-toast-stack" aria-live="polite" aria-atomic="true">
           <div className={`global-toast ${neuralToast.kind}`}>

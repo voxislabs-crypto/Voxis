@@ -49,3 +49,16 @@ Run a focused production smoke pass on the newest commit: auth bootstrap, LLM se
 2. Verify personality tuning changes in UI: edit an existing persona, save, and confirm prompt behavior is less formal in casual chat.
 3. Start next feature: split TTS into a dedicated Voice Lab tab while keeping quick play/autoplay controls in chat.
 4. If time remains, run a short API-doc drift check after any new routes added for Voice Lab.
+
+## In Progress / Next Visual Upgrades (2026-04-07)
+
+- Emotion-mapped mouth animation: Already implemented and validated in AvatarCore (valence/arousal/phase → mouth motion, color, style).
+- Video background: Added cyberpunk-bg.mp4 as a visually pleasant, blurred, low-opacity background. File moved to frontend/public/ for static serving.
+- Shader background: Implemented mood-reactive canvas layer in App.jsx (valence/arousal/dominance + live phase influence), with reduced-motion fallback and mobile opacity tuning.
+
+### Next Steps (pending user return)
+- Validate video background loads and performs well in longer sessions (desktop + mobile).
+- (Optional) Further compress/optimize video if needed for performance.
+- Tune shader color/energy mapping against real chat phases (thinking/memory/reply/rate-limit) if stronger differentiation is desired.
+- Review and polish any remaining UI/UX details for the cyberpunk background layer.
+- Update README and commit/push after major visual changes (per user workflow preference).
