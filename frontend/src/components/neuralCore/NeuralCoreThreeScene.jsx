@@ -87,6 +87,15 @@ function smoothNoise(t, freq, phase) {
   );
 }
 
+function hashString(input = "") {
+  let h = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    h = ((h << 5) - h) + input.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
@@ -391,6 +400,78 @@ function LightningConnection({ start, end, color, weight, highlighted, activity,
   );
 }
 
+function NodeFibers({ nodeId, radius, color, activity, selected }) {
+  const seed = useMemo(() => hashString(nodeId) % 1000, [nodeId]);
+  const FIBERS = 5;
+  const SEGS = 6;
+
+  const fibers = useMemo(() => {
+    return Array.from({ length: FIBERS }, (_, i) => {
+      const arr = new Float32Array((SEGS + 1) * 3);
+      const geo = new THREE.BufferGeometry();
+      const attr = new THREE.BufferAttribute(arr, 3);
+      attr.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute("position", attr);
+      const mat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.22,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const line = new THREE.Line(geo, mat);
+      return {
+        line,
+        arr,
+        mat,
+        phase: (seed * 0.013) + i * 1.27,
+        baseAngle: (Math.PI * 2 * i) / FIBERS,
+      };
+    });
+  }, [FIBERS, SEGS, color, seed]);
+
+  useEffect(() => () => {
+    fibers.forEach((fiber) => {
+      fiber.line.geometry.dispose();
+      fiber.mat.dispose();
+    });
+  }, [fibers]);
+
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    fibers.forEach((fiber, idx) => {
+      const amp = 0.03 + activity * 0.06 + (selected ? 0.05 : 0);
+      const reach = radius * (2.1 + idx * 0.28 + activity * 0.8 + (selected ? 0.5 : 0));
+      const rot = t * (0.15 + activity * 0.22) + fiber.phase;
+
+      for (let i = 0; i <= SEGS; i += 1) {
+        const f = i / SEGS;
+        const wave = Math.sin(t * 1.7 + fiber.phase + f * 4.4) * amp;
+        const localAngle = fiber.baseAngle + rot * 0.08 + Math.sin(f * Math.PI * 1.2 + fiber.phase) * 0.22;
+        const radial = reach * f;
+        const x = Math.cos(localAngle) * radial + Math.sin(rot + f * 2.4) * wave;
+        const y = Math.sin(localAngle) * radial + Math.cos(rot * 1.2 + f * 2.1) * wave;
+        const z = Math.sin(rot * 0.7 + f * 3.1 + fiber.phase) * 0.06 * f;
+
+        fiber.arr[i * 3] = x;
+        fiber.arr[(i * 3) + 1] = y;
+        fiber.arr[(i * 3) + 2] = z;
+      }
+
+      fiber.line.geometry.attributes.position.needsUpdate = true;
+      fiber.mat.opacity = 0.12 + activity * 0.2 + (selected ? 0.1 : 0) + Math.sin(t * 2.2 + fiber.phase) * 0.04;
+    });
+  });
+
+  return (
+    <group>
+      {fibers.map((fiber, idx) => (
+        <primitive key={`${nodeId}-fiber-${idx}`} object={fiber.line} />
+      ))}
+    </group>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GraphNode — orb + glow halo + BFS pulse + fluid drift + memory growth
 // pulseRef is { current: 0..1 } owned by NeuralScene, shared read/write
@@ -493,6 +574,13 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, onHoverStart, onHove
       onPointerOver={(e) => { e.stopPropagation(); onHoverStart?.(node.id); }}
       onPointerOut={(e) => { e.stopPropagation(); onHoverEnd?.(node.id); }}
     >
+      <NodeFibers
+        nodeId={node.id}
+        radius={radius}
+        color={node.color}
+        activity={node.activity}
+        selected={isSelected}
+      />
       {/* Tight diffuse shell */}
       <mesh ref={glowRef}>
         <sphereGeometry args={[radius * 1.25, 18, 18]} />

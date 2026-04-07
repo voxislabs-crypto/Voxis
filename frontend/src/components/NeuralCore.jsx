@@ -346,9 +346,9 @@ const neuralStyles = `
   .neural-focus-panel {
     position: absolute;
     right: 14px;
-    top: 108px;
+    top: 78px;
     width: min(340px, calc(100% - 28px));
-    max-height: min(46vh, calc(100% - 210px));
+    max-height: min(44vh, calc(100% - 170px));
     overflow: auto;
     border-radius: 14px;
     border: 1px solid rgba(0, 180, 255, 0.2);
