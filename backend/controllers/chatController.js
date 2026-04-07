@@ -55,6 +55,7 @@ import {
   isRateLimitError,
   sanitizeRateLimitedMessage,
 } from "../services/rateLimitRecoveryService.js";
+import { detectMemoryConflicts } from "../services/memoryConflictService.js";
 
 // Reconditioning cadence: antagonist/dark contexts drift faster, so we anchor more often.
 const RECONDITION_CADENCE = {
@@ -406,7 +407,12 @@ export async function chatHandler(req, res, next) {
       importance: memory.importance,
       memoryType: memory.memoryType,
       injectedAs: memory.injectedAs,
+      enabled: Number(memory.enabled ?? 1),
     }));
+    streamedDebugData.memoryConflicts = detectMemoryConflicts(
+      promptPackage.debug?.injectedMemories || [],
+      policy,
+    );
     streamedDebugData.prompt = promptPackage.debug;
     stream.write("debug", {
       phase: "memory",
@@ -612,7 +618,9 @@ export async function chatHandler(req, res, next) {
         importance: memory.importance,
         memoryType: memory.memoryType,
         injectedAs: memory.injectedAs,
+        enabled: Number(memory.enabled ?? 1),
       })),
+      memoryConflicts: detectMemoryConflicts(promptPackage.debug?.injectedMemories || [], policy),
       scientist: scientistValidation
         ? {
             validation: scientistValidation,

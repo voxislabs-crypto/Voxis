@@ -10,6 +10,7 @@ import { isEmbeddingConfigured, getEmbeddingModelName } from "../services/llmSer
 const VALID_MEMORY_TYPES = new Set([
   "fact", "preference", "relationship", "event",
   "scheme", "grudge", "leverage", "target_weakness", "debt",
+  "note", "user_pref", "user_fact", "context", "anchor",
 ]);
 
 export function listMemoryHandler(req, res) {
@@ -46,7 +47,7 @@ export function updateMemoryHandler(req, res) {
   const id = parseInt(req.params.memoryId, 10);
   if (!id) return res.status(400).json({ error: "Invalid memory id." });
 
-  const { content, memoryType, importance } = req.body;
+  const { content, memoryType, importance, enabled } = req.body;
 
   if (typeof content !== "string" || !content.trim()) {
     return res.status(400).json({ error: "content is required." });
@@ -59,6 +60,7 @@ export function updateMemoryHandler(req, res) {
     content: content.trim(),
     memoryType: sanitizedType,
     importance: sanitizedImportance,
+    enabled: Number(enabled ?? 1) === 0 ? 0 : 1,
   });
 
   if (!updated) return res.status(404).json({ error: "Memory fact not found." });

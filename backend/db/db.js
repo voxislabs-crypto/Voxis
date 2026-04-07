@@ -111,6 +111,7 @@ db.exec(`
 
 ensureColumn("personality_memory", "embedding", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personality_memory", "embeddingModel", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personality_memory", "enabled", "INTEGER NOT NULL DEFAULT 1");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_personality_memory_personality_id

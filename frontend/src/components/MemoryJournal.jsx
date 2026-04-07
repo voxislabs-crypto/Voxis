@@ -4,6 +4,7 @@ import { useAuthFetch } from "../hooks/useAuthFetch.js";
 const MEMORY_TYPES = [
   "fact", "preference", "relationship", "event",
   "scheme", "grudge", "leverage", "target_weakness", "debt",
+  "note", "user_pref", "user_fact", "context", "anchor",
 ];
 
 const TYPE_COLORS = {
@@ -16,7 +17,23 @@ const TYPE_COLORS = {
   leverage:         "rgba(180,50,220,0.22)",
   target_weakness:  "rgba(240,100,60,0.22)",
   debt:             "rgba(160,140,60,0.22)",
+  note:             "rgba(120,120,140,0.2)",
+  user_pref:        "rgba(255,130,190,0.2)",
+  user_fact:        "rgba(120,220,180,0.2)",
+  context:          "rgba(255,180,120,0.2)",
+  anchor:           "rgba(255,220,110,0.25)",
 };
+
+const OPPOSITION_GROUPS = [
+  {
+    positive: ["formal", "analytical", "structure", "framework", "evidence", "scientist"],
+    negative: ["unstructured", "chaotic", "bubbly", "tween", "reject formal", "hyperactive", "no structure"],
+  },
+  {
+    positive: ["serious", "diplomatic", "professional"],
+    negative: ["playful", "mischief", "jokes", "taunts", "party"],
+  },
+];
 
 const journalStyles = `
   .journal-shell {
@@ -103,6 +120,15 @@ const journalStyles = `
     border-color: rgba(0,180,255,0.18);
   }
 
+  .memory-row.conflict {
+    border-color: rgba(248, 113, 113, 0.48);
+    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.16);
+  }
+
+  .memory-row.disabled {
+    opacity: 0.58;
+  }
+
   .memory-row.editing {
     border-color: rgba(0,180,255,0.38);
     background: rgba(0,180,255,0.04);
@@ -136,6 +162,18 @@ const journalStyles = `
     color: var(--muted);
   }
 
+  .conflict-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(248, 113, 113, 0.14);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    color: #fca5a5;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
   .anchor-badge {
     padding: 2px 8px;
     border-radius: 999px;
@@ -167,6 +205,31 @@ const journalStyles = `
     flex-shrink: 0;
     align-items: flex-start;
     padding-top: 2px;
+  }
+
+  .memory-quick-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .memory-slider {
+    width: 120px;
+    accent-color: #00c8ff;
+  }
+
+  .memory-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .memory-toggle input {
+    accent-color: #00c8ff;
   }
 
   .btn-icon {
@@ -274,6 +337,21 @@ const journalStyles = `
     color: var(--muted);
     margin-bottom: 4px;
   }
+
+  .conflict-panel {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(248, 113, 113, 0.38);
+    background: rgba(120, 20, 30, 0.16);
+    color: #fecaca;
+    font-size: 0.82rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
 `;
 
 function formatDate(str) {
@@ -282,13 +360,74 @@ function formatDate(str) {
   return isNaN(d) ? str : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function MemoryRow({ fact, onSave, onDelete }) {
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasAnyKeyword(text, keywords) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function detectConflicts(facts) {
+  const activeFacts = (Array.isArray(facts) ? facts : []).filter((fact) => Number(fact.enabled ?? 1) !== 0);
+  const highImpact = activeFacts.filter((fact) => Number(fact.importance || 0) >= 7);
+  const conflicts = [];
+  const conflictingIds = new Set();
+
+  for (let index = 0; index < highImpact.length; index += 1) {
+    for (let inner = index + 1; inner < highImpact.length; inner += 1) {
+      const left = highImpact[index];
+      const right = highImpact[inner];
+      const leftText = normalizeText(left.content);
+      const rightText = normalizeText(right.content);
+
+      for (const group of OPPOSITION_GROUPS) {
+        const leftPositive = hasAnyKeyword(leftText, group.positive);
+        const rightNegative = hasAnyKeyword(rightText, group.negative);
+        const leftNegative = hasAnyKeyword(leftText, group.negative);
+        const rightPositive = hasAnyKeyword(rightText, group.positive);
+
+        if (!((leftPositive && rightNegative) || (leftNegative && rightPositive))) {
+          continue;
+        }
+
+        conflictingIds.add(left.id);
+        conflictingIds.add(right.id);
+        const winner = Number(left.importance || 0) >= Number(right.importance || 0) ? left : right;
+        const loser = winner === left ? right : left;
+
+        conflicts.push({
+          type: "opposing_instructions",
+          left,
+          right,
+          winner,
+          loser,
+        });
+        break;
+      }
+    }
+  }
+
+  return { conflicts, conflictingIds };
+}
+
+function MemoryRow({ fact, onSave, onDelete, isConflicting, onQuickPatch }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ content: fact.content, memoryType: fact.memoryType, importance: fact.importance });
+  const [draft, setDraft] = useState({
+    content: fact.content,
+    memoryType: fact.memoryType,
+    importance: fact.importance,
+    enabled: Number(fact.enabled ?? 1),
+  });
   const [saving, setSaving] = useState(false);
 
   function startEdit() {
-    setDraft({ content: fact.content, memoryType: fact.memoryType, importance: fact.importance });
+    setDraft({
+      content: fact.content,
+      memoryType: fact.memoryType,
+      importance: fact.importance,
+      enabled: Number(fact.enabled ?? 1),
+    });
     setEditing(true);
   }
 
@@ -300,7 +439,7 @@ function MemoryRow({ fact, onSave, onDelete }) {
   }
 
   return (
-    <div className={`memory-row${editing ? " editing" : ""}`}>
+    <div className={`memory-row${editing ? " editing" : ""}${isConflicting ? " conflict" : ""}${Number(fact.enabled ?? 1) === 0 ? " disabled" : ""}`}>
       <div className="memory-body">
         <div className="memory-meta">
           <span
@@ -310,6 +449,8 @@ function MemoryRow({ fact, onSave, onDelete }) {
             {fact.memoryType.replace(/_/g, " ")}
           </span>
           <span className="importance-badge">importance {fact.importance}</span>
+          {isConflicting && <span className="conflict-badge">conflict</span>}
+          {Number(fact.enabled ?? 1) === 0 && <span className="importance-badge">disabled</span>}
           {fact.importance >= 9 && <span className="anchor-badge">anchor</span>}
         </div>
 
@@ -339,6 +480,14 @@ function MemoryRow({ fact, onSave, onDelete }) {
                   style={{ marginLeft: 6 }}
                 />
               </label>
+              <label className="memory-toggle">
+                <input
+                  type="checkbox"
+                  checked={Number(draft.enabled ?? 1) !== 0}
+                  onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked ? 1 : 0 }))}
+                />
+                Enabled
+              </label>
             </div>
             <div className="edit-actions">
               <button type="button" className="btn-cancel" onClick={() => setEditing(false)}>Cancel</button>
@@ -350,6 +499,35 @@ function MemoryRow({ fact, onSave, onDelete }) {
         ) : (
           <>
             <p className="memory-content">{fact.content}</p>
+            <div className="memory-quick-controls">
+              <label style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                Importance
+                <input
+                  className="memory-slider"
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={Number(fact.importance || 5)}
+                  onChange={(event) =>
+                    onQuickPatch(fact.id, {
+                      importance: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="memory-toggle">
+                <input
+                  type="checkbox"
+                  checked={Number(fact.enabled ?? 1) !== 0}
+                  onChange={(event) =>
+                    onQuickPatch(fact.id, {
+                      enabled: event.target.checked ? 1 : 0,
+                    })
+                  }
+                />
+                Enabled
+              </label>
+            </div>
             <p className="memory-date">
               Added {formatDate(fact.createdAt)}
               {fact.updatedAt && fact.updatedAt !== fact.createdAt && ` · Updated ${formatDate(fact.updatedAt)}`}
@@ -375,6 +553,7 @@ export default function MemoryJournal({ personality }) {
   const [backfilling, setBackfilling] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [showActiveOnly, setShowActiveOnly] = useState(true);
 
   const load = useCallback(async () => {
     if (!personality) return;
@@ -409,6 +588,23 @@ export default function MemoryJournal({ personality }) {
     } catch {
       setStatusMsg("Save failed.");
     }
+  }
+
+  async function handleQuickPatch(id, patch) {
+    const current = facts.find((fact) => fact.id === id);
+    if (!current) {
+      return;
+    }
+
+    const nextPayload = {
+      content: current.content,
+      memoryType: current.memoryType,
+      importance: Number(current.importance || 5),
+      enabled: Number(current.enabled ?? 1),
+      ...patch,
+    };
+
+    await handleSave(id, nextPayload);
   }
 
   async function handleDelete(id) {
@@ -449,8 +645,40 @@ export default function MemoryJournal({ personality }) {
     }
   }
 
+  async function handleAutoResolveConflicts() {
+    const { conflicts } = detectConflicts(facts);
+    if (!conflicts.length) {
+      setStatusMsg("No high-impact conflicts found.");
+      return;
+    }
+
+    try {
+      for (const conflict of conflicts) {
+        if (!conflict?.loser?.id) {
+          continue;
+        }
+
+        const loser = conflict.loser;
+        const loweredImportance = Math.max(1, Math.min(3, Number(loser.importance || 5) - 3));
+        await handleSave(loser.id, {
+          content: loser.content,
+          memoryType: loser.memoryType,
+          importance: loweredImportance,
+          enabled: 0,
+        });
+      }
+
+      setStatusMsg(`Auto-resolved ${conflicts.length} conflicts by suppressing weaker instructions.`);
+      await load();
+    } catch {
+      setStatusMsg("Conflict auto-resolve failed.");
+    }
+  }
+
+  const conflictScan = detectConflicts(facts);
   const presentTypes = ["all", ...Array.from(new Set(facts.map((f) => f.memoryType)))];
-  const visible = typeFilter === "all" ? facts : facts.filter((f) => f.memoryType === typeFilter);
+  const typeScoped = typeFilter === "all" ? facts : facts.filter((f) => f.memoryType === typeFilter);
+  const visible = showActiveOnly ? typeScoped.filter((f) => Number(f.enabled ?? 1) !== 0) : typeScoped;
 
   if (!personality) {
     return (
@@ -484,6 +712,17 @@ export default function MemoryJournal({ personality }) {
 
       {statusMsg && <p className="journal-status">{statusMsg}</p>}
 
+      {conflictScan.conflicts.length > 0 && (
+        <div className="conflict-panel">
+          <span>
+            {conflictScan.conflicts.length} high-impact memory conflict{conflictScan.conflicts.length === 1 ? "" : "s"} detected.
+          </span>
+          <button type="button" className="btn-icon danger" onClick={() => void handleAutoResolveConflicts()}>
+            Auto-resolve weaker memories
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <p className="empty-journal">Loading…</p>
       ) : facts.length === 0 ? (
@@ -503,6 +742,13 @@ export default function MemoryJournal({ personality }) {
                 {t === "all" ? `All (${facts.length})` : `${t.replace(/_/g, " ")} (${facts.filter((f) => f.memoryType === t).length})`}
               </button>
             ))}
+            <button
+              type="button"
+              className={`filter-pill${showActiveOnly ? " active" : ""}`}
+              onClick={() => setShowActiveOnly((current) => !current)}
+            >
+              {showActiveOnly ? "Active only" : "Show disabled"}
+            </button>
           </div>
 
           <div className="memory-list">
@@ -512,6 +758,8 @@ export default function MemoryJournal({ personality }) {
                 fact={fact}
                 onSave={handleSave}
                 onDelete={handleDelete}
+                isConflicting={conflictScan.conflictingIds.has(fact.id)}
+                onQuickPatch={handleQuickPatch}
               />
             ))}
           </div>

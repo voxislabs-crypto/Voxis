@@ -42,6 +42,10 @@ function stripEmbedding(row) {
   return memory;
 }
 
+function isMemoryEnabled(memory) {
+  return Number(memory?.enabled ?? 1) !== 0;
+}
+
 function tokenize(text) {
   return new Set(
     String(text || "")
@@ -106,7 +110,7 @@ function getScoredMemory(memory, query, queryEmbedding) {
 function listPersonalityMemoryRows(personalityId) {
   return db
     .prepare(
-      `SELECT id, personalityId, memoryType, content, importance, createdAt, updatedAt, embedding, embeddingModel
+      `SELECT id, personalityId, memoryType, content, importance, createdAt, updatedAt, embedding, embeddingModel, enabled
        FROM personality_memory
        WHERE personalityId = ?
        ORDER BY importance DESC, id DESC`,
@@ -151,9 +155,9 @@ function getPersonalityIdsWithMemory() {
 export function getPersonalityMemory(personalityId, limit = 20) {
   return db
     .prepare(
-      `SELECT id, personalityId, memoryType, content, importance, createdAt
+      `SELECT id, personalityId, memoryType, content, importance, createdAt, enabled
        FROM personality_memory
-       WHERE personalityId = ?
+       WHERE personalityId = ? AND enabled = 1
        ORDER BY importance DESC, id DESC
        LIMIT ?`,
     )
@@ -166,7 +170,7 @@ export async function getRelevantPersonalityMemory(personalityId, query, limit =
     return getPersonalityMemory(personalityId, limit);
   }
 
-  const memories = listPersonalityMemoryRows(personalityId);
+  const memories = listPersonalityMemoryRows(personalityId).filter(isMemoryEnabled);
   if (memories.length === 0) {
     return [];
   }
@@ -210,9 +214,15 @@ export function upsertMemoryFact(personalityId, content, memoryType = "note", im
     if (importance > existing.importance) {
       db.prepare(
         `UPDATE personality_memory
-         SET importance = ?, updatedAt = CURRENT_TIMESTAMP
+         SET importance = ?, enabled = 1, updatedAt = CURRENT_TIMESTAMP
          WHERE id = ?`,
       ).run(importance, existing.id);
+    } else {
+      db.prepare(
+        `UPDATE personality_memory
+         SET enabled = 1, updatedAt = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+      ).run(existing.id);
     }
 
     return existing.id;
@@ -266,12 +276,13 @@ export function pruneMemory(personalityId, maxEntries = 50) {
   }
 }
 
-export function updateMemoryFact(id, { content, memoryType, importance }) {
+export function updateMemoryFact(id, { content, memoryType, importance, enabled }) {
+  const normalizedEnabled = Number(enabled ?? 1) === 0 ? 0 : 1;
   db.prepare(
     `UPDATE personality_memory
-     SET content = ?, memoryType = ?, importance = ?, embedding = '', embeddingModel = '', updatedAt = CURRENT_TIMESTAMP
+     SET content = ?, memoryType = ?, importance = ?, enabled = ?, embedding = '', embeddingModel = '', updatedAt = CURRENT_TIMESTAMP
      WHERE id = ?`,
-  ).run(content, memoryType, importance, id);
+  ).run(content, memoryType, importance, normalizedEnabled, id);
   return stripEmbedding(
     normalizeMemoryRow(db.prepare(`SELECT * FROM personality_memory WHERE id = ?`).get(id)),
   );
