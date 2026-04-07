@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import AvatarCore from "./AvatarCore.jsx";
 
 const listStyles = `
@@ -176,12 +176,6 @@ export default function PersonalityList({
   onOpenChat,
 }) {
   const [expandedId, setExpandedId] = useState(null);
-
-  useEffect(() => {
-    if (activeId) {
-      setExpandedId((current) => current ?? activeId);
-    }
-  }, [activeId]);
 
   return (
     <>
