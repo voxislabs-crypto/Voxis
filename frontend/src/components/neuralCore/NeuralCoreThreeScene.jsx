@@ -94,9 +94,6 @@ function CameraRig({ target, speed, controlsRef, orbActivityRef, paused = false 
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
 
   useFrame((state, delta) => {
-    if (paused) {
-      return;
-    }
     const t = state.clock.elapsedTime;
     const orbit = new THREE.Vector3(
       Math.sin(t * 0.18) * 0.18,

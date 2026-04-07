@@ -1118,10 +1118,7 @@ export default function NeuralCore({
     const speed = performanceTier === "full" ? 1.2 : 0.72;
 
     function frame(now) {
-      // Skip animation updates when hovering over the neural scene
-      if (!hovering) {
-        setTick(((now - start) / 1000) * speed);
-      }
+      setTick(((now - start) / 1000) * speed);
       raf = requestAnimationFrame(frame);
     }
 
@@ -1131,7 +1128,7 @@ export default function NeuralCore({
         cancelAnimationFrame(raf);
       }
     };
-  }, [enabled, performanceTier, hovering]);
+  }, [enabled, performanceTier]);
 
   useEffect(() => {
     if (!livePhase) {
