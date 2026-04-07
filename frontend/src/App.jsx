@@ -822,6 +822,7 @@ export default function App() {
   const [status, setStatus] = useState({ type: "", message: "" });
   const [neuralToast, setNeuralToast] = useState(null);
   const [backgroundVideoReady, setBackgroundVideoReady] = useState(false);
+  const [backgroundVideoPlaying, setBackgroundVideoPlaying] = useState(false);
   const [backgroundVideoError, setBackgroundVideoError] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(storedSidebarOpen != null ? storedSidebarOpen === "1" : false);
   const [backgroundFxIntensity, setBackgroundFxIntensity] = useState(
@@ -830,6 +831,7 @@ export default function App() {
       : "full",
   );
   const backgroundCanvasRef = useRef(null);
+  const backgroundVideoRef = useRef(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   function clamp(value, min, max) {
@@ -1287,10 +1289,56 @@ export default function App() {
     };
   }, [activePhase, backgroundMood, backgroundFxMultiplier, prefersReducedMotion]);
 
+  useEffect(() => {
+    const video = backgroundVideoRef.current;
+    if (!video || backgroundFxIntensity === "off" || backgroundVideoError) {
+      return;
+    }
+
+    const playVideo = () => {
+      const result = video.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => {
+          setBackgroundVideoPlaying(false);
+        });
+      }
+    };
+
+    playVideo();
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        playVideo();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [backgroundFxIntensity, backgroundVideoError, backgroundVideoReady]);
+
+  const videoOpacity = backgroundVideoReady
+    ? backgroundFxIntensity === "low"
+      ? 0.42
+      : 0.58
+    : 0;
+
+  const shaderOpacity = backgroundFxIntensity === "off"
+    ? 0
+    : backgroundVideoReady && backgroundVideoPlaying
+    ? backgroundFxIntensity === "low"
+      ? 0.24
+      : 0.34
+    : backgroundFxIntensity === "low"
+    ? 0.46
+    : 0.72;
+
   const backgroundLayer = (
     <div className="background-stack" aria-hidden="true">
       {backgroundFxIntensity !== "off" && !backgroundVideoError ? (
         <video
+          ref={backgroundVideoRef}
           className="cyberpunk-bg-video"
           src={BACKGROUND_VIDEO_SRC}
           autoPlay
@@ -1303,17 +1351,20 @@ export default function App() {
             setBackgroundVideoReady(true);
             setBackgroundVideoError(false);
           }}
+          onPlay={() => setBackgroundVideoPlaying(true)}
+          onPause={() => setBackgroundVideoPlaying(false)}
           onError={() => {
             setBackgroundVideoReady(false);
+            setBackgroundVideoPlaying(false);
             setBackgroundVideoError(true);
           }}
-          style={{ opacity: backgroundVideoReady ? 0.34 : 0.0 }}
+          style={{ opacity: videoOpacity }}
         />
       ) : null}
       <canvas
         ref={backgroundCanvasRef}
         className="cyberpunk-bg-shader"
-        style={{ opacity: backgroundFxIntensity === "off" ? 0 : backgroundFxIntensity === "low" ? 0.46 : 0.72 }}
+        style={{ opacity: shaderOpacity }}
       />
     </div>
   );
