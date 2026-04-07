@@ -1408,6 +1408,7 @@ export default function NeuralCore({
             <NeuralCoreRenderer
               rendererType={rendererType}
               compact={false}
+              isHovered={hovering}
               performanceTier={performanceTier}
               kidsMode={kidsMode}
               repairActive={repairActive}

@@ -89,11 +89,14 @@ function smoothNoise(t, freq, phase) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CameraRig
 // ─────────────────────────────────────────────────────────────────────────────
-function CameraRig({ target, speed, controlsRef, orbActivityRef }) {
+function CameraRig({ target, speed, controlsRef, orbActivityRef, paused = false }) {
   const { camera } = useThree();
   const targetVector = useMemo(() => new THREE.Vector3(...target), [target]);
 
   useFrame((state, delta) => {
+    if (paused) {
+      return;
+    }
     const t = state.clock.elapsedTime;
     const orbit = new THREE.Vector3(
       Math.sin(t * 0.18) * 0.18,
@@ -523,7 +526,7 @@ function GraphNode({ node, selectedId, linkedIds, onSelect, pulseRef, bloomInten
 // NeuralScene — owns all runtime state inside the Canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelectedId,
-                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate }) {
+                       livePhaseBurst, burstSeq, controlsRef, hideLabels, onActivityUpdate, isHovered = false }) {
 
   // One pulse ref per node — mutable, never trigger re-renders
   const pulseRefs      = useRef({});
@@ -676,11 +679,11 @@ function NeuralScene({ graph, selectedNode, linkedIds, handleSelect, setSelected
 
       <CameraRig target={selectedNode?.position || [0,0,0]}
         speed={graph.moodState.speed} controlsRef={controlsRef}
-        orbActivityRef={orbActivityRef} />
+        orbActivityRef={orbActivityRef} paused={isHovered} />
 
       <OrbitControls ref={controlsRef} enablePan={false} enableZoom
         minDistance={3.5} maxDistance={18}
-        autoRotate autoRotateSpeed={0.18 * graph.moodState.speed} />
+        autoRotate={!isHovered} autoRotateSpeed={0.18 * graph.moodState.speed} />
 
       <CompanionOrb moodState={graph.moodState} orbActivityRef={orbActivityRef} />
 
@@ -731,6 +734,7 @@ export default function NeuralCoreThreeScene({
   scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
   repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
   valence, arousal, dominance, livePhaseBurst, hideLabels = false, onActivityUpdate,
+  isHovered = false,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
@@ -791,6 +795,7 @@ export default function NeuralCoreThreeScene({
           controlsRef={controlsRef}
           hideLabels={hideLabels}
           onActivityUpdate={onActivityUpdate}
+          isHovered={isHovered}
         />
       </Canvas>
 
