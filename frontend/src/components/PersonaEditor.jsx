@@ -1,8 +1,116 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import MemoryJournal from "./MemoryJournal.jsx";
+import { usePersonaState } from "../state/PersonaStateContext.jsx";
 
 const editorStyles = `
+  .persona-sync-tree {
+    margin: 0 0 16px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(6, 14, 28, 0.56);
+    overflow: hidden;
+  }
+
+  .persona-sync-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(0, 180, 255, 0.12);
+    color: #9ad9ff;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .persona-tree-row {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(2, 10, 22, 0.52);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    transition: background 180ms ease, box-shadow 180ms ease;
+  }
+
+  .persona-tree-row.active {
+    background: rgba(0, 180, 255, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(0, 200, 255, 0.34);
+  }
+
+  .persona-tree-row.recent {
+    box-shadow: inset 0 0 0 1px rgba(255, 165, 88, 0.6), 0 0 16px rgba(255, 165, 88, 0.18);
+  }
+
+  .persona-tree-badge {
+    border-radius: 999px;
+    border: 1px solid rgba(0, 200, 255, 0.25);
+    background: rgba(0, 180, 255, 0.08);
+    color: #9be9ff;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    font-weight: 700;
+  }
+
+  .persona-tree-sub {
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+    padding-left: 14px;
+    animation: personaTreeOpen 180ms ease;
+  }
+
+  .persona-tree-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    margin: 8px 0;
+    padding-left: 16px;
+  }
+
+  .persona-tree-item button {
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    background: rgba(4, 12, 22, 0.72);
+    color: #dff4ff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    text-align: left;
+  }
+
+  .persona-tree-item button.recent {
+    box-shadow: inset 0 0 0 1px rgba(255, 165, 88, 0.65), 0 0 14px rgba(255, 165, 88, 0.2);
+  }
+
+  .persona-tree-item .jump-btn {
+    border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    text-align: center;
+  }
+
+  .persona-tree-inline {
+    margin: 6px 0 0;
+    padding-left: 16px;
+  }
+
+  .persona-tree-inline input {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 200, 255, 0.24);
+    background: rgba(4, 12, 22, 0.82);
+    color: var(--text);
+    padding: 8px 10px;
+  }
+
+  @keyframes personaTreeOpen {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .persona-section-tabs {
     display: flex;
     gap: 8px;
@@ -197,16 +305,111 @@ function buildDraft(personality) {
 
 export default function PersonaEditor({ personality, onUpdated, onStatus, initialSection }) {
   const authFetch = useAuthFetch();
+  const personaState = usePersonaState();
   const [draft, setDraft] = useState(() => buildDraft(personality));
   const [isSaving, setIsSaving] = useState(false);
   const [activeSection, setActiveSection] = useState(initialSection || "basic");
   const [dirtySections, setDirtySections] = useState({});
+  const [activeTreeCategory, setActiveTreeCategory] = useState(null);
+  const [expandedSubcategories, setExpandedSubcategories] = useState({});
+  const [editingNodeId, setEditingNodeId] = useState(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [highlightNodeId, setHighlightNodeId] = useState(null);
+  const nodeRefMap = useRef(new Map());
 
   useEffect(() => {
     if (initialSection) setActiveSection(initialSection);
   }, [initialSection]);
+
+  const editorTarget = personaState?.editorTarget;
+
+  useEffect(() => {
+    const target = editorTarget;
+    if (!target) {
+      return;
+    }
+
+    const nextCategory = target.category || null;
+    if (nextCategory) {
+      setActiveTreeCategory(nextCategory);
+      if (target.subcategory) {
+        setExpandedSubcategories((current) => ({
+          ...current,
+          [`${nextCategory}:${target.subcategory}`]: true,
+        }));
+      }
+      setActiveSection(nextCategory === "memory" ? "memory" : nextCategory === "mood" ? "neural" : "behavior");
+    }
+
+    if (target.itemId) {
+      setHighlightNodeId(target.itemId);
+      personaState.markRecentlyAccessed?.(target.itemId);
+      window.requestAnimationFrame(() => {
+        const element = nodeRefMap.current.get(target.itemId);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    }
+
+    const timeoutId = window.setTimeout(() => setHighlightNodeId(null), 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [editorTarget]);
+
   const lastDraftRef = useRef(null);
   const [pendingSection, setPendingSection] = useState(null);
+
+  function toggleTopCategory(categoryId) {
+    setActiveTreeCategory((current) => (current === categoryId ? null : categoryId));
+  }
+
+  function toggleSubcategory(categoryId, subId) {
+    const key = `${categoryId}:${subId}`;
+    setExpandedSubcategories((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
+  function startInlineEdit(node) {
+    setEditingNodeId(node.id);
+    setEditingValue(node.label || "");
+  }
+
+  async function commitInlineEdit(node) {
+    const value = String(editingValue || "").trim();
+    const dataRef = node?.dataRef;
+    if (!dataRef) {
+      setEditingNodeId(null);
+      return;
+    }
+
+    if (dataRef.kind === "memory-item") {
+      await personaState?.updateMemoryItem?.({
+        memoryId: dataRef.memoryId,
+        memoryType: dataRef.memoryType,
+        content: value,
+      });
+    }
+
+    if (dataRef.kind === "persona-array") {
+      personaState?.updatePersonaField?.({
+        field: dataRef.field,
+        index: dataRef.index,
+        value,
+      });
+    }
+
+    if (dataRef.kind === "persona-scalar") {
+      personaState?.updatePersonaField?.({
+        field: dataRef.field,
+        value,
+      });
+    }
+
+    personaState?.markRecentlyAccessed?.(node.id);
+    setEditingNodeId(null);
+  }
 
   useEffect(() => {
     const newDraft = buildDraft(personality);
@@ -366,6 +569,145 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
       <p className="section-copy">
         Edit high-impact persona attributes in focused sections to speed up iterative tuning.
       </p>
+
+      <div className="persona-sync-tree">
+        <div className="persona-sync-header">Synchronized Persona Tree</div>
+        {(personaState?.personaTree || []).map((categoryNode) => {
+          const isActiveCategory = activeTreeCategory === categoryNode.id;
+          const children = Array.isArray(categoryNode.children) ? categoryNode.children : [];
+
+          return (
+            <div key={categoryNode.id}>
+              <button
+                type="button"
+                className={`persona-tree-row ${isActiveCategory ? "active" : ""}`}
+                onClick={() => toggleTopCategory(categoryNode.id)}
+              >
+                <span>{categoryNode.label}</span>
+                <span className="persona-tree-badge">{children.length}</span>
+              </button>
+
+              {isActiveCategory ? (
+                <div className="persona-tree-sub">
+                  {children.map((childNode) => {
+                    const hasGrandchildren = Array.isArray(childNode.children) && childNode.children.length > 0;
+                    if (hasGrandchildren) {
+                      const key = `${categoryNode.id}:${childNode.id}`;
+                      const expanded = Boolean(expandedSubcategories[key]);
+                      return (
+                        <div key={childNode.id}>
+                          <button
+                            type="button"
+                            className="persona-tree-row"
+                            onClick={() => toggleSubcategory(categoryNode.id, childNode.id)}
+                          >
+                            <span>{childNode.label}</span>
+                            <span className="persona-tree-badge">{childNode.children.length}</span>
+                          </button>
+
+                          {expanded ? (
+                            <div className="persona-tree-sub">
+                              {childNode.children.map((itemNode) => {
+                                const isRecent = highlightNodeId === itemNode.id || personaState?.recentlyAccessedId === itemNode.id;
+                                return (
+                                  <div key={itemNode.id} ref={(el) => {
+                                    if (el) nodeRefMap.current.set(itemNode.id, el);
+                                  }}>
+                                    <div className="persona-tree-item">
+                                      <button
+                                        type="button"
+                                        className={isRecent ? "recent" : ""}
+                                        onClick={() => startInlineEdit(itemNode)}
+                                      >
+                                        {itemNode.label}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="jump-btn"
+                                        onClick={() => {
+                                          setHighlightNodeId(itemNode.id);
+                                          startInlineEdit(itemNode);
+                                        }}
+                                        title="Focus entry"
+                                      >
+                                        ↗
+                                      </button>
+                                    </div>
+                                    {editingNodeId === itemNode.id ? (
+                                      <div className="persona-tree-inline">
+                                        <input
+                                          value={editingValue}
+                                          onChange={(event) => setEditingValue(event.target.value)}
+                                          onBlur={() => void commitInlineEdit(itemNode)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === "Enter") {
+                                              event.preventDefault();
+                                              void commitInlineEdit(itemNode);
+                                            }
+                                          }}
+                                          autoFocus
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }
+
+                    const isRecent = highlightNodeId === childNode.id || personaState?.recentlyAccessedId === childNode.id;
+                    return (
+                      <div key={childNode.id} ref={(el) => {
+                        if (el) nodeRefMap.current.set(childNode.id, el);
+                      }}>
+                        <div className="persona-tree-item">
+                          <button
+                            type="button"
+                            className={isRecent ? "recent" : ""}
+                            onClick={() => startInlineEdit(childNode)}
+                          >
+                            {childNode.label}
+                          </button>
+                          <button
+                            type="button"
+                            className="jump-btn"
+                            onClick={() => {
+                              setHighlightNodeId(childNode.id);
+                              startInlineEdit(childNode);
+                            }}
+                            title="Focus entry"
+                          >
+                            ↗
+                          </button>
+                        </div>
+                        {editingNodeId === childNode.id ? (
+                          <div className="persona-tree-inline">
+                            <input
+                              value={editingValue}
+                              onChange={(event) => setEditingValue(event.target.value)}
+                              onBlur={() => void commitInlineEdit(childNode)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void commitInlineEdit(childNode);
+                                }
+                              }}
+                              autoFocus
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
 
       <div className="persona-section-tabs">
         <button

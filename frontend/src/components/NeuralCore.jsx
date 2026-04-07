@@ -3,6 +3,7 @@ import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import NeuralCoreRenderer from "./neuralCore/NeuralCoreRenderer.jsx";
 import NeuralCoreThreeScene from "./neuralCore/NeuralCoreThreeScene.jsx";
 import AvatarCore from "./AvatarCore.jsx";
+import { usePersonaState } from "../state/PersonaStateContext.jsx";
 
 const neuralStyles = `
   .neural-hud {
@@ -830,6 +831,22 @@ function extractMemoryRows(latestDebug) {
   return mapped;
 }
 
+function extractMemoryRowsFromStore(memoryItems) {
+  if (!Array.isArray(memoryItems)) {
+    return [];
+  }
+
+  return memoryItems.map((item, index) => ({
+    id: item?.id || `store-memory-${index}`,
+    source: "store",
+    label: item?.memory_type || item?.memoryType || item?.type || "memory",
+    memoryType: item?.memory_type || item?.memoryType || item?.type || "memory",
+    content: item?.content || item?.text || "",
+    importance: Number(item?.importance || 5),
+    rawItem: item,
+  }));
+}
+
 function categorizeMemory(memoryItem) {
   const type = String(memoryItem?.memory_type || memoryItem?.memoryType || memoryItem?.type || "unknown").toLowerCase();
 
@@ -851,11 +868,11 @@ function categorizeMemory(memoryItem) {
   return "General";
 }
 
-function getFocusChildren(focusNode, latestDebug, mode, personality) {
+function getFocusChildren(focusNode, latestDebug, mode, personality, memoryRows, personaState) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
-    const rows = extractMemoryRows(latestDebug);
+    const rows = memoryRows;
     if (!rows.length) {
       return [];
     }
@@ -864,9 +881,16 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
       const category = categorizeMemory(memory.rawItem);
       return {
         id: `memory-leaf-${memory.id}`,
+        type: "leaf",
         label: `${String(category).replace("Personal ", "").replace(/[()]/g, "")} ${index + 1}`,
         source: memory.source,
         meta: `${String(memory.memoryType).replaceAll("_", " ")} · importance ${memory.importance}`,
+        children: [],
+        dataRef: {
+          kind: "memory-item",
+          memoryId: memory.id,
+          memoryType: memory.memoryType,
+        },
         payload: {
           kind: "memory",
           memoryId: memory.id,
@@ -875,6 +899,11 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
           content: memory.content,
           source: memory.source,
           importance: memory.importance,
+          dataRef: {
+            kind: "memory-item",
+            memoryId: memory.id,
+            memoryType: memory.memoryType,
+          },
         },
       };
     });
@@ -889,9 +918,12 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
     return [
       {
         id: "intent-leaf-goal",
+        type: "leaf",
         label: kidsMode ? "Intent" : "Intent Goal",
         source: "intent",
         meta: `source: ${latestDebug?.goal?.source || "unknown"}`,
+        children: [],
+        dataRef: { kind: "debug-intent" },
         payload: {
           kind: "intent",
           content: goal,
@@ -902,6 +934,27 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
   }
 
   if (focusNode === "identity") {
+    const traitItems = personaState?.treeIndex
+      ? ["traits", "quirks", "sayings", "mood"].flatMap((key) => personaState.treeIndex.get(key)?.children || [])
+      : [];
+
+    if (traitItems.length) {
+      return traitItems.map((node) => ({
+        id: `identity-${node.id}`,
+        type: "leaf",
+        label: node.label,
+        source: "identity",
+        meta: "persona state",
+        children: [],
+        dataRef: node.dataRef,
+        payload: {
+          kind: "persona",
+          content: node.label,
+          dataRef: node.dataRef,
+        },
+      }));
+    }
+
     const lines = [];
     if (latestDebug?.flags?.reconditioned) {
       lines.push("Reconditioning anchor fired");
@@ -916,9 +969,12 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
 
     return lines.map((line, index) => ({
       id: `identity-leaf-${index}`,
+      type: "leaf",
       label: kidsMode ? "Identity" : `Identity ${index + 1}`,
       source: "identity",
       meta: line,
+      children: [],
+      dataRef: { kind: "debug-identity" },
       payload: {
         kind: "identity",
         content: line,
@@ -933,9 +989,12 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
     if (violations.length) {
       return violations.map((violation, index) => ({
         id: `evidence-violation-${index}`,
+        type: "leaf",
         label: "Evidence",
         source: "evidence",
         meta: violation,
+        children: [],
+        dataRef: { kind: "debug-evidence", index },
         payload: {
           kind: "evidence",
           content: violation,
@@ -947,9 +1006,12 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
       return [
         {
           id: "evidence-cited",
+          type: "leaf",
           label: "Evidence",
           source: "evidence",
           meta: `sources ${latestDebug?.scientist?.sourceCount || 0}`,
+          children: [],
+          dataRef: { kind: "debug-evidence" },
           payload: {
             kind: "evidence",
             content: "Citations linked",
@@ -964,11 +1026,11 @@ function getFocusChildren(focusNode, latestDebug, mode, personality) {
   return [];
 }
 
-function buildFocusPanel(focusNode, latestDebug, personality, mode) {
+function buildFocusPanel(focusNode, latestDebug, personality, mode, memoryRows) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
-    const allMemories = extractMemoryRows(latestDebug);
+    const allMemories = Array.isArray(memoryRows) ? memoryRows : extractMemoryRows(latestDebug);
 
     return {
       title: kidsMode ? "Memory Tree" : "Memory Branch",
@@ -1029,14 +1091,38 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
     lines: [
       `Persona: ${personality?.name || "unknown"}`,
       `Mode: ${mode}`,
-      `Memory links: ${extractMemoryRows(latestDebug).length}`,
+      `Memory links: ${Array.isArray(memoryRows) ? memoryRows.length : extractMemoryRows(latestDebug).length}`,
     ],
     isLeaf: false,
     hasContent: false,
   };
 }
 
-function buildLeafPanel(leafNode) {
+function resolveDataRefContent(dataRef, personaState, fallbackContent) {
+  if (!dataRef || !personaState) {
+    return fallbackContent;
+  }
+
+  if (dataRef.kind === "memory-item") {
+    const match = (personaState.memoryItems || []).find((item) => item.id === dataRef.memoryId);
+    return match?.content || fallbackContent;
+  }
+
+  if (dataRef.kind === "persona-array") {
+    const source = Array.isArray(personaState.personality?.[dataRef.field])
+      ? personaState.personality[dataRef.field]
+      : [];
+    return source[dataRef.index] || fallbackContent;
+  }
+
+  if (dataRef.kind === "persona-scalar") {
+    return personaState.personality?.[dataRef.field] || fallbackContent;
+  }
+
+  return fallbackContent;
+}
+
+function buildLeafPanel(leafNode, personaState) {
   if (!leafNode || !leafNode.payload) {
     return null;
   }
@@ -1044,18 +1130,32 @@ function buildLeafPanel(leafNode) {
   const payload = leafNode.payload;
 
   if (payload.kind === "memory") {
+    const latestContent = resolveDataRefContent(payload.dataRef || leafNode.dataRef, personaState, payload.content || "");
     return {
       title: `Memory · ${payload.category || "General"}`,
       lines: [
         `Type: ${String(payload.memoryType || "memory").replaceAll("_", " ")}`,
         `Source: ${String(payload.source || "unknown").replaceAll("_", " ")}`,
         `Importance: ${payload.importance ?? 5}`,
-        payload.content || "(empty memory)",
+        latestContent || "(empty memory)",
       ],
       editable: true,
       memoryId: payload.memoryId,
       memoryType: payload.memoryType,
-      content: payload.content || "",
+      content: latestContent || "",
+      dataRef: payload.dataRef || leafNode.dataRef || null,
+    };
+  }
+
+  if (payload.kind === "persona") {
+    const latestContent = resolveDataRefContent(payload.dataRef || leafNode.dataRef, personaState, payload.content || "");
+    return {
+      title: leafNode.label || "Persona Entry",
+      lines: [latestContent || "No details available"],
+      editable: true,
+      content: latestContent || "",
+      dataRef: payload.dataRef || leafNode.dataRef || null,
+      isPersonaField: true,
     };
   }
 
@@ -1136,6 +1236,7 @@ export default function NeuralCore({
   onUpdateMemory,
   onOpenPersonaEditor,
 }) {
+  const personaState = usePersonaState();
   const enabled = import.meta.env.VITE_NEURAL_CORE_ENABLED !== "false";
   const [expanded, setExpanded] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
@@ -1229,7 +1330,15 @@ export default function NeuralCore({
   const glowSize = 26 + clamp(Math.abs(dominance), 0, 1) * 26 + clamp(Math.abs(arousal), 0, 1) * 14;
   const heatGlow = 14 + clamp(Math.abs(arousal), 0, 1) * 30;
 
-  const memoryCount = extractMemoryRows(latestDebug).length;
+  const memoryRows = useMemo(
+    () => {
+      const fromStore = extractMemoryRowsFromStore(personaState?.memoryItems);
+      return fromStore.length ? fromStore : extractMemoryRows(latestDebug);
+    },
+    [latestDebug, personaState?.memoryItems],
+  );
+
+  const memoryCount = memoryRows.length;
   const hasIntent = Boolean(latestDebug?.goal?.goal);
   const identityActive = Boolean(latestDebug?.flags?.reconditioned) || Boolean(latestDebug?.scientist?.repairAttempted);
   const reconditioningActive = Boolean(latestDebug?.flags?.reconditioned);
@@ -1276,8 +1385,8 @@ export default function NeuralCore({
   const rendererType = !kidsMode && rendererEnv !== "svg" ? "force-graph" : "svg";
 
   const focusChildren = useMemo(
-    () => getFocusChildren(focusNode, latestDebug, mode, personality),
-    [focusNode, latestDebug, mode, personality],
+    () => getFocusChildren(focusNode, latestDebug, mode, personality, memoryRows, personaState),
+    [focusNode, latestDebug, memoryRows, mode, personality, personaState],
   );
 
   const focusPos =
@@ -1426,13 +1535,13 @@ export default function NeuralCore({
   );
 
   const focusPanel = useMemo(
-    () => buildFocusPanel(focusNode, latestDebug, personality, mode),
-    [focusNode, latestDebug, personality, mode],
+    () => buildFocusPanel(focusNode, latestDebug, personality, mode, memoryRows),
+    [focusNode, latestDebug, personality, mode, memoryRows],
   );
 
   const leafPanel = useMemo(
-    () => buildLeafPanel(selectedLeafNode),
-    [selectedLeafNode],
+    () => buildLeafPanel(selectedLeafNode, personaState),
+    [selectedLeafNode, personaState],
   );
 
   useEffect(() => {
@@ -1444,17 +1553,31 @@ export default function NeuralCore({
   }, [leafPanel]);
 
   async function handleSaveLeafEdit() {
-    if (!leafPanel?.editable || !leafPanel.memoryId || !onUpdateMemory) {
+    if (!leafPanel?.editable) {
       return;
     }
 
     setIsSavingLeaf(true);
     try {
-      await onUpdateMemory({
-        memoryId: leafPanel.memoryId,
-        content: leafDraft,
-        memoryType: leafPanel.memoryType,
-      });
+      if (leafPanel.isPersonaField && leafPanel.dataRef?.kind === "persona-array") {
+        await personaState?.updatePersonaField?.({
+          field: leafPanel.dataRef.field,
+          index: leafPanel.dataRef.index,
+          value: leafDraft,
+        });
+      } else if (leafPanel.isPersonaField && leafPanel.dataRef?.kind === "persona-scalar") {
+        await personaState?.updatePersonaField?.({
+          field: leafPanel.dataRef.field,
+          value: leafDraft,
+        });
+      } else if (leafPanel.memoryId && onUpdateMemory) {
+        await onUpdateMemory({
+          memoryId: leafPanel.memoryId,
+          content: leafDraft,
+          memoryType: leafPanel.memoryType,
+        });
+      }
+
       setSelectedLeafNode((current) =>
         current
           ? {
@@ -1476,10 +1599,30 @@ export default function NeuralCore({
       return;
     }
 
+    const dataRef = leafPanel.dataRef || null;
+    const editorItemId = dataRef?.kind === "memory-item"
+      ? `memory-item-${dataRef.memoryId}`
+      : dataRef?.kind === "persona-array"
+      ? `${dataRef.field === "notablePhrases" ? "sayings" : dataRef.field}-${dataRef.index}`
+      : dataRef?.kind === "persona-scalar"
+      ? `mood-${String(dataRef.field).replace(/^mood/, "").replace(/^./, (char) => char.toLowerCase())}`
+      : selectedLeafNode?.id || null;
+
     onOpenPersonaEditor({
-      section: leafPanel.editable ? "memory" : "neural",
+      section: leafPanel.memoryId ? "memory" : "behavior",
       query: leafPanel.content || selectedLeafNode?.label || "",
       memoryId: leafPanel.memoryId || null,
+      category: leafPanel.memoryId
+        ? "memory"
+        : leafPanel.dataRef?.field === "traits"
+        ? "traits"
+        : leafPanel.dataRef?.field === "quirks"
+        ? "quirks"
+        : leafPanel.dataRef?.field === "notablePhrases"
+        ? "sayings"
+        : "mood",
+      subcategory: leafPanel.dataRef?.subcategory || null,
+      itemId: editorItemId,
     });
   }
 

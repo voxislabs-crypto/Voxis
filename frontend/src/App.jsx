@@ -11,6 +11,7 @@ import MemoryJournal from "./components/MemoryJournal.jsx";
 import PersonaEditor from "./components/PersonaEditor.jsx";
 import HarnessReport from "./components/HarnessReport.jsx";
 import LlmSettingsPanel from "./components/LlmSettingsPanel.jsx";
+import { PersonaStateProvider } from "./state/PersonaStateContext.jsx";
 
 const appStyles = `
   :root {
@@ -761,6 +762,7 @@ export default function App() {
   const [personaEditorTarget, setPersonaEditorTarget] = useState(null);
   const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
+  const [personaMemoryById, setPersonaMemoryById] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -992,6 +994,11 @@ export default function App() {
     return list.find((personality) => personality.id === selectedId) || null;
   }, [personalities, selectedId]);
 
+  const selectedMemoryItems = useMemo(
+    () => (selectedId ? personaMemoryById[selectedId] || [] : []),
+    [personaMemoryById, selectedId],
+  );
+
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || null,
     [users, selectedUserId],
@@ -1012,6 +1019,20 @@ export default function App() {
   }, [selectedPersonality]);
 
   const activePhase = selectedId ? liveChatState[selectedId]?.phase || "" : "";
+  const initialPersonaSection = useMemo(() => {
+    const category = personaEditorTarget?.category;
+    if (category === "memory") {
+      return "memory";
+    }
+    if (category === "mood") {
+      return "neural";
+    }
+    if (category === "traits" || category === "quirks" || category === "sayings") {
+      return "behavior";
+    }
+    return personaEditorTarget?.section || "basic";
+  }, [personaEditorTarget]);
+
   const backgroundFxMultiplier =
     backgroundFxIntensity === "off"
       ? 0
@@ -1065,6 +1086,7 @@ export default function App() {
     }
 
     void loadChatHistory(selectedId);
+    void loadPersonalityMemory(selectedId);
   }, [selectedId]);
 
   useEffect(() => {
@@ -1354,6 +1376,27 @@ export default function App() {
     }
   }
 
+  async function loadPersonalityMemory(personalityId) {
+    try {
+      const response = await authFetch(`/personality/${personalityId}/memory`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load personality memory.");
+      }
+
+      setPersonaMemoryById((current) => ({
+        ...current,
+        [personalityId]: Array.isArray(data) ? data : [],
+      }));
+    } catch {
+      setPersonaMemoryById((current) => ({
+        ...current,
+        [personalityId]: current[personalityId] || [],
+      }));
+    }
+  }
+
   function handlePersonalityCreated(personality) {
     setPersonalities((current) => [personality, ...(Array.isArray(current) ? current : [])]);
     setSelectedId(personality.id);
@@ -1378,6 +1421,73 @@ export default function App() {
       type: "success",
       message: `${personality.name} was updated.`,
     });
+  }
+
+  function handlePersonaFieldUpdate({ field, index, value }) {
+    if (!selectedId || !field) {
+      return;
+    }
+
+    setPersonalities((current) => {
+      const list = Array.isArray(current) ? current : [];
+      return list.map((item) => {
+        if (item.id !== selectedId) {
+          return item;
+        }
+
+        if (Number.isInteger(index)) {
+          const source = Array.isArray(item[field]) ? item[field] : [];
+          const next = [...source];
+          next[index] = value;
+          return { ...item, [field]: next };
+        }
+
+        return { ...item, [field]: value };
+      });
+    });
+  }
+
+  async function handlePersonaMemoryUpdate({ memoryId, content, memoryType }) {
+    if (!selectedId || !memoryId) {
+      return false;
+    }
+
+    setPersonaMemoryById((current) => ({
+      ...current,
+      [selectedId]: (current[selectedId] || []).map((item) =>
+        item.id === memoryId
+          ? {
+              ...item,
+              content,
+              memory_type: memoryType || item.memory_type,
+            }
+          : item,
+      ),
+    }));
+
+    const response = await authFetch(`/memory/${memoryId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content,
+        memoryType,
+      }),
+    });
+
+    if (!response.ok) {
+      await loadPersonalityMemory(selectedId);
+      return false;
+    }
+
+    const updated = await response.json();
+    setPersonaMemoryById((current) => ({
+      ...current,
+      [selectedId]: (current[selectedId] || []).map((item) =>
+        item.id === memoryId ? updated : item,
+      ),
+    }));
+
+    return true;
   }
 
   async function handleVoiceProfileChange(nextVoiceProfile) {
@@ -1675,6 +1785,14 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      <PersonaStateProvider
+        personality={selectedPersonality}
+        memoryItems={selectedMemoryItems}
+        onUpdatePersonaField={handlePersonaFieldUpdate}
+        onUpdateMemoryItem={handlePersonaMemoryUpdate}
+        editorTarget={personaEditorTarget}
+        setEditorTarget={setPersonaEditorTarget}
+      >
       <div className="app-shell">
         <section className="hero">
           <div className="hero-grid">
@@ -1852,7 +1970,7 @@ export default function App() {
                   personality={selectedPersonality}
                   onUpdated={handlePersonalityUpdated}
                   onStatus={setStatus}
-                  initialSection={personaEditorTarget?.section || "basic"}
+                  initialSection={initialPersonaSection}
                 />
               ) : activeView === "voice" ? (
                 <>
@@ -2092,6 +2210,7 @@ export default function App() {
                     onJumpToBuilder={() => setActiveView("builder")}
                     onOpenVoiceLab={() => setActiveView("voice")}
                     onStatus={setStatus}
+                    onUpdateMemory={handlePersonaMemoryUpdate}
                     onOpenPersonaEditor={(target) => {
                       setPersonaEditorTarget(target);
                       setActiveView("persona-editor");
@@ -2107,6 +2226,7 @@ export default function App() {
           </main>
         </section>
       </div>
+      </PersonaStateProvider>
     </>
   );
 }

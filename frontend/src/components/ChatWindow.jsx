@@ -846,6 +846,7 @@ export default function ChatWindow({
   onJumpToBuilder,
   onOpenVoiceLab,
   onStatus,
+  onUpdateMemory,
   onOpenPersonaEditor,
 }) {
   const authFetch = useAuthFetch();
@@ -1248,6 +1249,16 @@ export default function ChatWindow({
   async function handleNeuralMemoryUpdate({ memoryId, content, memoryType }) {
     if (!memoryId) {
       onStatus?.({ type: "error", message: "Memory id is missing for inline edit." });
+      return;
+    }
+
+    if (onUpdateMemory) {
+      const ok = await onUpdateMemory({ memoryId, content, memoryType });
+      if (!ok) {
+        onStatus?.({ type: "error", message: "Failed to update memory." });
+        return;
+      }
+      onStatus?.({ type: "success", message: "Memory updated." });
       return;
     }
 

@@ -157,6 +157,7 @@ export function buildThreeGraphModel({
 
   const detailNodes = visibleChildNodes.map((child, index) => ({
     id: child.id || `${focusNode}-detail-${index}`,
+    type: child.type || "leaf",
     label: String(child.label || `Link ${index + 1}`),
     position: toThreePosition({ x: child.x, y: child.y }, -0.3 - index * 0.05),
     strength: clamp(0.38 + index * 0.05, 0.38, 0.7),
@@ -168,6 +169,8 @@ export function buildThreeGraphModel({
     parentId: focusNode,
     source: child.source || "detail",
     payload: child.payload || null,
+    children: Array.isArray(child.children) ? child.children : [],
+    dataRef: child.dataRef || null,
   }));
 
   const nodes = [...primaryNodes, ...detailNodes];
