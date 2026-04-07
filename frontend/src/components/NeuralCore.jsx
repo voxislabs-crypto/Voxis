@@ -381,6 +381,48 @@ const neuralStyles = `
     gap: 6px;
   }
 
+  .neural-leaf-edit-block {
+    margin-top: 8px;
+  }
+
+  .neural-leaf-editor {
+    width: 100%;
+    min-height: 88px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 180, 255, 0.24);
+    background: rgba(6, 14, 26, 0.82);
+    color: #e3f7ff;
+    padding: 8px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    resize: vertical;
+  }
+
+  .neural-leaf-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .neural-leaf-btn {
+    border: 1px solid rgba(0, 210, 255, 0.3);
+    background: linear-gradient(180deg, rgba(0, 112, 175, 0.24), rgba(0, 58, 102, 0.32));
+    color: #d7f5ff;
+    border-radius: 999px;
+    padding: 6px 11px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .neural-leaf-btn.icon {
+    width: 30px;
+    padding: 6px 0;
+    text-align: center;
+  }
+
   .neural-focus-btn {
     border: 1px solid rgba(0, 180, 255, 0.22);
     background: rgba(6, 16, 30, 0.68);
@@ -758,22 +800,6 @@ function getSignalSproutConfig(type, kidsMode) {
   };
 }
 
-function getSproutLimit({ performanceTier, kidsMode, focusNode }) {
-  if (performanceTier === "light") {
-    return 0;
-  }
-
-  if (kidsMode) {
-    return performanceTier === "full" ? 4 : 3;
-  }
-
-  if (focusNode === "memory") {
-    return 0;
-  }
-
-  return performanceTier === "full" ? 4 : 3;
-}
-
 function extractMemoryRows(latestDebug) {
   const mapped = [];
 
@@ -781,12 +807,15 @@ function extractMemoryRows(latestDebug) {
     if (!Array.isArray(rows)) {
       return;
     }
+
     rows.forEach((item, index) => {
       mapped.push({
-        id: `${source}-${index}`,
+        id: item?.id || `${source}-${index}`,
         source,
         label: item?.memory_type || item?.memoryType || item?.type || "memory",
+        memoryType: item?.memory_type || item?.memoryType || item?.type || "memory",
         content: item?.content || item?.text || "",
+        importance: Number(item?.importance || 5),
         rawItem: item,
       });
     });
@@ -794,79 +823,16 @@ function extractMemoryRows(latestDebug) {
 
   addRows(latestDebug?.memoryInjected, "injected");
   addRows(latestDebug?.memoryRetrieved, "retrieved");
-  addRows(latestDebug?.userMemoryRetrieved, "retrieved");
+  addRows(latestDebug?.userMemoryRetrieved, "user-retrieved");
   addRows(latestDebug?.memoryExtracted, "extracted");
   addRows(latestDebug?.userMemoryExtracted, "user-extracted");
 
   return mapped;
 }
 
-function getFocusChildren(focusNode, latestDebug, mode, personality) {
-  const kidsMode = mode === "kids";
-
-  if (focusNode === "memory") {
-    const fromDebug = extractMemoryRows(latestDebug)
-      .map((item) => item.content)
-      .filter(Boolean)
-      .slice(0, 8);
-
-    if (!fromDebug.length) {
-      return [kidsMode ? "No big memories yet" : "No memory links this turn"];
-    }
-
-    return fromDebug.slice(0, kidsMode ? 3 : 6);
-  }
-
-  if (focusNode === "intent") {
-    const goal = latestDebug?.goal?.goal;
-    if (!goal) {
-      return [kidsMode ? "Thinking what to do next" : "No active intent selected"];
-    }
-
-    if (kidsMode) {
-      return ["Fun idea active", "Planning next answer"];
-    }
-
-    return [goal, `source: ${latestDebug?.goal?.source || "unknown"}`];
-  }
-
-  if (focusNode === "identity") {
-    const lines = [];
-    if (latestDebug?.flags?.reconditioned) {
-      lines.push(kidsMode ? "Character staying steady" : "reconditioning anchor fired");
-    }
-    if (latestDebug?.scientist?.repairAttempted) {
-      lines.push(kidsMode ? "Thinking extra carefully" : "scientist repair pass attempted");
-    }
-    const promptUtil = latestDebug?.prompt?.promptBudget?.utilization;
-    if (Number.isFinite(promptUtil)) {
-      lines.push(kidsMode ? "Brain using space wisely" : `prompt utilization ${(promptUtil * 100).toFixed(1)}%`);
-    }
-    return lines.length ? lines : [kidsMode ? "Identity calm" : `${personality?.name || "persona"} stable`];
-  }
-
-  if (focusNode === "evidence") {
-    const violations = latestDebug?.scientist?.validation?.violations || [];
-    const hasCitation = Boolean(latestDebug?.scientist?.validation?.hasCitation);
-    if (violations.includes("invalid_citation_reference")) {
-      return ["invalid citation index", "repair required"];
-    }
-    if (violations.includes("missing_citations")) {
-      return ["citations missing", "add [S#] references"];
-    }
-    if (hasCitation) {
-      return ["citations linked", `sources ${latestDebug?.scientist?.sourceCount || 0}`];
-    }
-    return ["evidence pending"];
-  }
-
-  return [];
-}
-
-// Categorize memory by type
 function categorizeMemory(memoryItem) {
-  const type = String(memoryItem?.memory_type || memoryItem?.type || "unknown").toLowerCase();
-  
+  const type = String(memoryItem?.memory_type || memoryItem?.memoryType || memoryItem?.type || "unknown").toLowerCase();
+
   if (type.includes("self") || type.includes("identity") || type.includes("core")) {
     return "Personal (Self)";
   }
@@ -885,55 +851,136 @@ function categorizeMemory(memoryItem) {
   return "General";
 }
 
+function getFocusChildren(focusNode, latestDebug, mode, personality) {
+  const kidsMode = mode === "kids";
+
+  if (focusNode === "memory") {
+    const rows = extractMemoryRows(latestDebug);
+    if (!rows.length) {
+      return [];
+    }
+
+    return rows.map((memory, index) => {
+      const category = categorizeMemory(memory.rawItem);
+      return {
+        id: `memory-leaf-${memory.id}`,
+        label: `${String(category).replace("Personal ", "").replace(/[()]/g, "")} ${index + 1}`,
+        source: memory.source,
+        meta: `${String(memory.memoryType).replaceAll("_", " ")} · importance ${memory.importance}`,
+        payload: {
+          kind: "memory",
+          memoryId: memory.id,
+          memoryType: memory.memoryType,
+          category,
+          content: memory.content,
+          source: memory.source,
+          importance: memory.importance,
+        },
+      };
+    });
+  }
+
+  if (focusNode === "intent") {
+    const goal = latestDebug?.goal?.goal;
+    if (!goal) {
+      return [];
+    }
+
+    return [
+      {
+        id: "intent-leaf-goal",
+        label: kidsMode ? "Intent" : "Intent Goal",
+        source: "intent",
+        meta: `source: ${latestDebug?.goal?.source || "unknown"}`,
+        payload: {
+          kind: "intent",
+          content: goal,
+          source: latestDebug?.goal?.source || "unknown",
+        },
+      },
+    ];
+  }
+
+  if (focusNode === "identity") {
+    const lines = [];
+    if (latestDebug?.flags?.reconditioned) {
+      lines.push("Reconditioning anchor fired");
+    }
+    if (latestDebug?.scientist?.repairAttempted) {
+      lines.push("Scientist repair pass attempted");
+    }
+
+    if (!lines.length) {
+      lines.push(`${personality?.name || "persona"} stable`);
+    }
+
+    return lines.map((line, index) => ({
+      id: `identity-leaf-${index}`,
+      label: kidsMode ? "Identity" : `Identity ${index + 1}`,
+      source: "identity",
+      meta: line,
+      payload: {
+        kind: "identity",
+        content: line,
+      },
+    }));
+  }
+
+  if (focusNode === "evidence") {
+    const violations = latestDebug?.scientist?.validation?.violations || [];
+    const hasCitation = Boolean(latestDebug?.scientist?.validation?.hasCitation);
+
+    if (violations.length) {
+      return violations.map((violation, index) => ({
+        id: `evidence-violation-${index}`,
+        label: "Evidence",
+        source: "evidence",
+        meta: violation,
+        payload: {
+          kind: "evidence",
+          content: violation,
+        },
+      }));
+    }
+
+    if (hasCitation) {
+      return [
+        {
+          id: "evidence-cited",
+          label: "Evidence",
+          source: "evidence",
+          meta: `sources ${latestDebug?.scientist?.sourceCount || 0}`,
+          payload: {
+            kind: "evidence",
+            content: "Citations linked",
+          },
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  return [];
+}
+
 function buildFocusPanel(focusNode, latestDebug, personality, mode) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
     const allMemories = extractMemoryRows(latestDebug);
 
-    if (!allMemories.length) {
-      return {
-        title: kidsMode ? "Memory Notes" : "Memory Reads",
-        lines: [kidsMode ? "No big memories loaded this turn." : "No memories were loaded for this turn."],
-        isLeaf: false,
-        hasContent: false,
-      };
-    }
-
-    // Group memories by category
-    const categorized = {};
-    allMemories.forEach((mem) => {
-      const category = categorizeMemory(mem.rawItem);
-      if (!categorized[category]) {
-        categorized[category] = [];
-      }
-      categorized[category].push(mem);
-    });
-
-    // Build formatted lines with category headers
-    const lines = [];
-    Object.entries(categorized).forEach(([category, memories]) => {
-      lines.push(`[${category}]`);
-      memories.slice(0, 3).forEach((mem, idx) => {
-        const sourceLabel = mem.source === "injected"
-          ? "Prompt"
-          : mem.source === "retrieved"
-          ? "Store"
-          : mem.source === "extracted"
-          ? "New"
-          : "User";
-        lines.push(`  ${idx + 1}. [${sourceLabel}] ${String(mem.label || "memory").replaceAll("_", " ")}`);
-        if (mem.content) {
-          lines.push(`      "${mem.content.substring(0, 60)}${mem.content.length > 60 ? "..." : ""}"`);
-        }
-      });
-    });
-
     return {
-      title: kidsMode ? "Memory Notes" : "Memory Reads",
-      lines: lines.slice(0, 24),
-      isLeaf: true,
-      hasContent: true,
+      title: kidsMode ? "Memory Tree" : "Memory Branch",
+      lines: allMemories.length
+        ? [
+            kidsMode
+              ? `Tap a memory branch to open details (${allMemories.length} available).`
+              : `Click a memory leaf to inspect details (${allMemories.length} memories loaded).`,
+          ]
+        : [kidsMode ? "No big memories yet." : "No memory leaves available this turn."],
+      isLeaf: false,
+      hasContent: allMemories.length > 0,
     };
   }
 
@@ -982,10 +1029,40 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
     lines: [
       `Persona: ${personality?.name || "unknown"}`,
       `Mode: ${mode}`,
-      `Memory links: ${(latestDebug?.memoryInjected || []).length + (latestDebug?.userMemoryRetrieved || []).length}`,
+      `Memory links: ${extractMemoryRows(latestDebug).length}`,
     ],
     isLeaf: false,
     hasContent: false,
+  };
+}
+
+function buildLeafPanel(leafNode) {
+  if (!leafNode || !leafNode.payload) {
+    return null;
+  }
+
+  const payload = leafNode.payload;
+
+  if (payload.kind === "memory") {
+    return {
+      title: `Memory · ${payload.category || "General"}`,
+      lines: [
+        `Type: ${String(payload.memoryType || "memory").replaceAll("_", " ")}`,
+        `Source: ${String(payload.source || "unknown").replaceAll("_", " ")}`,
+        `Importance: ${payload.importance ?? 5}`,
+        payload.content || "(empty memory)",
+      ],
+      editable: true,
+      memoryId: payload.memoryId,
+      memoryType: payload.memoryType,
+      content: payload.content || "",
+    };
+  }
+
+  return {
+    title: leafNode.label || "Leaf Node",
+    lines: [payload.content || leafNode.meta || "No details available"],
+    editable: false,
   };
 }
 
@@ -1056,26 +1133,25 @@ export default function NeuralCore({
   performanceTier: requestedPerformanceTier,
   voiceNarrationEnabled = false,
   onActivityUpdate,
+  onUpdateMemory,
+  onOpenPersonaEditor,
 }) {
   const enabled = import.meta.env.VITE_NEURAL_CORE_ENABLED !== "false";
   const [expanded, setExpanded] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
-  const [clickedNode, setClickedNode] = useState(null); // Track explicit user clicks
+  const [selectedLeafNode, setSelectedLeafNode] = useState(null);
+  const [branchRevealCount, setBranchRevealCount] = useState(0);
+  const [leafDraft, setLeafDraft] = useState("");
+  const [isSavingLeaf, setIsSavingLeaf] = useState(false);
   const [tick, setTick] = useState(0);
   const [phaseBurst, setPhaseBurst] = useState("");
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const performanceTier = resolvePerformanceTier(requestedPerformanceTier, mode, prefersReducedMotion);
 
-  // Handler for node clicks: tracks clicked node and shows panel only for leaf nodes
   const handleNodeClick = (nodeName) => {
     setFocusNode(nodeName);
-    // Only set clickedNode if it's a leaf node that will have a panel
-    if (nodeName !== "core") {
-      setClickedNode(nodeName);
-    } else {
-      setClickedNode(null); // Core is not a leaf, so don't show panel
-    }
+    setSelectedLeafNode(null);
   };
 
   useEffect(() => {
@@ -1219,20 +1295,77 @@ export default function NeuralCore({
   const cameraTranslateX = (50 - focusPos.x) * 0.9;
   const cameraTranslateY = (50 - focusPos.y) * 0.9;
 
-  const childNodes = focusChildren.map((label, index) => {
+  const childNodes = focusChildren.map((child, index) => {
+    const childModel = typeof child === "string"
+      ? {
+          id: `focus-child-${index}`,
+          label: child,
+          source: focusNode,
+          meta: "",
+          payload: { kind: focusNode, content: child },
+        }
+      : child;
+
     const angle = (Math.PI * 2 * index) / Math.max(1, focusChildren.length) + tick * (performanceTier === "full" ? 0.3 : 0.18);
     const radius = kidsMode ? 14 : performanceTier === "full" ? 18 : 16;
     return {
-      id: `focus-child-${index}`,
-      label,
+      id: childModel.id || `focus-child-${index}`,
+      label: childModel.label || `Node ${index + 1}`,
+      source: childModel.source || focusNode,
+      meta: childModel.meta || "",
+      payload: childModel.payload || null,
       x: focusPos.x + Math.cos(angle) * radius,
       y: focusPos.y + Math.sin(angle) * radius,
     };
   });
 
+  useEffect(() => {
+    if (focusNode === "core") {
+      setBranchRevealCount(0);
+      return;
+    }
+
+    if (!childNodes.length) {
+      setBranchRevealCount(0);
+      return;
+    }
+
+    const maxVisible = childNodes.length;
+
+    let frameId = 0;
+    let count = 0;
+    const revealStepMs = prefersReducedMotion ? 0 : 85;
+
+    if (revealStepMs <= 0) {
+      setBranchRevealCount(maxVisible);
+      return;
+    }
+
+    const startedAt = performance.now();
+    function reveal(now) {
+      const elapsed = now - startedAt;
+      const nextCount = Math.min(maxVisible, Math.floor(elapsed / revealStepMs) + 1);
+      if (nextCount !== count) {
+        count = nextCount;
+        setBranchRevealCount(nextCount);
+      }
+      if (nextCount < maxVisible) {
+        frameId = window.requestAnimationFrame(reveal);
+      }
+    }
+
+    setBranchRevealCount(0);
+    frameId = window.requestAnimationFrame(reveal);
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [childNodes, focusNode, kidsMode, performanceTier, prefersReducedMotion]);
+
   const visibleChildNodes = useMemo(
-    () => childNodes.slice(0, getSproutLimit({ performanceTier, kidsMode, focusNode })),
-    [childNodes, focusNode, kidsMode, performanceTier],
+    () => childNodes.slice(0, branchRevealCount),
+    [branchRevealCount, childNodes],
   );
 
   const primarySprouts = useMemo(
@@ -1296,6 +1429,59 @@ export default function NeuralCore({
     () => buildFocusPanel(focusNode, latestDebug, personality, mode),
     [focusNode, latestDebug, personality, mode],
   );
+
+  const leafPanel = useMemo(
+    () => buildLeafPanel(selectedLeafNode),
+    [selectedLeafNode],
+  );
+
+  useEffect(() => {
+    if (!leafPanel || !leafPanel.editable) {
+      setLeafDraft("");
+      return;
+    }
+    setLeafDraft(leafPanel.content || "");
+  }, [leafPanel]);
+
+  async function handleSaveLeafEdit() {
+    if (!leafPanel?.editable || !leafPanel.memoryId || !onUpdateMemory) {
+      return;
+    }
+
+    setIsSavingLeaf(true);
+    try {
+      await onUpdateMemory({
+        memoryId: leafPanel.memoryId,
+        content: leafDraft,
+        memoryType: leafPanel.memoryType,
+      });
+      setSelectedLeafNode((current) =>
+        current
+          ? {
+              ...current,
+              payload: {
+                ...current.payload,
+                content: leafDraft,
+              },
+            }
+          : current,
+      );
+    } finally {
+      setIsSavingLeaf(false);
+    }
+  }
+
+  function handleOpenEditorForLeaf() {
+    if (!leafPanel || !onOpenPersonaEditor) {
+      return;
+    }
+
+    onOpenPersonaEditor({
+      section: leafPanel.editable ? "memory" : "neural",
+      query: leafPanel.content || selectedLeafNode?.label || "",
+      memoryId: leafPanel.memoryId || null,
+    });
+  }
 
   if (!enabled || !personality) {
     return null;
@@ -1448,7 +1634,8 @@ export default function NeuralCore({
               dominance={dominance}
               personality={personality}
               focusNode={focusNode}
-                setFocusNode={handleNodeClick}
+              setFocusNode={handleNodeClick}
+              onLeafNodeSelect={setSelectedLeafNode}
               citationIssue={citationIssue}
               citationValid={citationValid}
               livePhaseBurst={phaseBurst}
@@ -1507,8 +1694,58 @@ export default function NeuralCore({
               ) : null}
             </div>
 
-            {/* Only show focus panel if: user clicked a node AND it's a leaf node AND has content */}
-            {clickedNode && focusPanel.isLeaf && focusPanel.hasContent && (
+            {selectedLeafNode && leafPanel ? (
+              <div className="neural-focus-panel">
+                <h5>{leafPanel.title}</h5>
+                <div className="neural-focus-lines">
+                  {leafPanel.lines.map((line, index) => (
+                    <p key={`${selectedLeafNode.id}-${index}`} className="neural-focus-line">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+
+                {leafPanel.editable ? (
+                  <div className="neural-leaf-edit-block">
+                    <textarea
+                      className="neural-leaf-editor"
+                      value={leafDraft}
+                      onChange={(event) => setLeafDraft(event.target.value)}
+                    />
+                  </div>
+                ) : null}
+
+                <div className="neural-leaf-actions">
+                  {leafPanel.editable ? (
+                    <button
+                      type="button"
+                      className="neural-leaf-btn"
+                      onClick={() => void handleSaveLeafEdit()}
+                      disabled={isSavingLeaf}
+                    >
+                      {isSavingLeaf ? "Saving..." : "Save Inline"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="neural-leaf-btn"
+                    onClick={handleOpenEditorForLeaf}
+                    title="Open in Persona Editor"
+                  >
+                    Open In Editor
+                  </button>
+                  <button
+                    type="button"
+                    className="neural-leaf-btn icon"
+                    onClick={handleOpenEditorForLeaf}
+                    aria-label="Jump to editor location"
+                    title="Jump to this trait/memory"
+                  >
+                    ↗
+                  </button>
+                </div>
+              </div>
+            ) : focusNode !== "core" ? (
               <div className="neural-focus-panel">
                 <h5>{focusPanel.title}</h5>
                 <div className="neural-focus-lines">
@@ -1519,7 +1756,7 @@ export default function NeuralCore({
                   ))}
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       )}

@@ -164,8 +164,10 @@ export function buildThreeGraphModel({
     connections: [focusNode === "core" ? "core" : focusNode],
     color: childColor,
     type: "detail",
-    meta: `Connected to ${focusNode}`,
+    meta: child.meta || `Connected to ${focusNode}`,
     parentId: focusNode,
+    source: child.source || "detail",
+    payload: child.payload || null,
   }));
 
   const nodes = [...primaryNodes, ...detailNodes];

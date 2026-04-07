@@ -909,6 +909,7 @@ export default function NeuralCoreThreeScene({
   scene, personality, memoryCount, hasIntent, identityActive, evidenceActive,
   repairActive, reconditioningActive, visibleChildNodes, focusNode, setFocusNode,
   valence, arousal, dominance, livePhaseBurst, hideLabels = false, onActivityUpdate,
+  onLeafNodeSelect,
 }) {
   const controlsRef = useRef(null);
   const [selectedId, setSelectedId] = useState(focusNode || "core");
@@ -941,10 +942,22 @@ export default function NeuralCoreThreeScene({
 
   function handleSelect(node) {
     setSelectedId(node.id);
-    if (["core","memory","intent","identity","evidence"].includes(node.id)) {
+    if (["core", "memory", "intent", "identity", "evidence"].includes(node.id)) {
       setFocusNode?.(node.id);
-    } else if (node.parentId) {
+      onLeafNodeSelect?.(null);
+      return;
+    }
+
+    if (node.parentId) {
       setFocusNode?.(node.parentId);
+      onLeafNodeSelect?.({
+        id: node.id,
+        label: node.label,
+        parentId: node.parentId,
+        source: node.source || "detail",
+        meta: node.meta || "",
+        payload: node.payload || null,
+      });
     }
   }
 
@@ -956,7 +969,11 @@ export default function NeuralCoreThreeScene({
       <Canvas
         camera={{ position: [0, 0.15, 6], fov: 48 }}
         gl={{ powerPreference: "low-power", antialias: false, failIfMajorPerformanceCaveat: false }}
-        onPointerMissed={() => setSelectedId("core")}
+        onPointerMissed={() => {
+          setSelectedId("core");
+          setFocusNode?.("core");
+          onLeafNodeSelect?.(null);
+        }}
       >
         <NeuralScene
           graph={graph}

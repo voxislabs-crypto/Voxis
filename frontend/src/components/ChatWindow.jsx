@@ -846,6 +846,7 @@ export default function ChatWindow({
   onJumpToBuilder,
   onOpenVoiceLab,
   onStatus,
+  onOpenPersonaEditor,
 }) {
   const authFetch = useAuthFetch();
   const [draft, setDraft] = useState("");
@@ -1244,6 +1245,33 @@ export default function ChatWindow({
     }
   }
 
+  async function handleNeuralMemoryUpdate({ memoryId, content, memoryType }) {
+    if (!memoryId) {
+      onStatus?.({ type: "error", message: "Memory id is missing for inline edit." });
+      return;
+    }
+
+    const response = await authFetch(`/memory/${memoryId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content,
+        memoryType,
+      }),
+    });
+
+    if (!response.ok) {
+      onStatus?.({ type: "error", message: "Failed to update memory." });
+      return;
+    }
+
+    onStatus?.({ type: "success", message: "Memory updated." });
+  }
+
+  function handleOpenEditorTarget(target) {
+    onOpenPersonaEditor?.(target);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -1288,6 +1316,8 @@ export default function ChatWindow({
             performanceTier={performanceTier}
             voiceNarrationEnabled={Boolean(neuralProfile?.voiceNarrationEnabled)}
             onActivityUpdate={handleBrainActivity}
+            onUpdateMemory={handleNeuralMemoryUpdate}
+            onOpenPersonaEditor={handleOpenEditorTarget}
           />
           <div className="chat-header">
             <div className="chat-header-top">

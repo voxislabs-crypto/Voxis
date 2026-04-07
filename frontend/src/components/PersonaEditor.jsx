@@ -195,12 +195,16 @@ function buildDraft(personality) {
   };
 }
 
-export default function PersonaEditor({ personality, onUpdated, onStatus }) {
+export default function PersonaEditor({ personality, onUpdated, onStatus, initialSection }) {
   const authFetch = useAuthFetch();
   const [draft, setDraft] = useState(() => buildDraft(personality));
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState("basic");
+  const [activeSection, setActiveSection] = useState(initialSection || "basic");
   const [dirtySections, setDirtySections] = useState({});
+
+  useEffect(() => {
+    if (initialSection) setActiveSection(initialSection);
+  }, [initialSection]);
   const lastDraftRef = useRef(null);
   const [pendingSection, setPendingSection] = useState(null);
 

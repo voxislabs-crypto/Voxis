@@ -746,10 +746,10 @@ export default function App() {
   const [users, setUsers] = useState([]);
   const [userProfiles, setUserProfiles] = useState({});
   const [selectedUserId, setSelectedUserId] = useState(null);
-  const [selectedMode, setSelectedMode] = useState("scientist");
+  const [selectedMode, setSelectedMode] = useState("normal");
   const [chatPolicy, setChatPolicy] = useState(null);
   const [profileDraft, setProfileDraft] = useState({
-    defaultMode: "scientist",
+    defaultMode: "normal",
     safetyTier: "standard",
     performanceTier: "balanced",
     voiceNarrationEnabled: false,
@@ -758,6 +758,7 @@ export default function App() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [activeView, setActiveView] = useState("chat");
+  const [personaEditorTarget, setPersonaEditorTarget] = useState(null);
   const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
   const [isLoading, setIsLoading] = useState(true);
@@ -766,7 +767,7 @@ export default function App() {
   const [liveChatState, setLiveChatState] = useState({});
   const [status, setStatus] = useState({ type: "", message: "" });
   const [neuralToast, setNeuralToast] = useState(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(storedSidebarOpen === "1");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(storedSidebarOpen != null ? storedSidebarOpen === "1" : false);
   const [backgroundFxIntensity, setBackgroundFxIntensity] = useState(
     storedBackgroundFx === "off" || storedBackgroundFx === "low" || storedBackgroundFx === "full"
       ? storedBackgroundFx
@@ -1851,6 +1852,7 @@ export default function App() {
                   personality={selectedPersonality}
                   onUpdated={handlePersonalityUpdated}
                   onStatus={setStatus}
+                  initialSection={personaEditorTarget?.section || "basic"}
                 />
               ) : activeView === "voice" ? (
                 <>
@@ -2090,6 +2092,10 @@ export default function App() {
                     onJumpToBuilder={() => setActiveView("builder")}
                     onOpenVoiceLab={() => setActiveView("voice")}
                     onStatus={setStatus}
+                    onOpenPersonaEditor={(target) => {
+                      setPersonaEditorTarget(target);
+                      setActiveView("persona-editor");
+                    }}
                   />
                 </>
               )}
