@@ -1,0 +1,299 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Html, OrbitControls, Stars } from "@react-three/drei";
+import * as THREE from "three";
+
+const sceneV2Styles = `
+  .neural-v2-shell {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+  }
+
+  .neural-v2-controls {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 4;
+    display: flex;
+    gap: 8px;
+  }
+
+  .neural-v2-btn {
+    border: 1px solid rgba(122, 230, 255, 0.34);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(214, 248, 255, 0.16), rgba(14, 30, 56, 0.24));
+    color: #c9f4ff;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 800;
+    padding: 6px 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 18px rgba(0, 16, 38, 0.3);
+  }
+
+  .neural-v2-debug {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    z-index: 4;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: calc(100% - 24px);
+  }
+
+  .neural-v2-pill {
+    border-radius: 999px;
+    border: 1px solid rgba(100, 220, 255, 0.24);
+    background: rgba(6, 18, 34, 0.72);
+    color: #9fe7ff;
+    padding: 4px 9px;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+
+  .neural-v2-label {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(4, 14, 28, 0.82);
+    color: #d9f8ff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 0 12px rgba(0, 234, 255, 0.12);
+  }
+`;
+
+function hashOffset(id = "") {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function CameraDepthRig({ depth }) {
+  const { camera } = useThree();
+
+  useFrame((_, delta) => {
+    const targetZ = -depth * 8;
+    const target = new THREE.Vector3(0, 0, targetZ);
+    const desired = new THREE.Vector3(0, 0.18, targetZ + 6.6);
+    camera.position.lerp(desired, 1 - Math.exp(-delta * 4.6));
+    camera.lookAt(target);
+  });
+
+  return null;
+}
+
+function RadialNode({ node, index, total, depth, onClick }) {
+  const meshRef = useRef(null);
+  const offset = useMemo(() => hashOffset(node.id), [node.id]);
+  const angle = (Math.PI * 2 * index) / Math.max(1, total);
+  const radius = Math.max(2.1, Math.min(3.1, 2.5 + (total - 5) * 0.06));
+  const jitter = ((offset % 100) / 100 - 0.5) * 0.25;
+  const zJitter = (((offset / 100) % 100) / 100 - 0.5) * 0.5;
+  const yLift = Math.sin(offset * 0.01) * 0.08;
+  const zBase = -depth * 8;
+
+  const position = useMemo(
+    () => [Math.cos(angle) * (radius + jitter), Math.sin(angle) * (radius + jitter) + yLift, zBase + zJitter],
+    [angle, radius, jitter, yLift, zBase, zJitter],
+  );
+
+  useFrame(({ clock }) => {
+    if (!meshRef.current) return;
+    const t = clock.getElapsedTime() + (offset % 17) * 0.11;
+    const pulse = 1 + Math.sin(t * 2.2) * 0.06;
+    meshRef.current.scale.setScalar(pulse);
+    meshRef.current.material.emissiveIntensity = 1.2 + Math.sin(t * 1.7) * 0.35;
+  });
+
+  const color = node.type === "leaf"
+    ? "#53dcff"
+    : node.type === "memory"
+    ? "#ffc16b"
+    : "#96a2ff";
+
+  return (
+    <group>
+      <mesh ref={meshRef} position={position} onClick={(event) => { event.stopPropagation(); onClick(node, position); }}>
+        <sphereGeometry args={[0.3, 28, 28]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.3} roughness={0.2} metalness={0.55} />
+      </mesh>
+      <Html position={[position[0], position[1] - 0.54, position[2]]} center>
+        <div className="neural-v2-label">{node.label}</div>
+      </Html>
+      <mesh position={[position[0], position[1], position[2]]}>
+        <ringGeometry args={[0.36, 0.42, 32]} />
+        <meshBasicMaterial color={color} transparent opacity={0.32} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function SceneLayer({ currentLayer, onNodeSelect }) {
+  const depth = currentLayer.depth;
+  const center = [0, 0, -depth * 8];
+
+  return (
+    <>
+      <mesh position={center}>
+        <sphereGeometry args={[0.45, 32, 32]} />
+        <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2} roughness={0.2} metalness={0.5} />
+      </mesh>
+
+      {currentLayer.nodes.map((node, index) => {
+        const total = currentLayer.nodes.length;
+        return (
+          <group key={node.id}>
+            <RadialNode
+              node={node}
+              index={index}
+              total={total}
+              depth={depth}
+              onClick={onNodeSelect}
+            />
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
+function normalizeNodes(nodes = []) {
+  return nodes.map((node) => ({
+    id: node.id,
+    label: node.label,
+    type: node.type || "category",
+    dataRef: node.dataRef || null,
+    payload: node.payload || null,
+    children: Array.isArray(node.children) ? normalizeNodes(node.children) : [],
+  }));
+}
+
+export default function NeuralSceneV2({
+  rootNodes = [],
+  onLeafNodeSelect,
+  onFocusNodeChange,
+  onDepthChange,
+}) {
+  const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
+  const [layerStack, setLayerStack] = useState(() => [
+    {
+      id: "root",
+      depth: 0,
+      nodes: normalizedRoot,
+      parentNode: null,
+    },
+  ]);
+
+  useEffect(() => {
+    setLayerStack([
+      {
+        id: "root",
+        depth: 0,
+        nodes: normalizedRoot,
+        parentNode: null,
+      },
+    ]);
+  }, [normalizedRoot]);
+
+  const currentLayer = layerStack[layerStack.length - 1] || {
+    id: "root",
+    depth: 0,
+    nodes: [],
+    parentNode: null,
+  };
+
+  useEffect(() => {
+    onDepthChange?.(currentLayer.depth);
+  }, [currentLayer.depth, onDepthChange]);
+
+  function handleNodeSelect(node, position) {
+    onFocusNodeChange?.(node.id);
+
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      onLeafNodeSelect?.(null);
+      setLayerStack((prev) => [
+        ...prev,
+        {
+          id: node.id,
+          depth: prev.length,
+          nodes: node.children,
+          parentNode: node,
+        },
+      ]);
+      return;
+    }
+
+    onLeafNodeSelect?.({
+      id: node.id,
+      label: node.label,
+      dataRef: node.dataRef || null,
+      payload: node.payload || null,
+      position,
+      parentId: currentLayer.parentNode?.id || "root",
+      source: currentLayer.parentNode?.id || "root",
+      meta: node.type || "leaf",
+    });
+  }
+
+  function handleBack() {
+    setLayerStack((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.slice(0, -1);
+    });
+    onLeafNodeSelect?.(null);
+  }
+
+  function handleHome() {
+    setLayerStack((prev) => (prev.length > 0 ? [prev[0]] : prev));
+    onLeafNodeSelect?.(null);
+    onFocusNodeChange?.("core");
+  }
+
+  return (
+    <div className="neural-v2-shell">
+      <style>{sceneV2Styles}</style>
+
+      <div className="neural-v2-controls">
+        <button type="button" className="neural-v2-btn" onClick={handleBack} disabled={layerStack.length <= 1}>Back</button>
+        <button type="button" className="neural-v2-btn" onClick={handleHome}>Home</button>
+      </div>
+
+      <Canvas
+        camera={{ position: [0, 0.18, 6.6], fov: 48 }}
+        dpr={[1, 1.2]}
+        gl={{ alpha: true, antialias: false, powerPreference: "low-power" }}
+        onCreated={({ gl }) => {
+          gl.setClearColor("#000000", 0);
+        }}
+      >
+        <fog attach="fog" args={["#071422", 8, 24]} />
+        <ambientLight intensity={0.3} />
+        <pointLight position={[5, 4, 6]} intensity={1.4} color="#56deff" />
+        <pointLight position={[-4, -3, 5]} intensity={0.9} color="#ff9c5c" />
+        <Stars radius={28} depth={14} count={120} factor={0.85} saturation={0} fade />
+
+        <CameraDepthRig depth={currentLayer.depth} />
+        <OrbitControls enablePan={false} enableZoom minDistance={3.2} maxDistance={13} />
+
+        <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} />
+      </Canvas>
+
+      <div className="neural-v2-debug">
+        <span className="neural-v2-pill">Depth {currentLayer.depth}</span>
+        <span className="neural-v2-pill">Nodes {currentLayer.nodes.length}</span>
+        <span className="neural-v2-pill">Layer {currentLayer.id}</span>
+      </div>
+    </div>
+  );
+}

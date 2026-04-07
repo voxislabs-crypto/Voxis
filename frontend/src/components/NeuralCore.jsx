@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import NeuralCoreRenderer from "./neuralCore/NeuralCoreRenderer.jsx";
 import NeuralCoreThreeScene from "./neuralCore/NeuralCoreThreeScene.jsx";
+import NeuralSceneV2 from "./neuralCore/NeuralSceneV2.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import { usePersonaState } from "../state/PersonaStateContext.jsx";
 import { buildMemoryDisplay, normalizeMemoryType, redactMemoryText } from "../lib/memoryPresentation.js";
@@ -1132,11 +1133,11 @@ function resolveDataRefContent(dataRef, personaState, fallbackContent) {
 }
 
 function buildLeafPanel(leafNode, personaState) {
-  if (!leafNode || !leafNode.payload) {
+  if (!leafNode) {
     return null;
   }
 
-  const payload = leafNode.payload;
+  const payload = leafNode.payload || {};
 
   if (payload.kind === "memory") {
     const latestContent = resolveDataRefContent(payload.dataRef || leafNode.dataRef, personaState, payload.content || "");
@@ -1157,6 +1158,36 @@ function buildLeafPanel(leafNode, personaState) {
     };
   }
 
+  if (leafNode.dataRef?.kind === "memory-item") {
+    const memory = (personaState?.memoryItems || []).find((item) => item.id === leafNode.dataRef.memoryId);
+    const latestContent = memory?.content || "";
+    const type = memory?.memory_type || memory?.memoryType || leafNode.dataRef.memoryType || "memory";
+    return {
+      title: `Memory · ${normalizeMemoryType(type)}`,
+      lines: [
+        `Type: ${normalizeMemoryType(type)}`,
+        redactMemoryText(latestContent || "(empty memory)"),
+      ],
+      editable: true,
+      memoryId: leafNode.dataRef.memoryId,
+      memoryType: type,
+      content: latestContent,
+      dataRef: leafNode.dataRef,
+    };
+  }
+
+  if (leafNode.dataRef?.kind === "persona-array" || leafNode.dataRef?.kind === "persona-scalar") {
+    const latestContent = resolveDataRefContent(leafNode.dataRef, personaState, leafNode.label || "");
+    return {
+      title: leafNode.label || "Persona Entry",
+      lines: [latestContent || "No details available"],
+      editable: true,
+      content: latestContent || "",
+      dataRef: leafNode.dataRef,
+      isPersonaField: true,
+    };
+  }
+
   if (payload.kind === "persona") {
     const latestContent = resolveDataRefContent(payload.dataRef || leafNode.dataRef, personaState, payload.content || "");
     return {
@@ -1174,6 +1205,17 @@ function buildLeafPanel(leafNode, personaState) {
     lines: [payload.content || leafNode.meta || "No details available"],
     editable: false,
   };
+}
+
+function mapLayerRootNodes(nodes = []) {
+  return nodes.map((node) => ({
+    id: node.id,
+    label: node.label,
+    type: node.type || "category",
+    dataRef: node.dataRef || null,
+    payload: node.payload || null,
+    children: Array.isArray(node.children) ? mapLayerRootNodes(node.children) : [],
+  }));
 }
 
 function resolvePerformanceTier(requestedTier, mode, prefersReducedMotion) {
@@ -1251,6 +1293,7 @@ export default function NeuralCore({
   const [expanded, setExpanded] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
   const [selectedLeafNode, setSelectedLeafNode] = useState(null);
+  const [sceneDepth, setSceneDepth] = useState(0);
   const [branchRevealCount, setBranchRevealCount] = useState(0);
   const [leafDraft, setLeafDraft] = useState("");
   const [isSavingLeaf, setIsSavingLeaf] = useState(false);
@@ -1393,6 +1436,13 @@ export default function NeuralCore({
   // Set VITE_NEURAL_CORE_RENDERER=svg to force the legacy SVG scene.
   const rendererEnv = String(import.meta.env.VITE_NEURAL_CORE_RENDERER || "force-graph").trim().toLowerCase();
   const rendererType = !kidsMode && rendererEnv !== "svg" ? "force-graph" : "svg";
+  const sceneModelEnv = String(import.meta.env.VITE_NEURAL_CORE_SCENE_MODEL || "legacy").trim().toLowerCase();
+  const useLayeredV2 = !kidsMode && sceneModelEnv === "layered-v2";
+
+  const layeredRootNodes = useMemo(() => {
+    const source = Array.isArray(personaState?.personaTree) ? personaState.personaTree : [];
+    return mapLayerRootNodes(source);
+  }, [personaState?.personaTree]);
 
   const focusChildren = useMemo(
     () => getFocusChildren(focusNode, latestDebug, mode, personality, memoryRows, personaState),
@@ -1758,46 +1808,56 @@ export default function NeuralCore({
               </div>
             ) : null}
 
-            <NeuralCoreRenderer
-              rendererType={rendererType}
-              compact={false}
-              performanceTier={performanceTier}
-              kidsMode={kidsMode}
-              repairActive={repairActive}
-              reconditioningActive={reconditioningActive}
-              scene={scene}
-              stars={stars}
-              primarySprouts={primarySprouts}
-              focusedSprouts={focusedSprouts}
-              memoryCount={memoryCount}
-              hasIntent={hasIntent}
-              identityActive={identityActive}
-              evidenceActive={evidenceActive}
-              focusPos={focusPos}
-              visibleChildNodes={visibleChildNodes}
-              cameraTranslateX={cameraTranslateX}
-              cameraTranslateY={cameraTranslateY}
-              cameraScale={cameraScale}
-              coreSize={coreSize}
-              palette={palette}
-              glowSize={glowSize}
-              heatGlow={heatGlow}
-              valence={valence}
-              arousal={arousal}
-              dominance={dominance}
-              personality={personality}
-              focusNode={focusNode}
-              setFocusNode={handleNodeClick}
-              onLeafNodeSelect={setSelectedLeafNode}
-              citationIssue={citationIssue}
-              citationValid={citationValid}
-              livePhaseBurst={phaseBurst}
-            />
+            {useLayeredV2 ? (
+              <NeuralSceneV2
+                rootNodes={layeredRootNodes}
+                onLeafNodeSelect={setSelectedLeafNode}
+                onFocusNodeChange={setFocusNode}
+                onDepthChange={setSceneDepth}
+              />
+            ) : (
+              <NeuralCoreRenderer
+                rendererType={rendererType}
+                compact={false}
+                performanceTier={performanceTier}
+                kidsMode={kidsMode}
+                repairActive={repairActive}
+                reconditioningActive={reconditioningActive}
+                scene={scene}
+                stars={stars}
+                primarySprouts={primarySprouts}
+                focusedSprouts={focusedSprouts}
+                memoryCount={memoryCount}
+                hasIntent={hasIntent}
+                identityActive={identityActive}
+                evidenceActive={evidenceActive}
+                focusPos={focusPos}
+                visibleChildNodes={visibleChildNodes}
+                cameraTranslateX={cameraTranslateX}
+                cameraTranslateY={cameraTranslateY}
+                cameraScale={cameraScale}
+                coreSize={coreSize}
+                palette={palette}
+                glowSize={glowSize}
+                heatGlow={heatGlow}
+                valence={valence}
+                arousal={arousal}
+                dominance={dominance}
+                personality={personality}
+                focusNode={focusNode}
+                setFocusNode={handleNodeClick}
+                onLeafNodeSelect={setSelectedLeafNode}
+                citationIssue={citationIssue}
+                citationValid={citationValid}
+                livePhaseBurst={phaseBurst}
+              />
+            )}
 
             <div className="neural-legend">
               <span className="neural-pill">{kidsMode ? "Mode: Kids" : "Mode: Scientist"}</span>
               <span className="neural-pill">{kidsMode ? `Feeling: ${personality?.moodLabel || "calm"}` : `Valence ${valence.toFixed(2)}`}</span>
               <span className="neural-pill">Memory links {memoryCount}</span>
+              {useLayeredV2 ? <span className="neural-pill">Depth {sceneDepth}</span> : null}
               <span className="neural-pill">Intent {hasIntent ? "on" : "off"}</span>
               <span className="neural-pill">Identity {identityActive ? "active" : "steady"}</span>
               {!kidsMode ? <span className="neural-pill">Evidence {citationIssue ? "repair" : citationValid ? "linked" : "pending"}</span> : null}
@@ -1807,7 +1867,7 @@ export default function NeuralCore({
               <span className="neural-pill">Shortcut N: toggle</span>
             </div>
 
-            <div className="neural-focus-row">
+            {!useLayeredV2 ? <div className="neural-focus-row">
               <button
                 type="button"
                 className={`neural-focus-btn ${focusNode === "core" ? "active" : ""}`}
@@ -1845,7 +1905,7 @@ export default function NeuralCore({
                   Evidence
                 </button>
               ) : null}
-            </div>
+            </div> : null}
 
             {selectedLeafNode && leafPanel ? (
               <div className="neural-focus-panel">
