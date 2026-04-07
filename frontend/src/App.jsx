@@ -852,7 +852,7 @@ export default function App() {
 
   const allowedModes = useMemo(() => {
     if (!selectedUser) {
-      return ["scientist"];
+      return ["normal", "scientist"];
     }
 
     if (selectedUser.ageBand === "child") {
@@ -861,13 +861,13 @@ export default function App() {
 
     if (selectedUser.ageBand === "teen") {
       if (selectedUserProfile?.supervisedAdvancedMode) {
-        return ["kids", "scientist"];
+        return ["kids", "normal", "scientist"];
       }
 
       return ["kids"];
     }
 
-    return ["kids", "scientist"];
+    return ["kids", "normal", "scientist"];
   }, [selectedUser, selectedUserProfile]);
 
   useEffect(() => {
@@ -1561,6 +1561,7 @@ export default function App() {
                           }
                         >
                           <option value="kids">kids</option>
+                          <option value="normal">normal</option>
                           <option value="scientist">scientist</option>
                         </select>
                       </label>

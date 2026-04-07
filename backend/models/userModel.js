@@ -1,7 +1,7 @@
 import db from "../db/db.js";
 
 const VALID_AGE_BANDS = new Set(["child", "teen", "adult"]);
-const VALID_MODES = new Set(["kids", "scientist"]);
+const VALID_MODES = new Set(["kids", "scientist", "normal"]);
 const VALID_PERFORMANCE_TIERS = new Set(["light", "balanced", "full"]);
 
 function toBooleanFlag(value) {
@@ -129,7 +129,7 @@ export function createUser(input) {
   const displayName = String(input?.displayName || "Guest").trim() || "Guest";
   const ageBand = normalizeAgeBand(input?.ageBand);
   const locale = String(input?.locale || "en-US").trim() || "en-US";
-  const defaultMode = normalizeMode(input?.defaultMode, ageBand === "adult" ? "scientist" : "kids");
+  const defaultMode = normalizeMode(input?.defaultMode, ageBand === "adult" ? "normal" : "kids");
   const safetyTier = String(input?.safetyTier || (ageBand === "child" ? "child_strict" : "standard")).trim();
   const performanceTier = normalizePerformanceTier(
     input?.performanceTier,

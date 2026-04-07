@@ -195,6 +195,28 @@ const chatStyles = `
     color: var(--accent);
   }
 
+  .assistant-normal-main {
+    white-space: pre-wrap;
+  }
+
+  .assistant-next-questions {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(0, 180, 255, 0.2);
+    color: rgba(188, 220, 245, 0.84);
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  .assistant-next-questions strong {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(123, 223, 255, 0.86);
+  }
+
   .empty-chat {
     color: var(--muted);
     line-height: 1.7;
@@ -778,6 +800,34 @@ function resolvePerformanceTier(profile, mode, prefersReducedMotion) {
   }
 
   return mode === "kids" ? "light" : "balanced";
+}
+
+function formatAssistantContentForMode(content, mode) {
+  const text = String(content || "");
+  if (mode !== "normal" || !text.trim()) {
+    return { main: text, nextQuestions: "" };
+  }
+
+  let main = text
+    .replace(/^\s*(?:1\)\s*)?Answer\s*:?\s*\n?/i, "")
+    .trim();
+
+  main = main
+    .replace(/\n?\s*2\)\s*Evidence\s*[\s\S]*?(?=\n\s*3\)\s*Uncertainty|\n\s*4\)\s*Next Questions|$)/i, "")
+    .replace(/\n?\s*3\)\s*Uncertainty\s*[\s\S]*?(?=\n\s*4\)\s*Next Questions|$)/i, "")
+    .trim();
+
+  const nextQuestionsMatch = main.match(/\n\s*4\)\s*Next Questions\s*\n([\s\S]*)$/i);
+  if (!nextQuestionsMatch) {
+    return { main, nextQuestions: "" };
+  }
+
+  const nextQuestions = String(nextQuestionsMatch[1] || "").trim();
+  const nextQuestionsStart = Number(nextQuestionsMatch.index || 0);
+  return {
+    main: main.slice(0, nextQuestionsStart).trim(),
+    nextQuestions,
+  };
 }
 
 export default function ChatWindow({
@@ -1436,6 +1486,21 @@ export default function ChatWindow({
                         <span className="live-phase">{message.phase || "processing"}</span>
                         {message.content || "Thinking..."}
                       </>
+                    ) : message.role === "assistant" ? (
+                      (() => {
+                        const formatted = formatAssistantContentForMode(message.content, activeMode);
+                        return (
+                          <>
+                            <div className="assistant-normal-main">{formatted.main}</div>
+                            {formatted.nextQuestions ? (
+                              <div className="assistant-next-questions">
+                                <strong>Next Questions</strong>
+                                {formatted.nextQuestions}
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()
                     ) : (
                       message.content
                     )}

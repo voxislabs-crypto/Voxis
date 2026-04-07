@@ -1,6 +1,6 @@
 import { getUserById, getUserProfile } from "../models/userModel.js";
 
-const VALID_MODES = new Set(["kids", "scientist"]);
+const VALID_MODES = new Set(["kids", "scientist", "normal"]);
 const VALID_PERFORMANCE_TIERS = new Set(["light", "balanced", "full"]);
 
 function normalizeMode(value, fallback = "scientist") {
@@ -19,7 +19,7 @@ function selectDefaultMode({ ageBand, profile }) {
   }
 
   if (ageBand === "teen") {
-    return profile?.supervisedAdvancedMode ? normalizeMode(profile?.defaultMode, "kids") : "kids";
+    return profile?.supervisedAdvancedMode ? normalizeMode(profile?.defaultMode, "normal") : "kids";
   }
 
   return normalizeMode(profile?.defaultMode, "scientist");
@@ -38,7 +38,7 @@ function canUseMode({ ageBand, profile, mode }) {
     return Boolean(profile?.supervisedAdvancedMode);
   }
 
-  return mode === "kids" || mode === "scientist";
+  return mode === "kids" || mode === "scientist" || mode === "normal";
 }
 
 function resolveSafetyTier(ageBand, profile) {
@@ -126,6 +126,15 @@ export function buildModePolicyPrompt(policy) {
       "Avoid mature, sexual, graphic, extremist, and self-harm content.",
       "If asked for unsafe content, refuse briefly and redirect to a safe alternative activity.",
       "Do not provide dangerous instructions.",
+    ].join("\n");
+  }
+
+  if (policy.activeMode === "normal") {
+    return [
+      "== MODE POLICY: NORMAL ==",
+      "Prioritize natural conversational replies in-character.",
+      "Do not force rigid numbered formats unless explicitly requested by the user.",
+      "Keep responses concise and engaging by default.",
     ].join("\n");
   }
 
