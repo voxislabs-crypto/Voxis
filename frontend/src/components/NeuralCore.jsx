@@ -4,6 +4,7 @@ import NeuralCoreRenderer from "./neuralCore/NeuralCoreRenderer.jsx";
 import NeuralCoreThreeScene from "./neuralCore/NeuralCoreThreeScene.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import { usePersonaState } from "../state/PersonaStateContext.jsx";
+import { buildMemoryDisplay, normalizeMemoryType, redactMemoryText } from "../lib/memoryPresentation.js";
 
 const neuralStyles = `
   .neural-hud {
@@ -879,12 +880,19 @@ function getFocusChildren(focusNode, latestDebug, mode, personality, memoryRows,
 
     return rows.map((memory, index) => {
       const category = categorizeMemory(memory.rawItem);
+      const display = buildMemoryDisplay(
+        {
+          memory_type: memory.memoryType,
+          content: memory.content,
+        },
+        index + 1,
+      );
       return {
         id: `memory-leaf-${memory.id}`,
         type: "leaf",
-        label: `${String(category).replace("Personal ", "").replace(/[()]/g, "")} ${index + 1}`,
+        label: display.title,
         source: memory.source,
-        meta: `${String(memory.memoryType).replaceAll("_", " ")} · importance ${memory.importance}`,
+        meta: `${display.typeLabel} · importance ${memory.importance}`,
         children: [],
         dataRef: {
           kind: "memory-item",
@@ -897,6 +905,7 @@ function getFocusChildren(focusNode, latestDebug, mode, personality, memoryRows,
           memoryType: memory.memoryType,
           category,
           content: memory.content,
+          contentSummary: display.description,
           source: memory.source,
           importance: memory.importance,
           dataRef: {
@@ -1131,13 +1140,14 @@ function buildLeafPanel(leafNode, personaState) {
 
   if (payload.kind === "memory") {
     const latestContent = resolveDataRefContent(payload.dataRef || leafNode.dataRef, personaState, payload.content || "");
+    const redactedSummary = redactMemoryText(payload.contentSummary || latestContent || "");
     return {
       title: `Memory · ${payload.category || "General"}`,
       lines: [
-        `Type: ${String(payload.memoryType || "memory").replaceAll("_", " ")}`,
+        `Type: ${normalizeMemoryType(payload.memoryType || "memory")}`,
         `Source: ${String(payload.source || "unknown").replaceAll("_", " ")}`,
         `Importance: ${payload.importance ?? 5}`,
-        latestContent || "(empty memory)",
+        redactedSummary || "(empty memory)",
       ],
       editable: true,
       memoryId: payload.memoryId,

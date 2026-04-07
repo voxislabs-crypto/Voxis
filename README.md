@@ -160,6 +160,7 @@ What this demonstrates in minutes:
 - Saved Personas rail now starts minimized by default and expands on demand to reduce visual load while keeping quick persona access one click away.
 - Persona editing now uses a centralized `PersonaState` context so the Neural Core graph, leaf popups, and Persona Editor tree read/write the same source of truth in real time.
 - Persona Editor now includes a collapsible category tree (traits, quirks, sayings, mood, memory) with inline editing and graph-to-editor deep-link highlighting.
+- Memory labels in Neural Core and Persona Editor now use smart descriptive titles with redacted previews (URLs/emails/phones/name patterns masked) to reduce raw sensitive text exposure in visual overlays.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.

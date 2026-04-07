@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState } from "react";
+import { buildMemoryDisplay } from "../lib/memoryPresentation.js";
 
 const PersonaStateContext = createContext(null);
 
@@ -77,17 +78,20 @@ function buildPersonaTree(personality, memoryItems) {
     id: `memory-${subcategory}`,
     type: "category",
     label: subcategory,
-    children: items.map((memory) => ({
-      id: `memory-item-${memory.id}`,
-      type: "leaf",
-      label: toText(memory.content) || `Memory ${memory.id}`,
-      children: [],
-      dataRef: {
-        kind: "memory-item",
-        memoryId: memory.id,
-        memoryType: memory.memory_type || memory.memoryType || "fact",
-      },
-    })),
+    children: items.map((memory, index) => {
+      const display = buildMemoryDisplay(memory, index + 1);
+      return {
+        id: `memory-item-${memory.id}`,
+        type: "leaf",
+        label: display.title,
+        children: [],
+        dataRef: {
+          kind: "memory-item",
+          memoryId: memory.id,
+          memoryType: memory.memory_type || memory.memoryType || "fact",
+        },
+      };
+    }),
     dataRef: { kind: "memory-category", subcategory },
   }));
 
