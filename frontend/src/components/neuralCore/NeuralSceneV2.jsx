@@ -102,47 +102,59 @@ const sceneV2Styles = `
 
   .neural-v2-leaf-hud {
     pointer-events: auto;
-    min-width: 168px;
-    max-width: 260px;
-    border-radius: 11px;
-    border: 1px solid rgba(105, 228, 255, 0.4);
-    background: linear-gradient(180deg, rgba(7, 20, 38, 0.78), rgba(6, 14, 28, 0.8));
-    backdrop-filter: blur(8px);
-    box-shadow: 0 14px 24px rgba(0, 9, 24, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.13);
-    color: #ccf4ff;
-    padding: 10px 10px 8px;
+    min-width: 220px;
+    max-width: 320px;
+    border-radius: 12px;
+    border: 1px solid rgba(121, 236, 255, 0.62);
+    background: linear-gradient(180deg, rgba(8, 25, 46, 0.9), rgba(4, 11, 25, 0.92));
+    backdrop-filter: blur(10px);
+    box-shadow: 0 16px 28px rgba(0, 7, 22, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(74, 209, 255, 0.25);
+    color: #d6f7ff;
+    padding: 13px 13px 11px;
+    animation: neuralV2HudEnter 190ms cubic-bezier(0.2, 0.88, 0.26, 1);
   }
 
   .neural-v2-leaf-hud-title {
     margin: 0;
-    font-size: 0.7rem;
-    letter-spacing: 0.03em;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #e0fbff;
+    color: #effdff;
   }
 
   .neural-v2-leaf-hud-meta {
-    margin: 5px 0 0;
-    font-size: 0.56rem;
-    color: rgba(197, 238, 255, 0.88);
+    margin: 6px 0 0;
+    font-size: 0.62rem;
+    color: rgba(222, 245, 255, 0.94);
   }
 
   .neural-v2-leaf-hud-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: 8px;
+    margin-top: 10px;
   }
 
   .neural-v2-leaf-hud-btn {
-    border: 1px solid rgba(111, 226, 255, 0.4);
+    border: 1px solid rgba(111, 226, 255, 0.48);
     border-radius: 999px;
-    background: rgba(13, 35, 56, 0.74);
-    color: #d4f6ff;
-    font-size: 0.52rem;
+    background: rgba(12, 37, 60, 0.88);
+    color: #e5f8ff;
+    font-size: 0.56rem;
     font-weight: 700;
-    padding: 3px 8px;
+    padding: 4px 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+  }
+
+  @keyframes neuralV2HudEnter {
+    0% {
+      opacity: 0;
+      transform: translateY(9px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   @keyframes neuralV2LayerShift {
@@ -156,7 +168,6 @@ const sceneV2Styles = `
     }
   }
 `;
-
 function hashOffset(id = "") {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) {
@@ -230,7 +241,7 @@ function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
     ]);
     const pts = c.getPoints(42);
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.38 });
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.46 });
     return { lineObj: new THREE.Line(geo, mat), curve: c };
   }, [phaseSeed]);
 
@@ -265,7 +276,7 @@ function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
     <group>
       <primitive object={lineObj} />
       <points ref={particlesRef} geometry={particleGeo}>
-        <pointsMaterial color={color} size={0.055} transparent opacity={0.9} sizeAttenuation />
+        <pointsMaterial color={color} size={0.066} transparent opacity={1} sizeAttenuation />
       </points>
     </group>
   );
@@ -379,8 +390,8 @@ function LeafNodeHud({ leafNode, onClose }) {
   const [x, y, z] = leafNode.position;
 
   return (
-    <Html position={[x + 0.36, y + 0.18, z]} transform distanceFactor={8}>
-      <div className="neural-v2-leaf-hud" onPointerDown={(event) => event.stopPropagation()}>
+    <Html position={[x + 0.42, y + 0.22, z + 0.35]} transform distanceFactor={9.6}>
+      <div key={`${leafNode.id}-${leafNode.parentId || "root"}`} className="neural-v2-leaf-hud" onPointerDown={(event) => event.stopPropagation()}>
         <h3 className="neural-v2-leaf-hud-title">{leafNode.label}</h3>
         <p className="neural-v2-leaf-hud-meta">Type: {leafNode.meta || "leaf"}</p>
         <p className="neural-v2-leaf-hud-meta">Data: {leafNode.dataRef || "N/A"}</p>
