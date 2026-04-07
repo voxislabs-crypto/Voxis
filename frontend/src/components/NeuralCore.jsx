@@ -772,14 +772,40 @@ function getSproutLimit({ performanceTier, kidsMode, focusNode }) {
   return performanceTier === "full" ? 4 : 3;
 }
 
+function extractMemoryRows(latestDebug) {
+  const mapped = [];
+
+  const addRows = (rows, source) => {
+    if (!Array.isArray(rows)) {
+      return;
+    }
+    rows.forEach((item, index) => {
+      mapped.push({
+        id: `${source}-${index}`,
+        source,
+        label: item?.memory_type || item?.memoryType || item?.type || "memory",
+        content: item?.content || item?.text || "",
+        rawItem: item,
+      });
+    });
+  };
+
+  addRows(latestDebug?.memoryInjected, "injected");
+  addRows(latestDebug?.userMemoryRetrieved, "retrieved");
+  addRows(latestDebug?.memoryExtracted, "extracted");
+  addRows(latestDebug?.userMemoryExtracted, "user-extracted");
+
+  return mapped;
+}
+
 function getFocusChildren(focusNode, latestDebug, mode, personality) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
-    const fromDebug = [
-      ...(latestDebug?.memoryInjected || []).slice(0, 4).map((item) => item.content),
-      ...(latestDebug?.userMemoryRetrieved || []).slice(0, 4).map((item) => item.content),
-    ];
+    const fromDebug = extractMemoryRows(latestDebug)
+      .map((item) => item.content)
+      .filter(Boolean)
+      .slice(0, 8);
 
     if (!fromDebug.length) {
       return [kidsMode ? "No big memories yet" : "No memory links this turn"];
@@ -860,22 +886,7 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
   const kidsMode = mode === "kids";
 
   if (focusNode === "memory") {
-    const allMemories = [
-      ...(latestDebug?.memoryInjected || []).map((item, index) => ({
-        id: `inject-${index}`,
-        source: "injected",
-        label: item?.type || "memory",
-        content: item?.content || "",
-        rawItem: item,
-      })),
-      ...(latestDebug?.userMemoryRetrieved || []).map((item, index) => ({
-        id: `retrieved-${index}`,
-        source: "retrieved",
-        label: item?.memory_type || item?.type || "memory",
-        content: item?.content || "",
-        rawItem: item,
-      })),
-    ];
+    const allMemories = extractMemoryRows(latestDebug);
 
     if (!allMemories.length) {
       return {
@@ -901,7 +912,13 @@ function buildFocusPanel(focusNode, latestDebug, personality, mode) {
     Object.entries(categorized).forEach(([category, memories]) => {
       lines.push(`[${category}]`);
       memories.slice(0, 3).forEach((mem, idx) => {
-        const sourceLabel = mem.source === "injected" ? "Prompt" : "Store";
+        const sourceLabel = mem.source === "injected"
+          ? "Prompt"
+          : mem.source === "retrieved"
+          ? "Store"
+          : mem.source === "extracted"
+          ? "New"
+          : "User";
         lines.push(`  ${idx + 1}. [${sourceLabel}] ${String(mem.label || "memory").replaceAll("_", " ")}`);
         if (mem.content) {
           lines.push(`      "${mem.content.substring(0, 60)}${mem.content.length > 60 ? "..." : ""}"`);
@@ -1137,7 +1154,7 @@ export default function NeuralCore({
   const glowSize = 26 + clamp(Math.abs(dominance), 0, 1) * 26 + clamp(Math.abs(arousal), 0, 1) * 14;
   const heatGlow = 14 + clamp(Math.abs(arousal), 0, 1) * 30;
 
-  const memoryCount = (latestDebug?.memoryInjected || []).length + (latestDebug?.userMemoryRetrieved || []).length;
+  const memoryCount = extractMemoryRows(latestDebug).length;
   const hasIntent = Boolean(latestDebug?.goal?.goal);
   const identityActive = Boolean(latestDebug?.flags?.reconditioned) || Boolean(latestDebug?.scientist?.repairAttempted);
   const reconditioningActive = Boolean(latestDebug?.flags?.reconditioned);

@@ -164,7 +164,7 @@ What this demonstrates in minutes:
 - Memory Journal now supports conflict highlighting, active/disabled toggles, quick importance sliders, and one-click suppression of weaker conflicting memories for faster persona tuning.
 - Chat mode now includes a `normal` toggle (policy-aware end-to-end). In normal mode, Scientist-style section-heavy assistant replies are rendered as conversational output with the rigid "Answer" heading removed and any "Next Questions" shown as a smaller secondary block.
 - Saved personas are now minimized by default with expandable details and an explicit `Choose Persona` action for cleaner selection flow.
-- Neural Core focus now opens a readable side panel (especially for memory focus) with line-by-line retrieval details while suppressing memory-child visual clutter.
+- Neural Core focus opens a readable side panel on explicit node click; memory focus now resolves memories from both retrieval and extraction debug streams so Memory clicks work consistently across turn phases.
 - Added a dedicated `Persona Editor` tab with split sections (`Basic`, `Behavior`, `Neural`, `Memory`) to edit core identity, style rules, Big Five/alignment, expression tuning, and memory controls without leaving the editor flow.
 - The current redesign branch also includes a first-pass cyberpunk control-deck shell for the main app, chat dashboard, and Voice Lab.
 
