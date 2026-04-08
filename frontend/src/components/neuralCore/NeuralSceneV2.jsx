@@ -335,6 +335,66 @@ function LayerConnections({ currentLayer, personaState, cinematicStyle = false, 
   );
 }
 
+function CinematicBranchWeb({ currentLayer, enabled = false, intensity = 0.35 }) {
+  const depth = currentLayer.depth;
+  const center = useMemo(() => [0, 0, -depth * 8], [depth]);
+
+  const branchLines = useMemo(() => {
+    if (!enabled) return [];
+    const lines = [];
+    const palette = ["#63deff", "#ffb97e", "#cf8dff"];
+
+    currentLayer.nodes.forEach((node, index) => {
+      const target = computeNodePosition(node.id, index, currentLayer.nodes.length, depth);
+
+      for (let branch = 0; branch < 2; branch += 1) {
+        const seed = hashOffset(`${node.id}-${branch}`);
+        const branchLift = 0.18 + branch * 0.1 + ((seed % 10) / 10) * 0.08;
+        const side = branch % 2 === 0 ? 1 : -1;
+        const archX = (center[0] + target[0]) / 2 + side * (0.22 + intensity * 0.16);
+        const archY = (center[1] + target[1]) / 2 + branchLift + intensity * 0.18;
+        const archZ = (center[2] + target[2]) / 2 + side * 0.05;
+
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(center[0], center[1], center[2]),
+          new THREE.Vector3(archX, archY, archZ),
+          new THREE.Vector3(target[0], target[1], target[2]),
+        ]);
+
+        const points = curve.getPoints(36);
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: palette[(index + branch) % palette.length],
+          transparent: true,
+          opacity: 0.14 + intensity * 0.1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+
+        lines.push(new THREE.Line(geometry, material));
+      }
+    });
+
+    return lines;
+  }, [center, currentLayer.nodes, depth, enabled, intensity]);
+
+  useEffect(() => () => {
+    branchLines.forEach((line) => {
+      line.geometry.dispose();
+      line.material.dispose();
+    });
+  }, [branchLines]);
+
+  if (!enabled) return null;
+  return (
+    <group>
+      {branchLines.map((line, idx) => (
+        <primitive key={`branch-web-${idx}`} object={line} />
+      ))}
+    </group>
+  );
+}
+
 function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, color = "#67dbff" }) {
   const veinCount = enabled ? 22 : 0;
   const segs = 22;
@@ -539,6 +599,11 @@ function SceneLayer({ currentLayer, onNodeSelect, personaState, cinematicStyle =
       </group>
 
       <group name="connectionLayer">
+        <CinematicBranchWeb
+          currentLayer={currentLayer}
+          enabled={cinematicStyle}
+          intensity={visualIntensity}
+        />
         <LayerConnections
           currentLayer={currentLayer}
           personaState={personaState}
