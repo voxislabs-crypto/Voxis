@@ -74,7 +74,10 @@ const neuralStyles = `
 
   .neural-overlay {
     position: absolute;
-    inset: 36px;
+    top: 24px;
+    left: 30px;
+    right: 30px;
+    bottom: 14px;
     z-index: 10;
     border-radius: 16px;
     border: 1px solid rgba(0, 180, 255, 0.18);
