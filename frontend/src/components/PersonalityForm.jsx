@@ -661,6 +661,7 @@ const initialForm = {
   moodSensitivity: 1.0,
   sourceQuery: "",
   sourceUrls: "",
+  prosodySourceUrl: "",
   researchSummary: "",
   speechStyle: "",
   notablePhrases: "",
@@ -721,6 +722,7 @@ function mapPersonalityToForm(personality) {
     moodSensitivity: String(Number(personality.moodSensitivity ?? 1.0)),
     sourceQuery: personality.sourceQuery || "",
     sourceUrls: toLineList(personality.sourceUrls),
+    prosodySourceUrl: personality.prosodySourceUrl || "",
     researchSummary: personality.researchSummary || "",
     speechStyle: personality.speechStyle || "",
     notablePhrases: toCommaList(personality.notablePhrases),
@@ -980,12 +982,43 @@ export default function PersonalityForm({
         throw new Error(data.error || "Failed to save personality.");
       }
 
-      if (isEditing) {
-        onUpdated?.(data);
-      } else {
-        onCreated?.(data);
+      let finalPersonality = data;
+      let prosodyFailed = false;
+      const prosodyUrl = String(form.prosodySourceUrl || "").trim();
+
+      if (prosodyUrl && Number.isInteger(Number(data.id))) {
+        try {
+          const prosodyResponse = await authFetch(`/personality/${data.id}/prosody-template`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ url: prosodyUrl }),
+          });
+
+          const prosodyPayload = await prosodyResponse.json();
+          if (!prosodyResponse.ok) {
+            throw new Error(prosodyPayload.error || "Failed to extract prosody template.");
+          }
+
+          finalPersonality = prosodyPayload.personality || data;
+        } catch (prosodyError) {
+          prosodyFailed = true;
+          onError({
+            type: "error",
+            message: `Persona saved, but prosody extraction failed: ${prosodyError.message || prosodyError}`,
+          });
+        }
       }
-      onError({ type: "", message: "" });
+
+      if (isEditing) {
+        onUpdated?.(finalPersonality);
+      } else {
+        onCreated?.(finalPersonality);
+      }
+      if (!prosodyFailed) {
+        onError({ type: "", message: "" });
+      }
       if (!isEditing) {
         setForm(initialForm);
         setCopySourceId("");
@@ -1300,6 +1333,20 @@ export default function PersonalityForm({
               onChange={updateField}
             />
             <small>One URL per line. Voxis can parse Wikipedia, blogs, and YouTube transcripts when captions are available.</small>
+          </div>
+
+          <div className="field full">
+            <label htmlFor="prosodySourceUrl">
+              Prosody Source URL
+              <Tip text="Optional. On save, Voxis downloads audio from this link, extracts rhythm/cadence/prosody, saves a persona template, and removes temp audio." />
+            </label>
+            <input
+              id="prosodySourceUrl"
+              name="prosodySourceUrl"
+              placeholder="https://www.youtube.com/watch?v=..."
+              value={form.prosodySourceUrl}
+              onChange={updateField}
+            />
           </div>
 
           <div className="field">

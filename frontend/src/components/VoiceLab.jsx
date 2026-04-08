@@ -602,6 +602,7 @@ export default function VoiceLab({
   onSaveVoiceProfile,
   onStatus,
   onJumpToBuilder,
+  onPersonalityUpdated,
 }) {
   const authFetch = useAuthFetch();
 
@@ -618,6 +619,8 @@ export default function VoiceLab({
     piperSpeaker: "",
   });
   const [sampleText, setSampleText] = useState("");
+  const [prosodyUrl, setProsodyUrl] = useState("");
+  const [isExtractingProsody, setIsExtractingProsody] = useState(false);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
@@ -673,6 +676,7 @@ export default function VoiceLab({
           ? ""
           : String(personality.voiceProfile.piperSpeaker),
     });
+    setProsodyUrl(personality.prosodySourceUrl || "");
   }, [personality]);
 
   useEffect(() => {
@@ -942,6 +946,38 @@ export default function VoiceLab({
     }
   }
 
+  async function extractProsodyTemplate() {
+    if (!personality?.id || !prosodyUrl.trim()) {
+      return;
+    }
+
+    setIsExtractingProsody(true);
+
+    try {
+      const response = await authFetch(`/personality/${personality.id}/prosody-template`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: prosodyUrl.trim() }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to extract prosody template.");
+      }
+
+      onPersonalityUpdated?.(payload.personality);
+      onStatus?.({
+        type: "success",
+        message: `Prosody template extracted for ${payload.personality?.name || personality.name}.`,
+      });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to extract prosody template." });
+    } finally {
+      setIsExtractingProsody(false);
+    }
+  }
+
   function sliderStyle(val, min, max) {
     const pct = ((val - min) / (max - min)) * 100;
     return { background: `linear-gradient(90deg, var(--accent) ${pct}%, rgba(0,180,255,0.14) ${pct}%)` };
@@ -1172,6 +1208,29 @@ export default function VoiceLab({
           {/* ── Signal Tester ── */}
           <div className="vlab-section">
             <div className="vlab-section-label">◈ SIGNAL TESTER</div>
+            <div className="vlab-field">
+              <label htmlFor="vlab-prosody-url">Prosody Source URL</label>
+              <input
+                id="vlab-prosody-url"
+                className="vlab-input"
+                value={prosodyUrl}
+                onChange={(e) => setProsodyUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+              />
+              <div className="vlab-actions" style={{ marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="vlab-btn sec"
+                  onClick={() => void extractProsodyTemplate()}
+                  disabled={isExtractingProsody || !prosodyUrl.trim()}
+                >
+                  {isExtractingProsody ? "EXTRACTING…" : "EXTRACT PROSODY"}
+                </button>
+              </div>
+              <div className="vlab-small">
+                Downloads source audio, extracts cadence/rhythm template, attaches it to this persona, and removes temp audio.
+              </div>
+            </div>
             <div className="vlab-field">
               <label htmlFor="vlab-sample">Sample Transmission Text</label>
               <textarea

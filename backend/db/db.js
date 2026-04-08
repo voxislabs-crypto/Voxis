@@ -71,6 +71,10 @@ ensureColumn(
   "expressionStyle",
   `TEXT NOT NULL DEFAULT '{"sentenceStyle":"","interruptionRate":0.3,"energy":"medium","rules":[]}'`,
 );
+ensureColumn("personalities", "prosodyTemplate", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personalities", "prosodyTemplatePath", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personalities", "prosodySourceUrl", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personalities", "prosodyUpdatedAt", "TEXT NOT NULL DEFAULT ''");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_messages (

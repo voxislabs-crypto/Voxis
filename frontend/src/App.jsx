@@ -2099,6 +2099,7 @@ export default function App() {
                     onSaveVoiceProfile={handleVoiceProfileChange}
                     onStatus={setStatus}
                     onJumpToBuilder={() => setActiveView("builder")}
+                    onPersonalityUpdated={handlePersonalityUpdated}
                   />
                 </>
               ) : activeView === "eval" ? (

@@ -312,6 +312,7 @@ function buildDraft(personality) {
     mood: personality.mood || "neutral",
     moodLabel: personality.moodLabel || "",
     sourceUrls: listToText(personality.sourceUrls),
+    prosodySourceUrl: personality.prosodySourceUrl || "",
     notablePhrases: listToText(personality.notablePhrases),
     traits: listToText(personality.traits),
     quirks: listToText(personality.quirks),
@@ -461,7 +462,7 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
   // Section field lists for dirty tracking
   const sectionFields = {
     basic: [
-      "name", "creativeContext", "mood", "moodLabel", "description", "systemPrompt", "sourceUrls", "notablePhrases"
+      "name", "creativeContext", "mood", "moodLabel", "description", "systemPrompt", "sourceUrls", "prosodySourceUrl", "notablePhrases"
     ],
     behavior: [
       "speechStyle", "styleEnergy", "traits", "quirks", "goals", "values", "behaviorRules", "styleSentence", "styleInterruptionRate", "styleRules"
@@ -581,10 +582,30 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
         throw new Error(data.error || "Failed to save persona.");
       }
 
-      onUpdated?.(data);
+      let finalData = data;
+      const prosodyUrl = String(draft.prosodySourceUrl || "").trim();
+
+      if (prosodyUrl) {
+        const prosodyResponse = await authFetch(`/personality/${personality.id}/prosody-template`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url: prosodyUrl }),
+        });
+
+        const prosodyPayload = await prosodyResponse.json();
+        if (!prosodyResponse.ok) {
+          throw new Error(prosodyPayload.error || "Persona saved, but prosody extraction failed.");
+        }
+
+        finalData = prosodyPayload.personality || data;
+      }
+
+      onUpdated?.(finalData);
       onStatus?.({
         type: "success",
-        message: `${data.name} was updated from Persona Editor.`,
+        message: `${finalData.name} was updated from Persona Editor.`,
       });
     } catch (error) {
       onStatus?.({
@@ -828,6 +849,17 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
               value={draft.sourceUrls}
               onChange={(event) => setDraft((current) => ({ ...current, sourceUrls: event.target.value }))}
             />
+          </div>
+          <div className="persona-field full">
+            <label>Prosody Source URL</label>
+            <input
+              value={draft.prosodySourceUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, prosodySourceUrl: event.target.value }))}
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+            <small>
+              On save, this link is processed into a persona prosody template and temp audio is cleaned up automatically.
+            </small>
           </div>
           <div className="persona-field full">
             <label>Notable Phrases (one per line)</label>

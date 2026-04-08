@@ -95,6 +95,10 @@ function normalizeRow(row) {
       piperModelPath: "",
       piperSpeaker: null,
     }),
+    prosodyTemplate: parseJsonObject(row.prosodyTemplate, {}),
+    prosodyTemplatePath: String(row.prosodyTemplatePath || "").trim(),
+    prosodySourceUrl: String(row.prosodySourceUrl || "").trim(),
+    prosodyUpdatedAt: String(row.prosodyUpdatedAt || "").trim(),
   };
 }
 
@@ -189,7 +193,8 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle,
+          prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt, ownerId
         FROM personalities
         WHERE ownerId = ?
         ORDER BY id DESC
@@ -200,11 +205,11 @@ export function getAllPersonalities(ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle,
+          prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt, ownerId
         FROM personalities
         ORDER BY id DESC
       `);
-
   const rows = ownerId ? statement.all(ownerId) : statement.all();
   return rows.map(normalizeRow);
 }
@@ -217,7 +222,8 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle,
+          prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt, ownerId
         FROM personalities
         WHERE id = ? AND ownerId = ?
       `)
@@ -227,7 +233,8 @@ export function getPersonalityById(id, ownerId = null) {
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
           goals, coreValues, creativeContext, moodBaseline, moodState,
-          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle, ownerId
+          moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, expressionStyle,
+          prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt, ownerId
         FROM personalities
         WHERE id = ?
       `);
@@ -244,6 +251,24 @@ export function updatePersonalityVoiceProfile(id, voiceProfile) {
   `);
 
   statement.run(JSON.stringify(voiceProfile), id);
+  return getPersonalityById(id);
+}
+
+export function updatePersonalityProsodyTemplate(id, { template, templatePath, sourceUrl, updatedAt }) {
+  const statement = db.prepare(`
+    UPDATE personalities
+    SET prosodyTemplate = ?, prosodyTemplatePath = ?, prosodySourceUrl = ?, prosodyUpdatedAt = ?
+    WHERE id = ?
+  `);
+
+  statement.run(
+    JSON.stringify(template || {}),
+    String(templatePath || "").trim(),
+    String(sourceUrl || "").trim(),
+    String(updatedAt || "").trim(),
+    id,
+  );
+
   return getPersonalityById(id);
 }
 
