@@ -834,6 +834,124 @@ function RadialNode({ node, index, total, depth, onClick, motionScale = 1 }) {
   );
 }
 
+function CinematicRadialNode({ node, index, total, depth, onClick, motionScale = 1 }) {
+  const groupRef = useRef(null);
+  const coreRef = useRef(null);
+  const glowRef = useRef(null);
+  const specRef = useRef(null);
+  const ringRef = useRef(null);
+
+  const offset = useMemo(() => hashOffset(node.id), [node.id]);
+  const basePosition = useMemo(
+    () => computeNodePosition(node.id, index, total, depth),
+    [node.id, index, total, depth],
+  );
+
+  const color = node.type === "leaf"
+    ? "#53dcff"
+    : node.type === "memory"
+    ? "#ffc16b"
+    : "#96a2ff";
+
+  // Unique ring tilt per node so they don't all look identical
+  const ringTilt = useMemo(() => {
+    const s = offset % 100;
+    return [s * 0.063, (s * 0.047) % (Math.PI * 2), 0];
+  }, [offset]);
+
+  useFrame(({ clock }, delta) => {
+    const t = clock.getElapsedTime() + (offset % 17) * 0.11;
+
+    if (groupRef.current) {
+      groupRef.current.position.y =
+        basePosition[1] + Math.sin(t * 0.82 + offset * 0.003) * (0.06 + motionScale * 0.08);
+    }
+
+    if (coreRef.current) {
+      const pulse = 1 + Math.sin(t * (1.7 + motionScale * 1.1)) * (0.04 + motionScale * 0.06);
+      coreRef.current.scale.setScalar(pulse);
+      coreRef.current.material.emissiveIntensity =
+        1.6 + Math.sin(t * 1.6) * (0.28 + motionScale * 0.28);
+    }
+
+    if (glowRef.current) {
+      const glowPulse = 1 + Math.sin(t * (1.1 + motionScale * 0.9)) * (0.06 + motionScale * 0.08);
+      glowRef.current.scale.setScalar(glowPulse);
+      glowRef.current.material.opacity = 0.18 + motionScale * 0.14;
+    }
+
+    if (specRef.current) {
+      specRef.current.material.opacity =
+        0.36 + Math.sin(t * 2.1 + offset * 0.04) * 0.12;
+    }
+
+    if (ringRef.current) {
+      ringRef.current.rotation.z += delta * (0.32 + motionScale * 0.38);
+    }
+  });
+
+  return (
+    <group ref={groupRef} position={basePosition}>
+      {/* Soft outer glow */}
+      <mesh ref={glowRef}>
+        <sphereGeometry args={[0.36, 20, 20]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.18}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Physical core sphere */}
+      <mesh
+        ref={coreRef}
+        onClick={(event) => { event.stopPropagation(); onClick(node, basePosition); }}
+      >
+        <sphereGeometry args={[0.22, 36, 36]} />
+        <meshPhysicalMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={1.6}
+          roughness={0.22}
+          metalness={0.5}
+          clearcoat={0.42}
+          clearcoatRoughness={0.2}
+        />
+      </mesh>
+
+      {/* Specular highlight */}
+      <mesh ref={specRef} position={[0.07, 0.08, 0.18]}>
+        <sphereGeometry args={[0.068, 12, 12]} />
+        <meshBasicMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.42}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Rotating orbit ring — unique tilt per node */}
+      <mesh ref={ringRef} rotation={ringTilt} scale={[1, 0.38, 1]}>
+        <torusGeometry args={[0.3, 0.008, 10, 64]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.52}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+
+      <Html position={[0, -0.46, 0]} center>
+        <div className="neural-v2-label">{node.label}</div>
+      </Html>
+    </group>
+  );
+}
+
 function SceneLayer({
   currentLayer,
   onNodeSelect,
@@ -901,14 +1019,25 @@ function SceneLayer({
           const total = currentLayer.nodes.length;
           return (
             <group key={node.id}>
-              <RadialNode
-                node={node}
-                index={index}
-                total={total}
-                depth={depth}
-                onClick={onNodeSelect}
-                motionScale={visualIntensity}
-              />
+              {cinematicStyle ? (
+                <CinematicRadialNode
+                  node={node}
+                  index={index}
+                  total={total}
+                  depth={depth}
+                  onClick={onNodeSelect}
+                  motionScale={visualIntensity}
+                />
+              ) : (
+                <RadialNode
+                  node={node}
+                  index={index}
+                  total={total}
+                  depth={depth}
+                  onClick={onNodeSelect}
+                  motionScale={visualIntensity}
+                />
+              )}
             </group>
           );
         })}
