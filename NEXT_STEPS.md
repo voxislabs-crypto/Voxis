@@ -66,3 +66,41 @@ Run a focused production smoke pass on the newest commit: auth bootstrap, LLM se
 - Consider adding an explicit mobile default of `low` FX if thermal/perf metrics suggest it.
 - Review and polish any remaining UI/UX details for the minimized Saved Personas entry state.
 - Update README and commit/push after major visual changes (per user workflow preference).
+
+## Speech Director Evolution Roadmap (2026-04-08)
+
+Objective: evolve Voxis TTS from text playback into performance-driven delivery by progressively expanding Speech Director capabilities.
+
+### Level 2: Personality -> Prosody Profiles
+
+- Add reusable prosody presets mapped from personality signals (`traits`, `speechStyle`, `behaviorRules`, `expressionStyle.rules`).
+- Expand rule templates for key archetypes:
+	- `sarcastic` -> delayed interjections + selective emphasis
+	- `chaotic` -> interruption-like cadence + punctuation variance
+	- `villain/menace` -> controlled pauses + tension pacing
+- Add deterministic test matrix covering at least one fixture per archetype.
+- Expose a debug field in TTS responses/logging for `directedText` so prosody transformations are inspectable.
+
+### Level 3: Cinematic Chunked Speech
+
+- Implement Speech Director output mode as timed segments:
+	- `{ text, pauseMs, emphasis, pace }[]`
+- Synthesize per chunk and stitch into one audio buffer server-side.
+- Add fallback to single-pass synthesis when chunk generation or stitching fails.
+- Measure latency overhead and set safe limits (max chunks, max pause budget).
+
+### Level 4: Voxis Signature Mood-Driven Delivery
+
+- Map VAD mood deltas to delivery controls:
+	- high arousal -> denser emphasis, more exclamation pressure, shorter phrase pacing
+	- low arousal -> more ellipses, longer pauses, softened punctuation
+	- high dominance -> slower authoritative cadence + emphasis on directive terms
+- Add optional voice deformation hooks where supported by engine/toolchain.
+- Add guardrails to prevent unreadable output (caps ratio ceiling, punctuation burst limits).
+- Add A/B harness scenario to compare baseline TTS vs Speech Director levels on perceived "aliveness".
+
+### Immediate Validation Checklist (keep using on each iteration)
+
+1. Confirm Speech Director transformation is applied before both Piper and cloud synthesis paths.
+2. Confirm at least two contrasting persona profiles produce clearly different directed text.
+3. Confirm mood extremes (high arousal vs low arousal) produce measurable pacing and punctuation differences.
