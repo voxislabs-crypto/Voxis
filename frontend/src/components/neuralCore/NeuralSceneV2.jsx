@@ -12,7 +12,7 @@ const sceneV2Styles = `
 
   .neural-v2-controls {
     position: absolute;
-    top: 12px;
+    top: 46px;
     right: 12px;
     z-index: 4;
     display: flex;
@@ -35,7 +35,7 @@ const sceneV2Styles = `
   .neural-v2-debug {
     position: absolute;
     left: 12px;
-    bottom: 12px;
+    bottom: 42px;
     z-index: 4;
     display: flex;
     gap: 8px;
