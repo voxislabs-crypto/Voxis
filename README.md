@@ -126,6 +126,7 @@ What this demonstrates in minutes:
 
 - Build rich character personalities with a name, description, traits, quirks, mood, behavior rules, goals, core values, and a creative context frame.
 - Tune full text-to-speech defaults in the dedicated `Voice Lab` tab — featuring a cyberpunk-styled HUD with a live waveform canvas that shows idle oscilloscope, FFT frequency bars during playback, and a stochastic synthesizing animation during generation.
+- Voice Lab sample synthesis now surfaces the Speech Director's transformed preview text and adjusted rate/pitch telemetry, so the TTS tab shows the same persona-driven output path used by live playback.
 - Quick voice controls (enable, autoplay, play-latest, stop, save) stay embedded in the Chat tab as compact cyberpunk toggle switches so you never have to leave the conversation.
 - When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
@@ -726,6 +727,8 @@ Engine resolution:
 - `engine: "auto"` -> Piper when configured, otherwise cloud
 
 `voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+
+In Voice Lab, `Sample Transmission Text` now displays the directed preview line returned by the backend after Speech Director + mood voice modulation are applied, making it easier to validate how the saved character will actually perform before using live chat playback.
 
 For Ubuntu servers, `deploy/install-piper.sh` installs Piper in `/opt/piper-venv`, downloads curated voices to `/opt/piper/models`, and updates `backend/.env` defaults (`PIPER_COMMAND`, `PIPER_MODEL_PATH`, `TTS_ENGINE`).
 

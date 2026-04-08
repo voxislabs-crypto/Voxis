@@ -44,4 +44,25 @@ describe("ttsService Piper voice discovery", () => {
       ]),
     );
   });
+
+  it("prepares directed text and mood-adjusted voice settings for synthesis", async () => {
+    const { prepareSpeechSynthesis } = await import("../services/ttsService.js");
+
+    const result = prepareSpeechSynthesis({
+      personality: {
+        traits: ["sarcastic", "commanding", "chaotic"],
+        behaviorRules: ["Use obvious callouts for emphasis"],
+        notablePhrases: [],
+        moodState: { arousal: 0.8, dominance: 0.7 },
+        expressionStyle: { energy: "high", sentenceStyle: "sharp", rules: ["dry wit"] },
+      },
+      text: "Yeah, genius, that is exactly what I said.",
+      voiceProfile: { rate: 1, pitch: 1 },
+    });
+
+    expect(result.directedText).toContain("GENIUS");
+    expect(result.directedText.endsWith("!")).toBe(true);
+    expect(result.adjustedVoiceProfile.rate).toBeGreaterThan(1);
+    expect(result.adjustedVoiceProfile.pitch).toBeLessThan(1);
+  });
 });

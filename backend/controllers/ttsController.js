@@ -67,6 +67,12 @@ export async function generateSpeechHandler(req, res, next) {
 
     res.setHeader("Content-Type", audio.contentType);
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Voxis-Directed-Text", encodeURIComponent(audio.directedText || text));
+    res.setHeader("X-Voxis-Tts-Engine", audio.engine || "unknown");
+    res.setHeader(
+      "X-Voxis-Adjusted-Voice",
+      encodeURIComponent(JSON.stringify(audio.adjustedVoiceProfile || voiceProfile)),
+    );
     return res.send(audio.buffer);
   } catch (error) {
     return next(error);

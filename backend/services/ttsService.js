@@ -236,6 +236,16 @@ function resolveMood(personality = {}) {
   return {};
 }
 
+export function prepareSpeechSynthesis({ personality, text, voiceProfile }) {
+  const mood = resolveMood(personality);
+
+  return {
+    mood,
+    directedText: stylizeSpeech(text, personality, mood) || String(text || "").trim(),
+    adjustedVoiceProfile: applyMoodToVoice(voiceProfile, mood),
+  };
+}
+
 function getContentType(format) {
   switch (format) {
     case "wav":
@@ -386,25 +396,50 @@ export async function generateSpeechAudio({ personality, text, voiceProfile }) {
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
-  const mood = resolveMood(personality);
-  const directedText = stylizeSpeech(text, personality, mood) || String(text || "").trim();
-  const directedVoiceProfile = applyMoodToVoice(voiceProfile, mood);
+  const { directedText, adjustedVoiceProfile } = prepareSpeechSynthesis({
+    personality,
+    text,
+    voiceProfile,
+  });
 
   if (engine === "piper") {
     try {
-      return await generatePiperSpeechAudio({ text: directedText, voiceProfile: directedVoiceProfile });
+      const audio = await generatePiperSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+      return {
+        ...audio,
+        directedText,
+        adjustedVoiceProfile,
+      };
     } catch (error) {
       if (requested === "piper") {
         throw error;
       }
 
       if (isCloudConfigured()) {
-        return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile: directedVoiceProfile });
+        const audio = await generateCloudSpeechAudio({
+          personality,
+          text: directedText,
+          voiceProfile: adjustedVoiceProfile,
+        });
+        return {
+          ...audio,
+          directedText,
+          adjustedVoiceProfile,
+        };
       }
 
       throw error;
     }
   }
 
-  return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile: directedVoiceProfile });
+  const audio = await generateCloudSpeechAudio({
+    personality,
+    text: directedText,
+    voiceProfile: adjustedVoiceProfile,
+  });
+  return {
+    ...audio,
+    directedText,
+    adjustedVoiceProfile,
+  };
 }

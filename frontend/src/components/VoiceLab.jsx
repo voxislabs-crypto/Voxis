@@ -621,6 +621,8 @@ export default function VoiceLab({
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
+  const [directedPreview, setDirectedPreview] = useState("");
+  const [previewTelemetry, setPreviewTelemetry] = useState(null);
   const [piperVoices, setPiperVoices] = useState([]);
   const [isLoadingPiperVoices, setIsLoadingPiperVoices] = useState(false);
   const [piperVoiceError, setPiperVoiceError] = useState("");
@@ -672,6 +674,11 @@ export default function VoiceLab({
           : String(personality.voiceProfile.piperSpeaker),
     });
   }, [personality]);
+
+  useEffect(() => {
+    setDirectedPreview("");
+    setPreviewTelemetry(null);
+  }, [sampleText, personality?.id]);
 
   useEffect(() => {
     if (!personality || voiceProfile.engine !== "piper") return;
@@ -879,6 +886,25 @@ export default function VoiceLab({
         try { const p = await response.json(); msg = p.error || msg; } catch { msg = await response.text(); }
         throw new Error(msg);
       }
+
+      const directedHeader = response.headers.get("X-Voxis-Directed-Text");
+      const engineHeader = response.headers.get("X-Voxis-Tts-Engine");
+      const adjustedVoiceHeader = response.headers.get("X-Voxis-Adjusted-Voice");
+      let adjustedVoice = null;
+
+      if (adjustedVoiceHeader) {
+        try {
+          adjustedVoice = JSON.parse(decodeURIComponent(adjustedVoiceHeader));
+        } catch {
+          adjustedVoice = null;
+        }
+      }
+
+      setDirectedPreview(directedHeader ? decodeURIComponent(directedHeader) : text);
+      setPreviewTelemetry({
+        engine: engineHeader || voiceProfile.engine || "auto",
+        adjustedVoice,
+      });
 
       const blob = await response.blob();
       const next = URL.createObjectURL(blob);
@@ -1155,6 +1181,22 @@ export default function VoiceLab({
                 onChange={(e) => setSampleText(e.target.value)}
                 placeholder="Type a line to synthesize and preview…"
               />
+              <div className="vlab-small">
+                Sample preview runs through the same Speech Director pipeline as live TTS replies.
+              </div>
+              {directedPreview ? (
+                <div className="vlab-small" style={{ marginTop: 8 }}>
+                  Directed preview: <strong>{directedPreview}</strong>
+                  {previewTelemetry?.adjustedVoice ? (
+                    <>
+                      {" "}
+                      | Engine: {String(previewTelemetry.engine || "auto").toUpperCase()} | Rate:
+                      {` ${Number(previewTelemetry.adjustedVoice.rate ?? voiceProfile.rate).toFixed(2)}x`} | Pitch:
+                      {` ${Number(previewTelemetry.adjustedVoice.pitch ?? voiceProfile.pitch).toFixed(2)}x`}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 
