@@ -657,8 +657,8 @@ const chatStyles = `
 
   .message-list {
     grid-column: 2;
-    min-height: 460px;
-    max-height: 620px;
+    min-height: min(66vh, 620px);
+    max-height: min(84vh, 860px);
     padding: 16px 18px;
     background:
       linear-gradient(180deg, rgba(1, 7, 18, 0.82), rgba(4, 10, 22, 0.72)),
