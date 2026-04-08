@@ -11,7 +11,7 @@ const neuralStyles = `
   .neural-hud {
     position: absolute;
     right: 16px;
-    bottom: 100px;
+    bottom: 138px;
     z-index: 8;
     display: flex;
     flex-direction: column;

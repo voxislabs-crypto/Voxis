@@ -491,6 +491,7 @@ const chatStyles = `
   .chat-card {
     display: grid;
     grid-template-columns: 190px minmax(0, 1fr) 280px;
+    grid-template-rows: auto minmax(680px, auto) auto;
     border-radius: 24px;
     border: 1px solid rgba(16, 226, 255, 0.16);
     background: linear-gradient(180deg, rgba(3, 10, 20, 0.96), rgba(3, 8, 18, 0.92));
@@ -657,8 +658,8 @@ const chatStyles = `
 
   .message-list {
     grid-column: 2;
-    min-height: min(66vh, 620px);
-    max-height: min(84vh, 860px);
+    min-height: 680px;
+    max-height: min(88vh, 980px);
     padding: 16px 18px;
     background:
       linear-gradient(180deg, rgba(1, 7, 18, 0.82), rgba(4, 10, 22, 0.72)),
@@ -771,6 +772,7 @@ const chatStyles = `
   @media (max-width: 980px) {
     .chat-card {
       grid-template-columns: 1fr;
+      grid-template-rows: auto;
     }
 
     .avatar-panel {
