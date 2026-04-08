@@ -178,6 +178,7 @@ What this demonstrates in minutes:
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
 - Neural HUD mini preview above the `Core` button now remains visible in Scientist mode even when performance tier resolves to light (for example due to reduced-motion preferences).
 - Chat deck desktop layout now reserves a taller middle row so the message feed, Quick Voice controls, and floating Neural HUD can coexist without crowding the composer line; the floating Neural HUD anchor was also raised to keep the PiP clear of the input rail.
+- Neural HUD mini preview now horizontally aligns with the Quick Voice control track for cleaner right-column visual rhythm.
 - Chat debug now includes automatic memory conflict diagnostics (opposing instruction pairs + mode-vs-memory conflicts) so contradictory high-impact memories are surfaced before prompt assembly silently drifts behavior.
 - Memory Journal now supports conflict highlighting, active/disabled toggles, quick importance sliders, and one-click suppression of weaker conflicting memories for faster persona tuning.
 - Chat mode now includes a `normal` toggle (policy-aware end-to-end). In normal mode, Scientist-style section-heavy assistant replies are rendered as conversational output with the rigid "Answer" heading removed and any "Next Questions" shown as a smaller secondary block.

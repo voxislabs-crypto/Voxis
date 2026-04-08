@@ -10,7 +10,7 @@ import { buildMemoryDisplay, normalizeMemoryType, redactMemoryText } from "../li
 const neuralStyles = `
   .neural-hud {
     position: absolute;
-    right: 16px;
+    right: 30px;
     bottom: 138px;
     z-index: 8;
     display: flex;
@@ -20,7 +20,7 @@ const neuralStyles = `
   }
 
   .neural-mini-preview {
-    width: 210px;
+    width: 236px;
     height: 160px;
     border-radius: 14px;
     overflow: hidden;
