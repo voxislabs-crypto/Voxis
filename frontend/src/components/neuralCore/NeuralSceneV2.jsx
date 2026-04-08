@@ -399,6 +399,7 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
   const veinCount = enabled ? 22 : 0;
   const segs = 22;
   const palette = [color, "#d78cff", "#ffaf72", "#60ddff"];
+  const centerZ = -depth * 8;
 
   const veins = useMemo(() => {
     return Array.from({ length: veinCount }, (_, idx) => {
@@ -419,12 +420,14 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
         arr,
         material,
         seed: idx * 13.7 + 2.1,
-        baseX: -4.2 + (idx % 7) * 1.4,
-        baseY: -2.4 + Math.floor(idx / 7) * 2.2,
-        z: -depth * 8 - 3.1 - (idx % 3) * 0.22,
+        angle: (Math.PI * 2 * idx) / Math.max(1, veinCount),
+        length: 2.2 + (idx % 6) * 0.34,
+        spread: 0.36 + (idx % 5) * 0.05,
+        lift: (idx % 2 === 0 ? 1 : -1) * (0.08 + (idx % 4) * 0.02),
+        z: centerZ - 1.2 - (idx % 3) * 0.2,
       };
     });
-  }, [color, depth, intensity, veinCount]);
+  }, [centerZ, color, intensity, veinCount]);
 
   useEffect(() => () => {
     veins.forEach((vein) => {
@@ -438,13 +441,20 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
     const t = clock.getElapsedTime();
     const speed = 0.14 + intensity * 0.38;
 
-    veins.forEach((vein, index) => {
-      const bend = 2.4 + (index % 6) * 0.24;
+    veins.forEach((vein) => {
+      const branchWobble = Math.sin(t * speed + vein.seed) * 0.12;
+      const branchAngle = vein.angle + branchWobble;
+      const dirX = Math.cos(branchAngle);
+      const dirY = Math.sin(branchAngle);
+
       for (let i = 0; i <= segs; i += 1) {
         const f = i / segs;
-        vein.arr[i * 3] = vein.baseX + (f - 0.5) * bend + Math.sin(t * speed + vein.seed + f * 7.2) * (0.12 + intensity * 0.08);
-        vein.arr[i * 3 + 1] = vein.baseY + Math.sin(f * Math.PI * 2.6 + vein.seed + t * speed * 0.8) * (0.4 + intensity * 0.34);
-        vein.arr[i * 3 + 2] = vein.z + Math.cos(t * 0.24 + f * 5.3 + vein.seed) * 0.06;
+        const reach = vein.length * f;
+        const lateral = Math.sin(f * Math.PI * 2 + vein.seed + t * speed * 0.7) * vein.spread * (0.4 + intensity * 0.5) * (0.25 + f);
+
+        vein.arr[i * 3] = dirX * reach + (-dirY) * lateral;
+        vein.arr[i * 3 + 1] = dirY * reach + dirX * lateral + vein.lift * f;
+        vein.arr[i * 3 + 2] = vein.z + Math.cos(t * 0.24 + f * 5.3 + vein.seed) * 0.05 + f * 0.05;
       }
       vein.line.geometry.attributes.position.needsUpdate = true;
       vein.material.opacity = 0.018 + intensity * 0.08 + Math.sin(t * 1.1 + vein.seed) * 0.012;
