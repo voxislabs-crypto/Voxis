@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import VoiceSampleSelector from "./VoiceSampleSelector.jsx";
 
 const voiceLabStyles = `
   @keyframes vlab-scanline {
@@ -621,6 +622,8 @@ export default function VoiceLab({
   const [sampleText, setSampleText] = useState("");
   const [prosodyUrl, setProsodyUrl] = useState("");
   const [isExtractingProsody, setIsExtractingProsody] = useState(false);
+  const [voiceSamples, setVoiceSamples] = useState(null);
+  const [isExtractingVoiceSamples, setIsExtractingVoiceSamples] = useState(false);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
@@ -677,6 +680,7 @@ export default function VoiceLab({
           : String(personality.voiceProfile.piperSpeaker),
     });
     setProsodyUrl(personality.prosodySourceUrl || "");
+    setVoiceSamples(personality.voiceSampleAnalysis || null);
   }, [personality]);
 
   useEffect(() => {
@@ -967,6 +971,7 @@ export default function VoiceLab({
       }
 
       onPersonalityUpdated?.(payload.personality);
+      setVoiceSamples(payload.voiceSamples || payload.personality?.voiceSampleAnalysis || null);
       onStatus?.({
         type: "success",
         message: `Prosody template extracted for ${payload.personality?.name || personality.name}.`,
@@ -1258,6 +1263,20 @@ export default function VoiceLab({
               ) : null}
             </div>
           </div>
+
+          {/* ── Voice Sample Selection ── */}
+          {voiceSamples && (
+            <VoiceSampleSelector
+              personality={personality}
+              voiceSamples={voiceSamples}
+              isLoading={isExtractingVoiceSamples}
+              onSampleSelected={(updatedPersonality) => {
+                onPersonalityUpdated?.(updatedPersonality);
+                setVoiceSamples(null); // Clear after selection
+              }}
+              onStatus={onStatus}
+            />
+          )}
 
           {/* ── Waveform Monitor ── */}
           <div className="vlab-section">

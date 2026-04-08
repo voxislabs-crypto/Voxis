@@ -220,6 +220,7 @@ export async function extractProsodyTemplateFromUrl({
   const writeTemplate = deps.writeTemplate || defaultWriteTemplate;
   const now = deps.now || (() => new Date());
   const onWorkspaceCreated = deps.onWorkspaceCreated || null;
+  const onAudioReady = deps.onAudioReady || null;
 
   const workspaceDir = await createWorkspace();
   if (typeof onWorkspaceCreated === "function") {
@@ -227,9 +228,13 @@ export async function extractProsodyTemplateFromUrl({
   }
 
   let templatePath = "";
+  let audioDerived = null;
 
   try {
     const audioPath = await downloadAudio({ url: sourceUrl, workspaceDir });
+    if (typeof onAudioReady === "function") {
+      audioDerived = await onAudioReady({ audioPath, workspaceDir, personalityId, sourceUrl });
+    }
     const analysis = await analyzeAudio({ audioPath, workspaceDir });
 
     const template = deriveProsodyTemplate({
@@ -245,6 +250,7 @@ export async function extractProsodyTemplateFromUrl({
       templatePath,
       sourceUrl,
       extractedAt: template.extractedAt,
+      audioDerived,
     };
   } catch (error) {
     if (templatePath) {

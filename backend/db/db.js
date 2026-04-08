@@ -75,6 +75,8 @@ ensureColumn("personalities", "prosodyTemplate", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("personalities", "prosodyTemplatePath", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personalities", "prosodySourceUrl", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personalities", "prosodyUpdatedAt", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("personalities", "voiceSampleAnalysis", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personalities", "voiceSampleSelectedAt", "TEXT NOT NULL DEFAULT ''");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_messages (

@@ -752,6 +752,52 @@ For Ubuntu servers, `deploy/install-piper.sh` installs Piper in `/opt/piper-venv
 
 ---
 
+### Voice Sampling and Selection
+
+After prosody extraction completes, Voxis automatically analyzes the downloaded audio to extract representative voice samples. This workflow enables users to audition different vocal characteristics and select the one that best matches their persona target.
+
+**Voice Sampling Pipeline:**
+
+1. **Segmentation**: Audio is split into ~4-second clips, filtering out silence regions
+2. **Feature extraction**: Each segment is analyzed for:
+   - Spectral centroid (frequency range: low <2000 Hz, mid 2000–5000 Hz, high >5000 Hz)
+   - Average pitch (Hz) and pitch variance
+   - Speech density and zero-crossing rate
+   - Voice quality classification (clear, breathy, tense)
+   - Confidence scores for analysis accuracy
+
+3. **Representative selection**: The system picks 2–3 representative samples from different spectral ranges to show voice diversity
+4. **Frontend presentation**: Voice Sample Selector displays each sample with pitch/frequency info and quality metadata
+5. **User confirmation**: User selects favorite and confirms choice, which persists the voice profile to the persona database
+
+**Endpoints:**
+
+- `POST /personality/:id/voice-samples` with body `{ "audioFilePath": "/path/to/audio.wav" }`  
+  Analyzes audio file and returns samples analysis (segments, representatives, frequency distribution)
+
+- `GET /personality/:id/voice-samples`  
+  Retrieves stored voice samples metadata and analysis for a personality
+
+- `POST /personality/:id/voice-samples/confirm` with body `{ "selectedSampleIndex": 0, "voiceLabel": "alto", "confidence": 0.85 }`  
+  Persists the user's selected voice sample to the persona's voice profile
+
+**Frontend Integration:**
+
+- Voice Lab (VoiceLab.jsx) now includes voice sample display after prosody extraction
+- VoiceSampleSelector component displays representative voice samples with selectable cards
+- Selection triggers update to persona voiceProfile with selected voice metadata
+- Creator form and Editor also support voice sampling workflows
+
+**Data Storage:**
+
+Voice samples metadata is stored in the `personalities` table:
+- `voiceSampleAnalysis` — JSON containing representative samples and spectral analysis
+- `voiceSampleSelectedAt` — timestamp of user's confirmation
+
+The selected voice profile is merged into the existing `voiceProfile` JSON object, preserving all TTS settings.
+
+---
+
 ### Runtime LLM Provider Settings
 
 Voxis supports provider-first runtime model configuration through dedicated settings endpoints and a frontend tab.

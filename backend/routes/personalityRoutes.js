@@ -15,6 +15,12 @@ import { chatHistoryHandler } from "../controllers/chatController.js";
 import { generateSpeechHandler, listPiperVoicesHandler } from "../controllers/ttsController.js";
 import { extractProsodyTemplateHandler } from "../controllers/prosodyController.js";
 import {
+  extractVoiceSamplesHandler,
+  confirmVoiceSampleHandler,
+  getVoiceSamplesHandler,
+  streamVoiceSampleAudioHandler,
+} from "../controllers/voiceSampleController.js";
+import {
   backfillMemoryEmbeddingsHandler,
   listMemoryHandler,
   updateMemoryHandler,
@@ -40,6 +46,10 @@ router.delete("/memory/:memoryId", requireAuth, deleteMemoryHandler);
 router.get("/tts/piper-voices", requireAuth, listPiperVoicesHandler);
 router.post("/personality/:id/tts", requireAuth, generateSpeechHandler);
 router.post("/personality/:id/prosody-template", requireAuth, extractProsodyTemplateHandler);
+router.post("/personality/:id/voice-samples", requireAuth, extractVoiceSamplesHandler);
+router.get("/personality/:id/voice-samples", requireAuth, getVoiceSamplesHandler);
+router.post("/personality/:id/voice-samples/confirm", requireAuth, confirmVoiceSampleHandler);
+router.get("/personality/:id/voice-samples/audio/:clipFile", requireAuth, streamVoiceSampleAudioHandler);
 router.patch("/personality/:id/voice", requireAuth, updateVoiceProfileHandler);
 
 export default router;

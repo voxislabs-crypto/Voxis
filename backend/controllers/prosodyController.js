@@ -1,7 +1,12 @@
 import { promises as fs } from "node:fs";
 
-import { getPersonalityById, updatePersonalityProsodyTemplate } from "../models/personalityModel.js";
+import {
+  getPersonalityById,
+  updatePersonalityProsodyTemplate,
+  updatePersonalityVoiceSampleAnalysis,
+} from "../models/personalityModel.js";
 import { extractProsodyTemplateFromUrl } from "../services/prosodyExtractionService.js";
+import { analyzeAudioSegments } from "../services/voiceSegmentationService.js";
 
 export async function extractProsodyTemplateHandler(req, res, next) {
   try {
@@ -26,6 +31,29 @@ export async function extractProsodyTemplateHandler(req, res, next) {
     const extracted = await extractProsodyTemplateFromUrl({
       personalityId,
       url,
+      deps: {
+        onAudioReady: async ({ audioPath }) => {
+          const voiceSamples = await analyzeAudioSegments({
+            personalityId,
+            audioPath,
+          }).catch(() => null);
+
+          if (!voiceSamples) {
+            return null;
+          }
+
+          return {
+            ...voiceSamples,
+            extractedAt: new Date().toISOString(),
+            representatives: (voiceSamples.representatives || []).map((sample) => ({
+              ...sample,
+              audioUrl: sample.clipFile
+                ? `/personality/${personalityId}/voice-samples/audio/${encodeURIComponent(sample.clipFile)}`
+                : "",
+            })),
+          };
+        },
+      },
     });
 
     let updated;
@@ -37,6 +65,12 @@ export async function extractProsodyTemplateHandler(req, res, next) {
         sourceUrl: extracted.sourceUrl,
         updatedAt: extracted.extractedAt,
       });
+
+      if (extracted.audioDerived) {
+        updated = updatePersonalityVoiceSampleAnalysis(personalityId, {
+          analysis: extracted.audioDerived,
+        });
+      }
     } catch (error) {
       if (extracted.templatePath) {
         await fs.rm(extracted.templatePath, { force: true }).catch(() => {});
@@ -50,6 +84,7 @@ export async function extractProsodyTemplateHandler(req, res, next) {
       prosodyTemplatePath: updated.prosodyTemplatePath,
       prosodySourceUrl: updated.prosodySourceUrl,
       prosodyUpdatedAt: updated.prosodyUpdatedAt,
+      voiceSamples: updated.voiceSampleAnalysis,
     });
   } catch (error) {
     return next(error);
