@@ -194,8 +194,11 @@ backend/
   services/
     llmService.js            Prompt builders, LLM calls, memory extraction
     moodEngine.js            VAD mood engine
+    moodVoice.js             VAD-based TTS rate/pitch modulation
     researchService.js       Source scraping, ranking, synthesis
+    speechProfiles.js        Personality-to-prosody profile mapping
     speechDirector.js        Personality + mood prosody text shaping
+    chunkSpeech.js           Optional sentence chunk timing utility
     ttsService.js            TTS generation
     providerDiscoveryService.js Provider catalog + model discovery
   controllers/
@@ -706,9 +709,15 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 Before synthesis, Voxis now runs a Speech Director pass that transforms raw reply text into a prosody-shaped script using saved persona fields (`speechStyle`, `behaviorRules`, `notablePhrases`, `traits`, `expressionStyle`) plus live mood (`moodState` or `moodBaseline`).
 
+Speech Director now uses:
+
+- personality profile mapping (`speechProfiles.js`) for cadence templates
+- mood-to-voice modulation (`moodVoice.js`) to adjust `rate` and `pitch`
+- optional sentence chunk planning (`chunkSpeech.js`) for future cinematic timing
+
 Current runtime flow:
 
-`LLM reply -> speechDirector.stylizeSpeech -> selected TTS engine -> audio response`
+`LLM reply -> speechDirector.stylizeSpeech -> moodVoice.applyMoodToVoice -> selected TTS engine -> audio response`
 
 Engine resolution:
 

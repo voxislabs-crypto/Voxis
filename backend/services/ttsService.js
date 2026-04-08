@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
+import { applyMoodToVoice } from "./moodVoice.js";
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
@@ -223,6 +224,18 @@ export function isTtsConfigured(voiceProfile = null) {
   return isCloudConfigured() || isPiperConfigured(voiceProfile);
 }
 
+function resolveMood(personality = {}) {
+  if (personality?.moodState && typeof personality.moodState === "object") {
+    return personality.moodState;
+  }
+
+  if (personality?.moodBaseline && typeof personality.moodBaseline === "object") {
+    return personality.moodBaseline;
+  }
+
+  return {};
+}
+
 function getContentType(format) {
   switch (format) {
     case "wav":
@@ -373,23 +386,25 @@ export async function generateSpeechAudio({ personality, text, voiceProfile }) {
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
-  const directedText = stylizeSpeech(text, personality) || String(text || "").trim();
+  const mood = resolveMood(personality);
+  const directedText = stylizeSpeech(text, personality, mood) || String(text || "").trim();
+  const directedVoiceProfile = applyMoodToVoice(voiceProfile, mood);
 
   if (engine === "piper") {
     try {
-      return await generatePiperSpeechAudio({ text: directedText, voiceProfile });
+      return await generatePiperSpeechAudio({ text: directedText, voiceProfile: directedVoiceProfile });
     } catch (error) {
       if (requested === "piper") {
         throw error;
       }
 
       if (isCloudConfigured()) {
-        return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile });
+        return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile: directedVoiceProfile });
       }
 
       throw error;
     }
   }
 
-  return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile });
+  return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile: directedVoiceProfile });
 }

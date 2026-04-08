@@ -1,3 +1,5 @@
+import { getSpeechProfile } from "./speechProfiles.js";
+
 const DEFAULT_STOP_WORDS = new Set([
   "the",
   "a",
@@ -24,7 +26,27 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function normalizeMood(personality = {}) {
+function hashString(input) {
+  let hash = 2166136261;
+  const text = String(input || "");
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+
+  return (hash >>> 0) / 4294967295;
+}
+
+function shouldInject(seed, threshold) {
+  return hashString(seed) <= threshold;
+}
+
+function normalizeMood(personality = {}, moodOverride = null) {
+  if (moodOverride && typeof moodOverride === "object") {
+    return moodOverride;
+  }
+
   if (personality.moodState && typeof personality.moodState === "object") {
     return personality.moodState;
   }
@@ -36,7 +58,7 @@ function normalizeMood(personality = {}) {
   return {};
 }
 
-function collectSignals(personality = {}) {
+function collectSignals(personality = {}, profile = null) {
   const traits = asArray(personality.traits).map((item) => String(item || "").toLowerCase());
   const behaviorRules = asArray(personality.behaviorRules).map((item) => String(item || "").toLowerCase());
   const expressionRules = asArray(personality.expressionStyle?.rules).map((item) => String(item || "").toLowerCase());
@@ -47,11 +69,11 @@ function collectSignals(personality = {}) {
   const joined = [speechStyle, sentenceStyle, ...traits, ...behaviorRules, ...expressionRules].join(" ");
 
   return {
-    sarcastic: /sarcastic|dry wit|snark|mocking/.test(joined),
-    dramatic: /dramatic|theatrical|menace|showman/.test(joined),
-    chaotic: /chaotic|bursty|erratic|unpredictable/.test(joined),
+    sarcastic: Boolean(profile?.flags?.sarcastic) || /sarcastic|dry wit|snark|mocking/.test(joined),
+    dramatic: Boolean(profile?.flags?.villain) || /dramatic|theatrical|menace|showman/.test(joined),
+    chaotic: Boolean(profile?.flags?.chaotic) || /chaotic|bursty|erratic|unpredictable/.test(joined),
     assertive: /assertive|dominant|commanding|confident/.test(joined),
-    calm: /calm|measured|soft|gentle|deliberate/.test(joined),
+    calm: Boolean(profile?.flags?.calm) || /calm|measured|soft|gentle|deliberate/.test(joined),
     energy,
   };
 }
@@ -95,23 +117,24 @@ function emphasizeTerms(text, terms, maxReplacements = 3) {
   return output;
 }
 
-export function stylizeSpeech(rawText, personality = {}) {
+export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
   const input = String(rawText || "").replace(/\s+/g, " ").trim();
   if (!input) {
     return "";
   }
 
-  const mood = normalizeMood(personality);
+  const mood = normalizeMood(personality, moodOverride);
+  const profile = getSpeechProfile(personality);
   const arousal = Number(mood.arousal);
   const dominance = Number(mood.dominance);
-  const signals = collectSignals(personality);
+  const signals = collectSignals(personality, profile);
   const isHighArousal = Number.isFinite(arousal) && arousal >= 0.55;
   const isLowArousal = Number.isFinite(arousal) && arousal <= -0.3;
   const isHighDominance = Number.isFinite(dominance) && dominance >= 0.35;
 
   let output = input;
 
-  if (signals.chaotic || signals.energy === "very_high" || isHighArousal) {
+  if (signals.chaotic || signals.energy === "very_high" || isHighArousal || profile.pacing === "fast") {
     output = output.replace(/,\s*/g, "... ").replace(/;\s*/g, "... ");
   }
 
@@ -128,7 +151,11 @@ export function stylizeSpeech(rawText, personality = {}) {
   }
 
   if (signals.assertive || signals.dramatic || isHighDominance) {
-    output = emphasizeTerms(output, collectEmphasisTerms(personality), 4);
+    const emphasisTerms = Array.from(new Set([
+      ...collectEmphasisTerms(personality),
+      ...asArray(profile.emphasisWords).map((term) => String(term || "").toLowerCase()),
+    ]));
+    output = emphasizeTerms(output, emphasisTerms, 4);
   }
 
   if (signals.energy === "very_high" || isHighArousal) {
@@ -136,6 +163,37 @@ export function stylizeSpeech(rawText, personality = {}) {
     if (output.endsWith(".")) {
       output = `${output.slice(0, -1)}!`;
     }
+  }
+
+  if (Number.isFinite(dominance) && dominance > 0.5) {
+    output = output.replace(/\b(i think|maybe|perhaps)\b/gi, "").replace(/\s{2,}/g, " ");
+  }
+
+  if (Number.isFinite(dominance) && dominance < -0.4) {
+    output = output.replace(/\./g, "...");
+  }
+
+  const notablePhrases = asArray(personality.notablePhrases)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  if (notablePhrases.length > 0) {
+    const injectSeed = `${personality.name || "anon"}:${input}`;
+    if (shouldInject(injectSeed, 0.3)) {
+      const index = Math.floor(hashString(`${injectSeed}:idx`) * notablePhrases.length);
+      output = `${output} ${notablePhrases[index]}`.trim();
+    }
+  }
+
+  const lowerTraits = asArray(personality.traits).map((item) => String(item || "").toLowerCase());
+  const isErratic = lowerTraits.includes("erratic") || lowerTraits.includes("unstable");
+  if (isErratic && shouldInject(`${input}:stutter`, 0.2)) {
+    output = output.replace(/\b([A-Za-z][A-Za-z']{3,})\b/, (word) => `${word[0]}-${word}`);
+  }
+
+  if (String(personality.name || "").toLowerCase().includes("rick") && shouldInject(`${input}:rick`, 0.28)) {
+    output = output.replace(/\bI\b/g, "I-uh-I");
+    output = `*burp* ${output}`;
   }
 
   output = output

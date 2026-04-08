@@ -17,7 +17,7 @@ describe("speechDirector stylizeSpeech", () => {
     const result = stylizeSpeech("Yeah, genius, that is exactly what I said.", {
       traits: ["sarcastic", "commanding", "chaotic"],
       behaviorRules: ["Use obvious callouts for emphasis"],
-      notablePhrases: ["genius"],
+      notablePhrases: [],
       moodState: { arousal: 0.4, dominance: 0.7 },
       expressionStyle: { energy: "high", sentenceStyle: "sharp", rules: ["dry wit"] },
     });
@@ -43,5 +43,18 @@ describe("speechDirector stylizeSpeech", () => {
     });
 
     expect(result).toBe("Right... we move now... no delays!");
+  });
+
+  it("allows explicit mood override when provided", () => {
+    const result = stylizeSpeech(
+      "I understand what you mean.",
+      {
+        traits: ["analytical"],
+        expressionStyle: { energy: "medium", sentenceStyle: "balanced", rules: [] },
+      },
+      { arousal: -0.6, dominance: 0 },
+    );
+
+    expect(result).toBe("I understand what you mean...");
   });
 });
