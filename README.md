@@ -173,6 +173,7 @@ What this demonstrates in minutes:
 - Pivot path: `NeuralSceneV2` Phase 1 now ships as an opt-in layered navigation model (`VITE_NEURAL_CORE_SCENE_MODEL=layered-v2`) with scene-stack depth, camera lerp zoom between layers, current-layer-only rendering, back/home controls, and leaf-node HUD handoff to the existing detail panel.
 - Pivot path: `NeuralSceneV2` Phase 2 adds curved layer pathways with animated traveling pulses, cinematic layer-transition flash overlays, and keyboard `Esc` back-navigation for faster depth traversal during tuning sessions.
 - Pivot path: `NeuralSceneV2` Phase 3 adds directional transition moods (forward/back/home), deterministic camera-control reset on `Home`, keyboard `H` home shortcut, and live HUD telemetry (FPS/focus/depth/move count) for fast runtime tuning.
+- Pivot path: `NeuralSceneV2` cinematic style mode can now be enabled with `VITE_NEURAL_CORE_STYLE=cinematic-v1`, adding layered ambient veins/particles, richer curved pulse pathways, mood-driven node breathing, and a dedicated FX aura layer while preserving V2 navigation + HUD behavior.
 - Pivot path: `NeuralSceneV2` now includes an in-canvas floating leaf HUD panel (blurred RPG-style card anchored near clicked leaf nodes) with quick close controls, while still forwarding leaf payloads to the existing external detail pipeline.
 - Pivot path tuning pass: particle pulses were boosted (about +20% size/brightness), leaf HUD card contrast was raised with a larger footprint, HUD anchor moved slightly toward camera for readability, and leaf-HUD open now uses a short fade-up enter animation for more cinematic clicks.
 - Background FX intensity (`off` / `low` / `full`) is now available both in Settings and as a quick control in the hero bar, persisted locally for each browser.
@@ -303,6 +304,7 @@ npm run dev
 
 > On the redesign branch, the Scientist-mode Neural Core defaults to the new 3D renderer. Set `VITE_NEURAL_CORE_RENDERER=svg` if you want to force the legacy SVG view.
 > Phase 1 pivot mode is opt-in: set `VITE_NEURAL_CORE_SCENE_MODEL=layered-v2` to use the new scene-stack/camera-depth `NeuralSceneV2` explorer.
+> Cinematic V2 visuals are opt-in: set `VITE_NEURAL_CORE_STYLE=cinematic-v1` to enable layered ambient brain FX in `NeuralSceneV2` while keeping depth navigation and HUD telemetry.
 
 **Run services individually:**
 

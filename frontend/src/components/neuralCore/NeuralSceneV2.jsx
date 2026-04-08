@@ -177,6 +177,10 @@ function hashOffset(id = "") {
   return Math.abs(hash);
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function CameraDepthRig({ depth }) {
   const { camera } = useThree();
 
@@ -226,13 +230,15 @@ function computeNodePosition(nodeId, index, total, depth) {
   ];
 }
 
-function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
+function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, cinematicStyle = false }) {
   const particlesRef = useRef(null);
-  const PARTICLE_COUNT = 8;
+  const particleCount = cinematicStyle ? 12 : 8;
+  const pulseSpeed = cinematicStyle ? (0.22 + intensity * 0.38) : 0.32;
+  const tmpPoint = useRef(new THREE.Vector3());
 
   const { lineObj, curve } = useMemo(() => {
     const archX = (start[0] + end[0]) / 2 + (((phaseSeed * 317) % 100) / 100 - 0.5) * 0.18;
-    const archY = (start[1] + end[1]) / 2 + 0.24 + ((phaseSeed % 7) * 0.03);
+    const archY = (start[1] + end[1]) / 2 + 0.24 + ((phaseSeed % 7) * 0.03) + (cinematicStyle ? intensity * 0.12 : 0);
     const archZ = (start[2] + end[2]) / 2;
     const c = new THREE.CatmullRomCurve3([
       new THREE.Vector3(start[0], start[1], start[2]),
@@ -241,16 +247,20 @@ function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
     ]);
     const pts = c.getPoints(42);
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.46 });
+    const mat = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: cinematicStyle ? (0.44 + intensity * 0.24) : 0.46,
+    });
     return { lineObj: new THREE.Line(geo, mat), curve: c };
-  }, [phaseSeed]);
+  }, [cinematicStyle, color, end, intensity, phaseSeed, start]);
 
   const particleGeo = useMemo(() => {
-    const arr = new Float32Array(PARTICLE_COUNT * 3);
+    const arr = new Float32Array(particleCount * 3);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
     return geo;
-  }, []);
+  }, [particleCount]);
 
   useEffect(() => () => {
     lineObj.geometry.dispose();
@@ -260,11 +270,11 @@ function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
 
   useFrame(({ clock }) => {
     if (!particlesRef.current) return;
-    const t = (clock.getElapsedTime() * 0.32 + phaseSeed * 0.07) % 1;
+    const t = (clock.getElapsedTime() * pulseSpeed + phaseSeed * 0.07) % 1;
     const positions = particlesRef.current.geometry.attributes.position.array;
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const offset = (i / PARTICLE_COUNT + t) % 1;
-      const pt = curve.getPoint(offset);
+    for (let i = 0; i < particleCount; i++) {
+      const offset = (i / particleCount + t) % 1;
+      const pt = curve.getPointAt(offset, tmpPoint.current);
       positions[i * 3] = pt.x;
       positions[i * 3 + 1] = pt.y;
       positions[i * 3 + 2] = pt.z;
@@ -276,13 +286,19 @@ function ConnectionLine({ start, end, color, phaseSeed = 0 }) {
     <group>
       <primitive object={lineObj} />
       <points ref={particlesRef} geometry={particleGeo}>
-        <pointsMaterial color={color} size={0.066} transparent opacity={1} sizeAttenuation />
+        <pointsMaterial
+          color={color}
+          size={cinematicStyle ? (0.074 + intensity * 0.03) : 0.066}
+          transparent
+          opacity={cinematicStyle ? (0.78 + intensity * 0.2) : 1}
+          sizeAttenuation
+        />
       </points>
     </group>
   );
 }
 
-function LayerConnections({ currentLayer, personaState }) {
+function LayerConnections({ currentLayer, personaState, cinematicStyle = false, intensity = 0.35 }) {
   const depth = currentLayer.depth;
   const center = useMemo(() => [0, 0, -depth * 8], [depth]);
 
@@ -305,6 +321,8 @@ function LayerConnections({ currentLayer, personaState }) {
             end={target}
             color={color}
             phaseSeed={index + depth * 11}
+            cinematicStyle={cinematicStyle}
+            intensity={intensity}
           />
         );
       })}
@@ -312,7 +330,143 @@ function LayerConnections({ currentLayer, personaState }) {
   );
 }
 
-function RadialNode({ node, index, total, depth, onClick }) {
+function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, color = "#67dbff" }) {
+  const veinCount = enabled ? 14 : 0;
+  const segs = 16;
+
+  const veins = useMemo(() => {
+    return Array.from({ length: veinCount }, (_, idx) => {
+      const arr = new Float32Array((segs + 1) * 3);
+      const geo = new THREE.BufferGeometry();
+      const attr = new THREE.BufferAttribute(arr, 3);
+      attr.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute("position", attr);
+
+      const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.02 + intensity * 0.06,
+      });
+
+      return {
+        line: new THREE.Line(geo, material),
+        arr,
+        material,
+        seed: idx * 13.7 + 2.1,
+        baseX: -4.2 + (idx % 7) * 1.4,
+        baseY: -2.4 + Math.floor(idx / 7) * 2.2,
+        z: -depth * 8 - 3.1 - (idx % 3) * 0.22,
+      };
+    });
+  }, [color, depth, intensity, veinCount]);
+
+  useEffect(() => () => {
+    veins.forEach((vein) => {
+      vein.line.geometry.dispose();
+      vein.material.dispose();
+    });
+  }, [veins]);
+
+  useFrame(({ clock }) => {
+    if (!enabled) return;
+    const t = clock.getElapsedTime();
+    const speed = 0.14 + intensity * 0.38;
+
+    veins.forEach((vein, index) => {
+      const bend = 2.2 + (index % 5) * 0.22;
+      for (let i = 0; i <= segs; i += 1) {
+        const f = i / segs;
+        vein.arr[i * 3] = vein.baseX + (f - 0.5) * bend + Math.sin(t * speed + vein.seed + f * 7.2) * 0.15;
+        vein.arr[i * 3 + 1] = vein.baseY + Math.sin(f * Math.PI * 2.4 + vein.seed + t * speed * 0.8) * (0.42 + intensity * 0.3);
+        vein.arr[i * 3 + 2] = vein.z + Math.cos(t * 0.24 + f * 5.3 + vein.seed) * 0.06;
+      }
+      vein.line.geometry.attributes.position.needsUpdate = true;
+      vein.material.opacity = 0.02 + intensity * 0.06 + Math.sin(t * 1.1 + vein.seed) * 0.01;
+    });
+  });
+
+  if (!enabled) return null;
+  return (
+    <group>
+      {veins.map((vein, idx) => (
+        <primitive key={`vein-${idx}`} object={vein.line} />
+      ))}
+    </group>
+  );
+}
+
+function AmbientParticleField({ enabled = false, depth = 0, intensity = 0.35 }) {
+  const pointsRef = useRef(null);
+  const count = enabled ? 90 : 0;
+
+  const particles = useMemo(() => {
+    return Array.from({ length: count }, (_, idx) => {
+      const spread = 2.9;
+      return {
+        x: (Math.random() - 0.5) * spread * 2,
+        y: (Math.random() - 0.5) * spread * 1.7,
+        z: -depth * 8 - 0.8 - Math.random() * 2.6,
+        drift: 0.12 + Math.random() * 0.28,
+        phase: idx * 0.67,
+      };
+    });
+  }, [count, depth]);
+
+  const geometry = useMemo(() => {
+    const arr = new Float32Array(count * 3);
+    particles.forEach((particle, index) => {
+      arr[index * 3] = particle.x;
+      arr[index * 3 + 1] = particle.y;
+      arr[index * 3 + 2] = particle.z;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+    return geo;
+  }, [count, particles]);
+
+  useEffect(() => () => {
+    geometry.dispose();
+  }, [geometry]);
+
+  useFrame(({ clock }) => {
+    if (!enabled || !pointsRef.current) return;
+    const positions = pointsRef.current.geometry.attributes.position.array;
+    const t = clock.getElapsedTime();
+    for (let i = 0; i < count; i += 1) {
+      const particle = particles[i];
+      positions[i * 3 + 1] = particle.y + Math.sin(t * particle.drift + particle.phase) * (0.06 + intensity * 0.1);
+      positions[i * 3] = particle.x + Math.cos(t * particle.drift * 0.8 + particle.phase) * 0.04;
+    }
+    pointsRef.current.geometry.attributes.position.needsUpdate = true;
+  });
+
+  if (!enabled) return null;
+  return (
+    <points ref={pointsRef} geometry={geometry}>
+      <pointsMaterial color="#8ce8ff" size={0.03 + intensity * 0.03} transparent opacity={0.24 + intensity * 0.2} sizeAttenuation />
+    </points>
+  );
+}
+
+function CoreFxAura({ depth = 0, enabled = false, intensity = 0.35 }) {
+  const auraRef = useRef(null);
+  useFrame(({ clock }) => {
+    if (!enabled || !auraRef.current) return;
+    const t = clock.getElapsedTime();
+    const pulse = 1 + Math.sin(t * (1.2 + intensity * 1.5)) * (0.06 + intensity * 0.12);
+    auraRef.current.scale.setScalar(pulse);
+  });
+
+  if (!enabled) return null;
+  return (
+    <mesh ref={auraRef} position={[0, 0, -depth * 8 - 0.04]}>
+      <ringGeometry args={[0.44, 0.56, 64]} />
+      <meshBasicMaterial color="#ffb46a" transparent opacity={0.34 + intensity * 0.24} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+function RadialNode({ node, index, total, depth, onClick, motionScale = 1 }) {
   const groupRef = useRef(null);
   const meshRef = useRef(null);
   const offset = useMemo(() => hashOffset(node.id), [node.id]);
@@ -321,12 +475,12 @@ function RadialNode({ node, index, total, depth, onClick }) {
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime() + (offset % 17) * 0.11;
     if (groupRef.current) {
-      groupRef.current.position.y = basePosition[1] + Math.sin(t * 0.82 + offset * 0.003) * 0.09;
+      groupRef.current.position.y = basePosition[1] + Math.sin(t * 0.82 + offset * 0.003) * (0.06 + motionScale * 0.08);
     }
     if (meshRef.current) {
-      const pulse = 1 + Math.sin(t * 2.2) * 0.05;
+      const pulse = 1 + Math.sin(t * (1.7 + motionScale * 1.1)) * (0.03 + motionScale * 0.05);
       meshRef.current.scale.setScalar(pulse);
-      meshRef.current.material.emissiveIntensity = 1.2 + Math.sin(t * 1.7) * 0.35;
+      meshRef.current.material.emissiveIntensity = 1.1 + Math.sin(t * 1.7) * (0.22 + motionScale * 0.24);
     }
   });
 
@@ -353,34 +507,59 @@ function RadialNode({ node, index, total, depth, onClick }) {
   );
 }
 
-function SceneLayer({ currentLayer, onNodeSelect, personaState }) {
+function SceneLayer({ currentLayer, onNodeSelect, personaState, cinematicStyle = false, visualIntensity = 0.35 }) {
   const depth = currentLayer.depth;
   const center = [0, 0, -depth * 8];
+  const moodColor = personaState?.moodColor || "#67dbff";
 
   return (
-    <>
-      <mesh position={center}>
-        <sphereGeometry args={[0.34, 32, 32]} />
-        <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2} roughness={0.2} metalness={0.5} />
-      </mesh>
+    <group>
+      <group name="backgroundLayer">
+        <AmbientVeinBackdrop
+          enabled={cinematicStyle}
+          depth={depth}
+          intensity={visualIntensity}
+          color={moodColor}
+        />
+        <AmbientParticleField enabled={cinematicStyle} depth={depth} intensity={visualIntensity} />
+      </group>
 
-      <LayerConnections currentLayer={currentLayer} personaState={personaState} />
+      <group name="connectionLayer">
+        <LayerConnections
+          currentLayer={currentLayer}
+          personaState={personaState}
+          cinematicStyle={cinematicStyle}
+          intensity={visualIntensity}
+        />
+      </group>
 
-      {currentLayer.nodes.map((node, index) => {
-        const total = currentLayer.nodes.length;
-        return (
-          <group key={node.id}>
-            <RadialNode
-              node={node}
-              index={index}
-              total={total}
-              depth={depth}
-              onClick={onNodeSelect}
-            />
-          </group>
-        );
-      })}
-    </>
+      <group name="nodeLayer">
+        <mesh position={center}>
+          <sphereGeometry args={[0.34, 32, 32]} />
+          <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2 + visualIntensity * 0.8} roughness={0.2} metalness={0.5} />
+        </mesh>
+
+        {currentLayer.nodes.map((node, index) => {
+          const total = currentLayer.nodes.length;
+          return (
+            <group key={node.id}>
+              <RadialNode
+                node={node}
+                index={index}
+                total={total}
+                depth={depth}
+                onClick={onNodeSelect}
+                motionScale={visualIntensity}
+              />
+            </group>
+          );
+        })}
+      </group>
+
+      <group name="fxLayer">
+        <CoreFxAura depth={depth} enabled={cinematicStyle} intensity={visualIntensity} />
+      </group>
+    </group>
   );
 }
 
@@ -420,8 +599,12 @@ export default function NeuralSceneV2({
   onLeafNodeSelect,
   onFocusNodeChange,
   onDepthChange,
+  arousal = 0,
   personaState = null,
 }) {
+  const sceneStyleEnv = String(import.meta.env.VITE_NEURAL_CORE_STYLE || "default").trim().toLowerCase();
+  const cinematicStyle = sceneStyleEnv === "cinematic-v1";
+  const visualIntensity = clamp(0.2 + Math.abs(Number(arousal || 0)) * 0.8, 0.2, 1);
   const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
   const [transitionKey, setTransitionKey] = useState(0);
   const [transitionMode, setTransitionMode] = useState("forward");
@@ -592,7 +775,13 @@ export default function NeuralSceneV2({
         <OrbitControls key={controlsResetToken} enablePan={false} enableZoom minDistance={3.2} maxDistance={13} />
         <NeuralMetricsProbe onSample={setFps} />
 
-        <SceneLayer currentLayer={currentLayer} onNodeSelect={handleNodeSelect} personaState={personaState} />
+        <SceneLayer
+          currentLayer={currentLayer}
+          onNodeSelect={handleNodeSelect}
+          personaState={personaState}
+          cinematicStyle={cinematicStyle}
+          visualIntensity={visualIntensity}
+        />
         <LeafNodeHud leafNode={selectedLeafNode} onClose={() => {
           setSelectedLeafNode(null);
           onLeafNodeSelect?.(null);

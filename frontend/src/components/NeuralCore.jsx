@@ -1817,6 +1817,8 @@ export default function NeuralCore({
                 onLeafNodeSelect={setSelectedLeafNode}
                 onFocusNodeChange={setFocusNode}
                 onDepthChange={setSceneDepth}
+                arousal={arousal}
+                personaState={personaState}
               />
             ) : (
               <NeuralCoreRenderer
