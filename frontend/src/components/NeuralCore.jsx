@@ -1439,7 +1439,9 @@ export default function NeuralCore({
   // Set VITE_NEURAL_CORE_RENDERER=svg to force the legacy SVG scene.
   const rendererEnv = String(import.meta.env.VITE_NEURAL_CORE_RENDERER || "force-graph").trim().toLowerCase();
   const rendererType = !kidsMode && rendererEnv !== "svg" ? "force-graph" : "svg";
-  const sceneModelEnv = String(import.meta.env.VITE_NEURAL_CORE_SCENE_MODEL || "legacy").trim().toLowerCase();
+  // cyberpunk-ui-redesign branch: layered-v2 is the default scene; set
+  // VITE_NEURAL_CORE_SCENE_MODEL=legacy to revert to the SVG renderer.
+  const sceneModelEnv = String(import.meta.env.VITE_NEURAL_CORE_SCENE_MODEL || "layered-v2").trim().toLowerCase();
   const useLayeredV2 = !kidsMode && sceneModelEnv === "layered-v2";
 
   const layeredRootNodes = useMemo(() => {

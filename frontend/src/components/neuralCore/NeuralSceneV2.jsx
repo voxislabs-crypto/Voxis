@@ -596,6 +596,203 @@ function CoreFxAura({ depth = 0, enabled = false, intensity = 0.35 }) {
   );
 }
 
+function buildOrbArcPoints(radius, segCount, pointerX = 0, pointerY = 0) {
+  const theta1 = Math.random() * Math.PI * 2;
+  const theta2 = theta1 + (Math.random() - 0.5) * Math.PI * 1.35;
+  const jitterScale = radius * 0.24;
+  const points = new Float32Array((segCount + 1) * 3);
+
+  for (let i = 0; i <= segCount; i += 1) {
+    const t = i / segCount;
+    const theta = theta1 + (theta2 - theta1) * t;
+    const x = Math.cos(theta) * radius;
+    const y = Math.sin(theta) * radius;
+    const jitter = Math.sin(Math.PI * t) * jitterScale;
+    points[i * 3] = x + (Math.random() - 0.5) * jitter + pointerX * radius * 0.12;
+    points[i * 3 + 1] = y + (Math.random() - 0.5) * jitter + pointerY * radius * 0.12;
+    points[i * 3 + 2] = (Math.random() - 0.5) * radius * 0.22;
+  }
+
+  return points;
+}
+
+function CinematicCoreOrb({
+  depth = 0,
+  intensity = 0.35,
+  enabled = false,
+  lightMode = false,
+  highArousalPulse = false,
+  moodColor = "#67dbff",
+}) {
+  const rootRef = useRef(null);
+  const coreRef = useRef(null);
+  const glowRef = useRef(null);
+  const specRef = useRef(null);
+  const ringARef = useRef(null);
+  const ringBRef = useRef(null);
+  const arcPoolRef = useRef([]);
+  const ringBoostRef = useRef(1);
+  const hoverMixRef = useRef({ x: 0, y: 0 });
+
+  const center = useMemo(() => [0, 0, -depth * 8], [depth]);
+  const arcCount = lightMode ? 5 : 9;
+  const arcSegments = 12;
+
+  const arcLines = useMemo(() => {
+    if (!enabled) return [];
+    return Array.from({ length: arcCount }, (_, idx) => {
+      const arr = new Float32Array((arcSegments + 1) * 3);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      const material = new THREE.LineBasicMaterial({
+        color: idx % 2 === 0 ? "#ffcc7d" : moodColor,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+
+      const line = new THREE.Line(geo, material);
+      return {
+        line,
+        arr,
+        life: 0,
+        maxLife: 1,
+      };
+    });
+  }, [arcCount, arcSegments, enabled, moodColor]);
+
+  useEffect(() => {
+    arcPoolRef.current = arcLines;
+    return () => {
+      arcLines.forEach((arc) => {
+        arc.line.geometry.dispose();
+        arc.line.material.dispose();
+      });
+    };
+  }, [arcLines]);
+
+  useFrame(({ clock, pointer }, delta) => {
+    if (!enabled) return;
+
+    const t = clock.getElapsedTime();
+    const hoverX = clamp(pointer.x || 0, -0.65, 0.65);
+    const hoverY = clamp(pointer.y || 0, -0.65, 0.65);
+    hoverMixRef.current.x += (hoverX - hoverMixRef.current.x) * 0.065;
+    hoverMixRef.current.y += (hoverY - hoverMixRef.current.y) * 0.065;
+
+    const hoverMagnitude = Math.min(1, Math.abs(hoverMixRef.current.x) + Math.abs(hoverMixRef.current.y));
+    const hoverScaleTarget = 1 + hoverMagnitude * 0.05;
+    const ringTarget = 1 + (highArousalPulse ? 0.28 : 0.16) + hoverMagnitude * 0.54;
+    ringBoostRef.current += (ringTarget - ringBoostRef.current) * 0.08;
+
+    if (rootRef.current) {
+      rootRef.current.rotation.y = hoverMixRef.current.x * 0.22;
+      rootRef.current.rotation.x = -hoverMixRef.current.y * 0.16;
+      rootRef.current.scale.setScalar(hoverScaleTarget);
+    }
+
+    if (coreRef.current) {
+      const pulse = 1 + Math.sin(t * (1.7 + intensity * 1.8)) * (0.045 + intensity * 0.08);
+      coreRef.current.scale.setScalar(pulse);
+      coreRef.current.material.emissiveIntensity = 1.7 + intensity * 0.9 + Math.sin(t * 1.6) * 0.22;
+    }
+
+    if (glowRef.current) {
+      const glowPulse = 1 + Math.sin(t * (1.2 + intensity * 1.2)) * (0.07 + intensity * 0.1);
+      glowRef.current.scale.setScalar(glowPulse);
+      glowRef.current.material.opacity = 0.24 + intensity * 0.2 + hoverMagnitude * 0.08;
+    }
+
+    if (specRef.current) {
+      specRef.current.position.x = 0.1 + hoverMixRef.current.x * 0.14;
+      specRef.current.position.y = 0.12 + hoverMixRef.current.y * 0.1;
+      specRef.current.position.z = 0.3;
+      specRef.current.material.opacity = 0.42 + hoverMagnitude * 0.24;
+    }
+
+    if (ringARef.current) {
+      ringARef.current.rotation.z += delta * (0.38 + intensity * 0.44) * ringBoostRef.current;
+      ringARef.current.rotation.y += delta * 0.2;
+    }
+    if (ringBRef.current) {
+      ringBRef.current.rotation.z -= delta * (0.24 + intensity * 0.3) * ringBoostRef.current;
+      ringBRef.current.rotation.x += delta * 0.16;
+    }
+
+    const arcSpawnRate = (highArousalPulse ? 0.16 : 0.1) + hoverMagnitude * 0.12;
+    arcPoolRef.current.forEach((arc) => {
+      arc.life += delta * 60;
+      if (arc.life >= arc.maxLife) {
+        if (Math.random() < arcSpawnRate) {
+          const points = buildOrbArcPoints(
+            0.42 * (0.92 + Math.random() * 0.1),
+            arcSegments,
+            hoverMixRef.current.x,
+            hoverMixRef.current.y,
+          );
+          arc.arr.set(points);
+          arc.line.geometry.attributes.position.needsUpdate = true;
+          arc.life = 0;
+          arc.maxLife = 26 + Math.random() * 36;
+        }
+      }
+
+      const progress = arc.maxLife > 0 ? (arc.life / arc.maxLife) : 1;
+      const alpha = progress < 0.16
+        ? progress / 0.16
+        : progress > 0.64
+        ? 1 - ((progress - 0.64) / 0.36)
+        : 1;
+
+      arc.line.material.opacity = Math.max(0, alpha) * (0.36 + intensity * 0.42);
+    });
+  });
+
+  if (!enabled) return null;
+
+  return (
+    <group ref={rootRef} position={center}>
+      <mesh ref={glowRef}>
+        <sphereGeometry args={[0.54, 30, 30]} />
+        <meshBasicMaterial color="#ffb46a" transparent opacity={0.26} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      <mesh ref={coreRef}>
+        <sphereGeometry args={[0.34, 48, 48]} />
+        <meshPhysicalMaterial
+          color="#ff9c5c"
+          emissive="#ff9c5c"
+          emissiveIntensity={2.2}
+          roughness={0.24}
+          metalness={0.52}
+          clearcoat={0.46}
+          clearcoatRoughness={0.22}
+        />
+      </mesh>
+
+      <mesh ref={specRef}>
+        <sphereGeometry args={[0.11, 20, 20]} />
+        <meshBasicMaterial color="#fff6d9" transparent opacity={0.52} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      <mesh ref={ringARef} scale={[1.08, 0.42, 1]}>
+        <torusGeometry args={[0.46, 0.01, 14, 80]} />
+        <meshBasicMaterial color={moodColor} transparent opacity={0.52} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      <mesh ref={ringBRef} rotation={[0.8, 0.25, 0.44]} scale={[1.12, 0.32, 1]}>
+        <torusGeometry args={[0.49, 0.007, 12, 74]} />
+        <meshBasicMaterial color="#ffcc7d" transparent opacity={0.34} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      {arcLines.map((arc, idx) => (
+        <primitive key={`core-arc-${idx}`} object={arc.line} />
+      ))}
+    </group>
+  );
+}
+
 function RadialNode({ node, index, total, depth, onClick, motionScale = 1 }) {
   const groupRef = useRef(null);
   const meshRef = useRef(null);
@@ -684,10 +881,21 @@ function SceneLayer({
       </group>
 
       <group name="nodeLayer">
-        <mesh position={center}>
-          <sphereGeometry args={[0.34, 32, 32]} />
-          <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2 + visualIntensity * 0.8} roughness={0.2} metalness={0.5} />
-        </mesh>
+        {cinematicStyle ? (
+          <CinematicCoreOrb
+            depth={depth}
+            intensity={visualIntensity}
+            enabled={cinematicStyle}
+            lightMode={lightMode}
+            highArousalPulse={highArousalPulse}
+            moodColor={moodColor}
+          />
+        ) : (
+          <mesh position={center}>
+            <sphereGeometry args={[0.34, 32, 32]} />
+            <meshStandardMaterial color="#ff9c5c" emissive="#ff9c5c" emissiveIntensity={2.2 + visualIntensity * 0.8} roughness={0.2} metalness={0.5} />
+          </mesh>
+        )}
 
         {currentLayer.nodes.map((node, index) => {
           const total = currentLayer.nodes.length;
@@ -753,8 +961,10 @@ export default function NeuralSceneV2({
   performanceTier = "balanced",
   personaState = null,
 }) {
-  const sceneStyleEnv = String(import.meta.env.VITE_NEURAL_CORE_STYLE || "default").trim().toLowerCase();
-  const cinematicStyle = sceneStyleEnv === "cinematic-v1";
+  // cyberpunk-ui-redesign branch: cinematic-v1 is the default style; set
+  // VITE_NEURAL_CORE_STYLE=standard to disable cinematic FX.
+  const sceneStyleEnv = String(import.meta.env.VITE_NEURAL_CORE_STYLE || "cinematic-v1").trim().toLowerCase();
+  const cinematicStyle = sceneStyleEnv !== "standard";
   const lightMode = String(performanceTier || "").toLowerCase() === "light";
   const baseIntensity = clamp(0.2 + Math.abs(Number(arousal || 0)) * 0.8, 0.2, 1);
   const visualIntensity = lightMode ? clamp(baseIntensity * 0.76, 0.2, 0.72) : baseIntensity;
