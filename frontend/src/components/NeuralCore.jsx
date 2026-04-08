@@ -1818,6 +1818,7 @@ export default function NeuralCore({
                 onFocusNodeChange={setFocusNode}
                 onDepthChange={setSceneDepth}
                 arousal={arousal}
+                performanceTier={performanceTier}
                 personaState={personaState}
               />
             ) : (

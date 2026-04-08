@@ -230,10 +230,21 @@ function computeNodePosition(nodeId, index, total, depth) {
   ];
 }
 
-function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, cinematicStyle = false }) {
+function ConnectionLine({
+  start,
+  end,
+  color,
+  phaseSeed = 0,
+  intensity = 0.35,
+  cinematicStyle = false,
+  allowSecondaryPulse = false,
+  lightMode = false,
+}) {
   const particlesRef = useRef(null);
+  const secondaryParticlesRef = useRef(null);
   const particleCount = cinematicStyle ? 18 : 8;
   const pulseSpeed = cinematicStyle ? (0.22 + intensity * 0.38) : 0.32;
+  const secondaryPulseSpeed = pulseSpeed * 1.32;
   const tmpPoint = useRef(new THREE.Vector3());
 
   const { lineObj, curve } = useMemo(() => {
@@ -280,6 +291,19 @@ function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, ci
       positions[i * 3 + 2] = pt.z;
     }
     particlesRef.current.geometry.attributes.position.needsUpdate = true;
+
+    if (allowSecondaryPulse && secondaryParticlesRef.current) {
+      const t2 = (clock.getElapsedTime() * secondaryPulseSpeed + phaseSeed * 0.19) % 1;
+      const positions2 = secondaryParticlesRef.current.geometry.attributes.position.array;
+      for (let i = 0; i < particleCount; i++) {
+        const offset = (i / particleCount + t2) % 1;
+        const pt = curve.getPointAt(offset, tmpPoint.current);
+        positions2[i * 3] = pt.x;
+        positions2[i * 3 + 1] = pt.y;
+        positions2[i * 3 + 2] = pt.z;
+      }
+      secondaryParticlesRef.current.geometry.attributes.position.needsUpdate = true;
+    }
   });
 
   return (
@@ -296,11 +320,31 @@ function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, ci
           sizeAttenuation
         />
       </points>
+      {allowSecondaryPulse ? (
+        <points ref={secondaryParticlesRef} geometry={particleGeo}>
+          <pointsMaterial
+            color={lightMode ? "#d8f5ff" : color}
+            size={cinematicStyle ? (0.062 + intensity * 0.03) : 0.054}
+            transparent
+            opacity={lightMode ? 0.18 : (0.24 + intensity * 0.16)}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            sizeAttenuation
+          />
+        </points>
+      ) : null}
     </group>
   );
 }
 
-function LayerConnections({ currentLayer, personaState, cinematicStyle = false, intensity = 0.35 }) {
+function LayerConnections({
+  currentLayer,
+  personaState,
+  cinematicStyle = false,
+  intensity = 0.35,
+  highArousalPulse = false,
+  lightMode = false,
+}) {
   const depth = currentLayer.depth;
   const center = useMemo(() => [0, 0, -depth * 8], [depth]);
   const cinematicPalette = ["#55dcff", "#ffb56f", "#d78cff"];
@@ -328,6 +372,8 @@ function LayerConnections({ currentLayer, personaState, cinematicStyle = false, 
             phaseSeed={index + depth * 11}
             cinematicStyle={cinematicStyle}
             intensity={intensity}
+            allowSecondaryPulse={cinematicStyle && highArousalPulse}
+            lightMode={lightMode}
           />
         );
       })}
@@ -471,9 +517,9 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
   );
 }
 
-function AmbientParticleField({ enabled = false, depth = 0, intensity = 0.35 }) {
+function AmbientParticleField({ enabled = false, depth = 0, intensity = 0.35, maxParticles = 120 }) {
   const pointsRef = useRef(null);
-  const count = enabled ? 120 : 0;
+  const count = enabled ? maxParticles : 0;
 
   const particles = useMemo(() => {
     return Array.from({ length: count }, (_, idx) => {
@@ -591,7 +637,15 @@ function RadialNode({ node, index, total, depth, onClick, motionScale = 1 }) {
   );
 }
 
-function SceneLayer({ currentLayer, onNodeSelect, personaState, cinematicStyle = false, visualIntensity = 0.35 }) {
+function SceneLayer({
+  currentLayer,
+  onNodeSelect,
+  personaState,
+  cinematicStyle = false,
+  visualIntensity = 0.35,
+  highArousalPulse = false,
+  lightMode = false,
+}) {
   const depth = currentLayer.depth;
   const center = [0, 0, -depth * 8];
   const moodColor = personaState?.moodColor || "#67dbff";
@@ -605,7 +659,12 @@ function SceneLayer({ currentLayer, onNodeSelect, personaState, cinematicStyle =
           intensity={visualIntensity}
           color={moodColor}
         />
-        <AmbientParticleField enabled={cinematicStyle} depth={depth} intensity={visualIntensity} />
+        <AmbientParticleField
+          enabled={cinematicStyle}
+          depth={depth}
+          intensity={visualIntensity}
+          maxParticles={lightMode ? 70 : 120}
+        />
       </group>
 
       <group name="connectionLayer">
@@ -619,6 +678,8 @@ function SceneLayer({ currentLayer, onNodeSelect, personaState, cinematicStyle =
           personaState={personaState}
           cinematicStyle={cinematicStyle}
           intensity={visualIntensity}
+          highArousalPulse={highArousalPulse}
+          lightMode={lightMode}
         />
       </group>
 
@@ -689,11 +750,15 @@ export default function NeuralSceneV2({
   onFocusNodeChange,
   onDepthChange,
   arousal = 0,
+  performanceTier = "balanced",
   personaState = null,
 }) {
   const sceneStyleEnv = String(import.meta.env.VITE_NEURAL_CORE_STYLE || "default").trim().toLowerCase();
   const cinematicStyle = sceneStyleEnv === "cinematic-v1";
-  const visualIntensity = clamp(0.2 + Math.abs(Number(arousal || 0)) * 0.8, 0.2, 1);
+  const lightMode = String(performanceTier || "").toLowerCase() === "light";
+  const baseIntensity = clamp(0.2 + Math.abs(Number(arousal || 0)) * 0.8, 0.2, 1);
+  const visualIntensity = lightMode ? clamp(baseIntensity * 0.76, 0.2, 0.72) : baseIntensity;
+  const highArousalPulse = Math.abs(Number(arousal || 0)) >= (lightMode ? 0.72 : 0.58);
   const normalizedRoot = useMemo(() => normalizeNodes(rootNodes), [rootNodes]);
   const [transitionKey, setTransitionKey] = useState(0);
   const [transitionMode, setTransitionMode] = useState("forward");
@@ -870,6 +935,8 @@ export default function NeuralSceneV2({
           personaState={personaState}
           cinematicStyle={cinematicStyle}
           visualIntensity={visualIntensity}
+          highArousalPulse={highArousalPulse}
+          lightMode={lightMode}
         />
         <LeafNodeHud leafNode={selectedLeafNode} onClose={() => {
           setSelectedLeafNode(null);
