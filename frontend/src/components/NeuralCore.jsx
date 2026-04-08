@@ -74,7 +74,7 @@ const neuralStyles = `
 
   .neural-overlay {
     position: absolute;
-    inset: 24px;
+    inset: 36px;
     z-index: 10;
     border-radius: 16px;
     border: 1px solid rgba(0, 180, 255, 0.18);
@@ -328,7 +328,7 @@ const neuralStyles = `
   .neural-legend {
     position: absolute;
     left: 14px;
-    bottom: 68px;
+    bottom: 128px;
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
