@@ -341,7 +341,7 @@ const neuralStyles = `
   .neural-focus-row {
     position: absolute;
     right: 14px;
-    bottom: 14px;
+    bottom: 50px;
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
