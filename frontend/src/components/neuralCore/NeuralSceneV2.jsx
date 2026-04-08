@@ -20,16 +20,16 @@ const sceneV2Styles = `
   }
 
   .neural-v2-btn {
-    border: 1px solid rgba(122, 230, 255, 0.34);
+    border: 1px solid rgba(122, 230, 255, 0.22);
     border-radius: 999px;
-    background: linear-gradient(180deg, rgba(214, 248, 255, 0.16), rgba(14, 30, 56, 0.24));
-    color: #c9f4ff;
+    background: linear-gradient(180deg, rgba(214, 248, 255, 0.10), rgba(14, 30, 56, 0.16));
+    color: rgba(201, 244, 255, 0.9);
     font-size: 0.51rem;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-weight: 800;
     padding: 4px 8px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 18px rgba(0, 16, 38, 0.3);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 6px 14px rgba(0, 16, 38, 0.22);
   }
 
   .neural-v2-debug {
@@ -45,9 +45,9 @@ const sceneV2Styles = `
 
   .neural-v2-pill {
     border-radius: 999px;
-    border: 1px solid rgba(100, 220, 255, 0.24);
-    background: rgba(6, 18, 34, 0.72);
-    color: #9fe7ff;
+    border: 1px solid rgba(100, 220, 255, 0.16);
+    background: rgba(6, 18, 34, 0.56);
+    color: rgba(159, 231, 255, 0.84);
     padding: 3px 7px;
     font-size: 0.51rem;
     text-transform: uppercase;
@@ -58,15 +58,15 @@ const sceneV2Styles = `
   .neural-v2-label {
     padding: 2px 6px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(4, 14, 28, 0.82);
-    color: #d9f8ff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(4, 14, 28, 0.66);
+    color: rgba(217, 248, 255, 0.9);
     font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     white-space: nowrap;
-    box-shadow: 0 0 12px rgba(0, 234, 255, 0.12);
+    box-shadow: 0 0 10px rgba(0, 234, 255, 0.08);
   }
 
   .neural-v2-transition {
@@ -232,7 +232,7 @@ function computeNodePosition(nodeId, index, total, depth) {
 
 function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, cinematicStyle = false }) {
   const particlesRef = useRef(null);
-  const particleCount = cinematicStyle ? 12 : 8;
+  const particleCount = cinematicStyle ? 18 : 8;
   const pulseSpeed = cinematicStyle ? (0.22 + intensity * 0.38) : 0.32;
   const tmpPoint = useRef(new THREE.Vector3());
 
@@ -288,9 +288,11 @@ function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, ci
       <points ref={particlesRef} geometry={particleGeo}>
         <pointsMaterial
           color={color}
-          size={cinematicStyle ? (0.074 + intensity * 0.03) : 0.066}
+          size={cinematicStyle ? (0.09 + intensity * 0.04) : 0.066}
           transparent
-          opacity={cinematicStyle ? (0.78 + intensity * 0.2) : 1}
+          opacity={cinematicStyle ? (0.72 + intensity * 0.24) : 1}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
           sizeAttenuation
         />
       </points>
@@ -301,6 +303,7 @@ function ConnectionLine({ start, end, color, phaseSeed = 0, intensity = 0.35, ci
 function LayerConnections({ currentLayer, personaState, cinematicStyle = false, intensity = 0.35 }) {
   const depth = currentLayer.depth;
   const center = useMemo(() => [0, 0, -depth * 8], [depth]);
+  const cinematicPalette = ["#55dcff", "#ffb56f", "#d78cff"];
 
   return (
     <group>
@@ -312,7 +315,9 @@ function LayerConnections({ currentLayer, personaState, cinematicStyle = false, 
           : node.type === "memory"
           ? "#ffc16b"
           : "#9fb0ff";
-        const color = personaState?.moodColor || typeColor;
+        const color = cinematicStyle
+          ? cinematicPalette[index % cinematicPalette.length]
+          : personaState?.moodColor || typeColor;
 
         return (
           <ConnectionLine
@@ -331,8 +336,9 @@ function LayerConnections({ currentLayer, personaState, cinematicStyle = false, 
 }
 
 function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, color = "#67dbff" }) {
-  const veinCount = enabled ? 14 : 0;
-  const segs = 16;
+  const veinCount = enabled ? 22 : 0;
+  const segs = 22;
+  const palette = [color, "#d78cff", "#ffaf72", "#60ddff"];
 
   const veins = useMemo(() => {
     return Array.from({ length: veinCount }, (_, idx) => {
@@ -343,9 +349,9 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
       geo.setAttribute("position", attr);
 
       const material = new THREE.LineBasicMaterial({
-        color,
+        color: palette[idx % palette.length],
         transparent: true,
-        opacity: 0.02 + intensity * 0.06,
+        opacity: 0.018 + intensity * 0.08,
       });
 
       return {
@@ -373,15 +379,15 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
     const speed = 0.14 + intensity * 0.38;
 
     veins.forEach((vein, index) => {
-      const bend = 2.2 + (index % 5) * 0.22;
+      const bend = 2.4 + (index % 6) * 0.24;
       for (let i = 0; i <= segs; i += 1) {
         const f = i / segs;
-        vein.arr[i * 3] = vein.baseX + (f - 0.5) * bend + Math.sin(t * speed + vein.seed + f * 7.2) * 0.15;
-        vein.arr[i * 3 + 1] = vein.baseY + Math.sin(f * Math.PI * 2.4 + vein.seed + t * speed * 0.8) * (0.42 + intensity * 0.3);
+        vein.arr[i * 3] = vein.baseX + (f - 0.5) * bend + Math.sin(t * speed + vein.seed + f * 7.2) * (0.12 + intensity * 0.08);
+        vein.arr[i * 3 + 1] = vein.baseY + Math.sin(f * Math.PI * 2.6 + vein.seed + t * speed * 0.8) * (0.4 + intensity * 0.34);
         vein.arr[i * 3 + 2] = vein.z + Math.cos(t * 0.24 + f * 5.3 + vein.seed) * 0.06;
       }
       vein.line.geometry.attributes.position.needsUpdate = true;
-      vein.material.opacity = 0.02 + intensity * 0.06 + Math.sin(t * 1.1 + vein.seed) * 0.01;
+      vein.material.opacity = 0.018 + intensity * 0.08 + Math.sin(t * 1.1 + vein.seed) * 0.012;
     });
   });
 
@@ -397,7 +403,7 @@ function AmbientVeinBackdrop({ enabled = false, depth = 0, intensity = 0.35, col
 
 function AmbientParticleField({ enabled = false, depth = 0, intensity = 0.35 }) {
   const pointsRef = useRef(null);
-  const count = enabled ? 90 : 0;
+  const count = enabled ? 120 : 0;
 
   const particles = useMemo(() => {
     return Array.from({ length: count }, (_, idx) => {
@@ -443,7 +449,15 @@ function AmbientParticleField({ enabled = false, depth = 0, intensity = 0.35 }) 
   if (!enabled) return null;
   return (
     <points ref={pointsRef} geometry={geometry}>
-      <pointsMaterial color="#8ce8ff" size={0.03 + intensity * 0.03} transparent opacity={0.24 + intensity * 0.2} sizeAttenuation />
+      <pointsMaterial
+        color="#8ce8ff"
+        size={0.035 + intensity * 0.035}
+        transparent
+        opacity={0.2 + intensity * 0.18}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation
+      />
     </points>
   );
 }
