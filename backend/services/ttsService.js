@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { stylizeSpeech } from "./speechDirector.js";
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
@@ -372,22 +373,23 @@ export async function generateSpeechAudio({ personality, text, voiceProfile }) {
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
+  const directedText = stylizeSpeech(text, personality) || String(text || "").trim();
 
   if (engine === "piper") {
     try {
-      return await generatePiperSpeechAudio({ text, voiceProfile });
+      return await generatePiperSpeechAudio({ text: directedText, voiceProfile });
     } catch (error) {
       if (requested === "piper") {
         throw error;
       }
 
       if (isCloudConfigured()) {
-        return generateCloudSpeechAudio({ personality, text, voiceProfile });
+        return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile });
       }
 
       throw error;
     }
   }
 
-  return generateCloudSpeechAudio({ personality, text, voiceProfile });
+  return generateCloudSpeechAudio({ personality, text: directedText, voiceProfile });
 }

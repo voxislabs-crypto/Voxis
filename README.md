@@ -146,6 +146,7 @@ What this demonstrates in minutes:
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
 - The runtime prompt package now includes dedicated sections for Big Five register, optional moral compass overlay, and expression style while preserving memory, mood, and active intent orchestration.
+- TTS now includes a Speech Director layer that reshapes outgoing text cadence using personality and live VAD mood before synthesis, so Piper/cloud output carries stronger character rhythm.
 - Server-side voice output through any OpenAI-compatible TTS endpoint with per-character voice settings.
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
 - The 3D Neural Core renderer now features a full "living brain" upgrade: lightning-crackle synaptic connections with traveling pulse dots, per-node burst flashes triggered by live LLM phases, smooth fluid floating drift, bloom post-processing (via `@react-three/postprocessing`), breathing node orbs, a glow-halo shell on every node, and an orbiting particle ring on the companion orb.
@@ -194,6 +195,7 @@ backend/
     llmService.js            Prompt builders, LLM calls, memory extraction
     moodEngine.js            VAD mood engine
     researchService.js       Source scraping, ranking, synthesis
+    speechDirector.js        Personality + mood prosody text shaping
     ttsService.js            TTS generation
     providerDiscoveryService.js Provider catalog + model discovery
   controllers/
@@ -700,13 +702,21 @@ The frontend now includes an `Adversarial Eval` tab that runs this endpoint and 
 
 ### Server-Side TTS
 
-`POST /personality/:id/tts` accepts `{text, voiceProfile}` and resolves engine per request:
+`POST /personality/:id/tts` accepts `{text, voiceProfile}` and resolves engine per request.
+
+Before synthesis, Voxis now runs a Speech Director pass that transforms raw reply text into a prosody-shaped script using saved persona fields (`speechStyle`, `behaviorRules`, `notablePhrases`, `traits`, `expressionStyle`) plus live mood (`moodState` or `moodBaseline`).
+
+Current runtime flow:
+
+`LLM reply -> speechDirector.stylizeSpeech -> selected TTS engine -> audio response`
+
+Engine resolution:
 
 - `engine: "cloud"` -> OpenAI-compatible `/audio/speech`
 - `engine: "piper"` -> local Piper CLI synthesis
 - `engine: "auto"` -> Piper when configured, otherwise cloud
 
-`voiceProfile` now supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+`voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
 
 For Ubuntu servers, `deploy/install-piper.sh` installs Piper in `/opt/piper-venv`, downloads curated voices to `/opt/piper/models`, and updates `backend/.env` defaults (`PIPER_COMMAND`, `PIPER_MODEL_PATH`, `TTS_ENGINE`).
 

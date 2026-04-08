@@ -1,4 +1,12 @@
 cd /opt/voxis
+git checkout package-lock.json
+git pull origin pivot/new-approach-20260407
+npm run build
+pm2 restart voxis-backend
+sudo systemctl reload nginx
+
+
+cd /opt/voxis
 git pull origin clean-main
 npm run build
 pm2 restart voxis-backend
