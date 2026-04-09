@@ -645,6 +645,200 @@ const neuralStyles = `
     }
   }
 
+  /* ── Layout view ──────────────────────────────────────────────────────── */
+  .neural-layout {
+    height: calc(100% - 52px);
+    overflow-y: auto;
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .neural-layout-section {
+    border-radius: 14px;
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    background: rgba(4, 10, 20, 0.60);
+    padding: 12px 14px;
+  }
+
+  .neural-layout-section.full {
+    grid-column: 1 / -1;
+  }
+
+  .neural-layout-title {
+    margin: 0 0 10px;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #4dcfff;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .neural-layout-title .nlabel {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 180, 255, 0.22);
+    background: rgba(0, 180, 255, 0.08);
+    font-size: 0.64rem;
+    color: #9ad9ff;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+
+  .neural-layout-mood {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .neural-mood-bar-wrap {
+    flex: 1;
+    min-width: 80px;
+  }
+
+  .neural-mood-bar-label {
+    font-size: 0.63rem;
+    color: #7ac8e8;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+
+  .neural-mood-track {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .neural-mood-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 999px;
+    transition: width 400ms ease;
+  }
+
+  .neural-layout-kv {
+    display: grid;
+    gap: 5px;
+  }
+
+  .neural-kv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: rgba(5, 14, 28, 0.5);
+    border: 1px solid rgba(255,255,255,0.05);
+    gap: 8px;
+  }
+
+  .neural-kv-key {
+    font-size: 0.65rem;
+    color: #6ab8d8;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .neural-kv-val {
+    font-size: 0.72rem;
+    color: #d0eeff;
+    text-align: right;
+    word-break: break-word;
+    line-height: 1.4;
+  }
+
+  .neural-memory-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.69rem;
+  }
+
+  .neural-memory-table th {
+    text-align: left;
+    padding: 4px 8px;
+    color: #5ac8e8;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 0.6rem;
+    border-bottom: 1px solid rgba(0,180,255,0.14);
+  }
+
+  .neural-memory-table td {
+    padding: 5px 8px;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: #c8e8ff;
+    line-height: 1.4;
+  }
+
+  .neural-memory-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .neural-memory-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .neural-memory-badge.injected { background: rgba(0,180,255,0.15); color: #80d8ff; border: 1px solid rgba(0,180,255,0.3); }
+  .neural-memory-badge.retrieved { background: rgba(122,220,140,0.14); color: #90e8a0; border: 1px solid rgba(122,220,140,0.28); }
+  .neural-memory-badge.extracted { background: rgba(255,195,80,0.14); color: #ffd870; border: 1px solid rgba(255,195,80,0.28); }
+  .neural-memory-badge.store { background: rgba(190,140,255,0.14); color: #d0a8ff; border: 1px solid rgba(190,140,255,0.28); }
+
+  .neural-layout-toggle {
+    border: 1px solid rgba(0, 180, 255, 0.28);
+    background: rgba(0, 90, 175, 0.16);
+    color: #9ad9ff;
+    border-radius: 999px;
+    padding: 5px 11px;
+    font-weight: 700;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 180ms ease;
+  }
+
+  .neural-layout-toggle:hover {
+    background: rgba(0, 110, 210, 0.26);
+  }
+
+  .neural-layout-toggle.active {
+    background: rgba(0, 160, 255, 0.22);
+    border-color: rgba(0, 200, 255, 0.52);
+    color: #d4f4ff;
+  }
+
+  @media (max-width: 600px) {
+    .neural-layout {
+      grid-template-columns: 1fr;
+    }
+    .neural-layout-section.full {
+      grid-column: 1;
+    }
+  }
+
   @media (max-width: 480px) {
     .neural-hud {
       right: 10px;
@@ -1279,6 +1473,152 @@ function getPrimarySproutSpecs({ scene, kidsMode, memoryCount, hasIntent, identi
   return specs;
 }
 
+// ── NeuralLayoutView ─────────────────────────────────────────────────────────
+// Structured data panel shown when the user toggles ⊞ Layout from the topbar.
+// Displays the same data as the 3D scene in a readable grid layout.
+function NeuralLayoutView({
+  personality,
+  memoryRows,
+  latestDebug,
+  valence,
+  arousal,
+  dominance,
+  citationValid,
+  citationIssue,
+  repairActive,
+  reconditioningActive,
+  hasIntent,
+  identityActive,
+}) {
+  const name = personality?.name || "Unknown";
+  const moodLabel = personality?.moodLabel || personality?.mood || "neutral";
+  const speechStyle = personality?.speechStyle || "—";
+  const traits = Array.isArray(personality?.traits) ? personality.traits.slice(0, 6).join(", ") : "—";
+  const goal = latestDebug?.goal?.goal || "—";
+  const goalSource = latestDebug?.goal?.source || "—";
+  const violations = latestDebug?.scientist?.validation?.violations || [];
+
+  // Mood bars: map -1..1 to 0..100%
+  function pct(val) { return `${Math.round(((Number(val) + 1) / 2) * 100)}%`; }
+
+  return (
+    <div className="neural-layout">
+      {/* ── Mood ── */}
+      <div className="neural-layout-section">
+        <h6 className="neural-layout-title">
+          Mood State
+          <span className="nlabel">{moodLabel}</span>
+        </h6>
+        <div className="neural-layout-mood">
+          {[
+            { label: "Valence", val: valence, color: valence >= 0 ? "#4dcfff" : "#e06090" },
+            { label: "Arousal", val: arousal, color: "#ffc060" },
+            { label: "Dominance", val: dominance, color: "#90d890" },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="neural-mood-bar-wrap">
+              <div className="neural-mood-bar-label">{label} {Number(val).toFixed(2)}</div>
+              <div className="neural-mood-track">
+                <div className="neural-mood-fill" style={{ width: pct(val), background: color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Character ── */}
+      <div className="neural-layout-section">
+        <h6 className="neural-layout-title">Character</h6>
+        <div className="neural-layout-kv">
+          {[
+            { k: "Name", v: name },
+            { k: "Speech Style", v: speechStyle },
+            { k: "Traits", v: traits },
+            { k: "Alignment", v: personality?.alignmentProfile?.enabled ? String(personality.alignmentProfile.alignment || "true_neutral").replaceAll("_", " ") : "—" },
+          ].map(({ k, v }) => (
+            <div key={k} className="neural-kv-row">
+              <span className="neural-kv-key">{k}</span>
+              <span className="neural-kv-val">{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Intent ── */}
+      <div className="neural-layout-section">
+        <h6 className="neural-layout-title">
+          Intent
+          {hasIntent ? <span className="nlabel" style={{ borderColor: "rgba(255,195,80,0.4)", color: "#ffd870" }}>active</span> : null}
+        </h6>
+        <div className="neural-layout-kv">
+          <div className="neural-kv-row">
+            <span className="neural-kv-key">Goal</span>
+            <span className="neural-kv-val">{goal}</span>
+          </div>
+          <div className="neural-kv-row">
+            <span className="neural-kv-key">Source</span>
+            <span className="neural-kv-val">{goalSource}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── System State ── */}
+      <div className="neural-layout-section">
+        <h6 className="neural-layout-title">System State</h6>
+        <div className="neural-layout-kv">
+          {[
+            { k: "Identity", v: identityActive ? "active" : "steady" },
+            { k: "Repair Pass", v: repairActive ? "yes" : "no" },
+            { k: "Reconditioning", v: reconditioningActive ? "fired" : "no" },
+            { k: "Citations", v: citationIssue ? "⚠ issue" : citationValid ? "✓ linked" : "pending" },
+            { k: "Violations", v: violations.length ? violations.join(", ") : "none" },
+          ].map(({ k, v }) => (
+            <div key={k} className="neural-kv-row">
+              <span className="neural-kv-key">{k}</span>
+              <span className="neural-kv-val">{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Memory ── */}
+      <div className="neural-layout-section full">
+        <h6 className="neural-layout-title">
+          Memory
+          <span className="nlabel">{memoryRows.length} entries</span>
+        </h6>
+        {memoryRows.length === 0 ? (
+          <p style={{ margin: 0, color: "#688", fontSize: "0.72rem" }}>No memory entries this turn.</p>
+        ) : (
+          <table className="neural-memory-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Type</th>
+                <th>Importance</th>
+                <th>Content</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memoryRows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <span className={`neural-memory-badge ${row.source}`}>{row.source}</span>
+                  </td>
+                  <td style={{ color: "#8cc8e0", fontSize: "0.64rem", whiteSpace: "nowrap" }}>
+                    {row.memoryType}
+                  </td>
+                  <td style={{ color: "#ffd870", textAlign: "center" }}>{row.importance}</td>
+                  <td>{row.content}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function NeuralCore({
   personality,
   mode = "scientist",
@@ -1294,6 +1634,7 @@ export default function NeuralCore({
   const personaState = usePersonaState();
   const enabled = import.meta.env.VITE_NEURAL_CORE_ENABLED !== "false";
   const [expanded, setExpanded] = useState(false);
+  const [layoutView, setLayoutView] = useState(false);
   const [focusNode, setFocusNode] = useState("core");
   const [selectedLeafNode, setSelectedLeafNode] = useState(null);
   const [sceneDepth, setSceneDepth] = useState(0);
@@ -1775,19 +2116,46 @@ export default function NeuralCore({
                 <span>{kidsMode ? "Friend Brain" : "Voxis Neural Core"}</span>
               </span>
             </h4>
-            <button type="button" className="neural-close" onClick={() => setExpanded(false)}>
-              Close
-            </button>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                type="button"
+                className={`neural-layout-toggle${layoutView ? " active" : ""}`}
+                onClick={() => setLayoutView((v) => !v)}
+                title={layoutView ? "Switch to 3D view" : "Switch to data layout view"}
+              >
+                {layoutView ? "⬡ 3D" : "⊞ Layout"}
+              </button>
+              <button type="button" className="neural-close" onClick={() => setExpanded(false)}>
+                Close
+              </button>
+            </div>
           </div>
 
           <div
             className="neural-scene"
           >
-            <div className="neural-assistive">
+            {layoutView ? (
+              <NeuralLayoutView
+                personality={personality}
+                memoryRows={memoryRows}
+                latestDebug={latestDebug}
+                valence={valence}
+                arousal={arousal}
+                dominance={dominance}
+                citationValid={citationValid}
+                citationIssue={citationIssue}
+                repairActive={repairActive}
+                reconditioningActive={reconditioningActive}
+                hasIntent={hasIntent}
+                identityActive={identityActive}
+              />
+            ) : (
+              <>
+              <div className="neural-assistive">
               {kidsMode
                 ? "Large touch targets stay on in Kids Mode. Tap the Brain orb, use voice narration if enabled, or press N on a keyboard."
                 : "Scientist Mode keeps evidence visible and shows repair ripples when the system reorganizes a response."}
-            </div>
+              </div>
 
             <div className="neural-status">
               <span className="neural-pill">Performance {performanceTier}</span>
@@ -1966,18 +2334,9 @@ export default function NeuralCore({
                   </button>
                 </div>
               </div>
-            ) : focusNode !== "core" ? (
-              <div className="neural-focus-panel">
-                <h5>{focusPanel.title}</h5>
-                <div className="neural-focus-lines">
-                  {focusPanel.lines.map((line, index) => (
-                    <p key={`${focusNode}-${index}`} className="neural-focus-line">
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              </div>
             ) : null}
+              </>
+            )}
           </div>
         </div>
       )}
