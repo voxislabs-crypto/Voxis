@@ -277,6 +277,7 @@ class MoodLoopEngine {
     this.ctx = null;
     this.manifest = null;
     this.buffers = {};          // url → AudioBuffer  (keyed by file URL, not mood)
+    this.sfxBuffers = {};       // name → AudioBuffer (preloaded one-shot effects)
     this.playedIndexes = {};    // mood → Set<index>  (tracks recently used to avoid repeats)
     this.currentSource = null;
     this.currentGain = null;
@@ -298,10 +299,48 @@ class MoodLoopEngine {
       const resp = await fetch("/api/loops/manifest");
       this.manifest = await resp.json();
       this.ready = true;
+      // Pre-load SFX buffers so they're ready for instant playback
+      await this.loadSfx("burp");
     } catch {
       // Web Audio unavailable — degrade gracefully; TTS still works
       this.ready = false;
     }
+  }
+
+  async loadSfx(name) {
+    if (!this.ctx || this.sfxBuffers[name]) return;
+    try {
+      const resp = await fetch(`/api/sfx/audio/${name}`);
+      if (!resp.ok) return; // not cached yet on backend — fail silently
+      const ab = await resp.arrayBuffer();
+      this.sfxBuffers[name] = await this.ctx.decodeAudioData(ab);
+    } catch {
+      // SFX loading is non-critical
+    }
+  }
+
+  // Play a named SFX through the AudioContext.
+  // Returns a Promise that resolves when the sound finishes (so callers can
+  // chain speech playback immediately after the effect ends).
+  playSfx(name, volume = 0.9) {
+    const buffer = this.sfxBuffers[name];
+    if (!this.ctx || !buffer) return Promise.resolve();
+    return new Promise((resolve) => {
+      try {
+        if (this.ctx.state === "suspended") this.ctx.resume();
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+        // SFX bypass the music masterGain — goes straight to destination
+        source.connect(gain);
+        gain.connect(this.ctx.destination);
+        source.onended = resolve;
+        source.start();
+      } catch {
+        resolve();
+      }
+    });
   }
 
   async _loadBuffer(url) {
@@ -479,6 +518,17 @@ export default function PerformancePlayer({ personalityId, text, voiceProfile, o
     }
 
     const item = audioQueueRef.current.shift();
+
+    // SFX queue items: play the effect then immediately advance to the next item
+    if (item.type === "sfx") {
+      const sfxDone = loopEngineRef.current?.playSfx(item.sound) ?? Promise.resolve();
+      sfxDone.then(() => {
+        isPlayingRef.current = true;
+        playNext();
+      });
+      return;
+    }
+
     setActiveSegmentId(item.segmentId);
     setCurrentLine(item.text || "");
 
@@ -594,8 +644,14 @@ export default function PerformancePlayer({ personalityId, text, voiceProfile, o
         setActiveSegmentId(msg.segmentId);
         break;
       }
+      case "sfx": {
+        // Queue the SFX item — it plays in order just before its paired audio line
+        enqueue({ type: "sfx", sound: msg.sound });
+        break;
+      }
       case "audio": {
         enqueue({
+          type: "audio",
           audioBase64: msg.audioBase64,
           contentType: msg.contentType,
           segmentId: msg.segmentId,

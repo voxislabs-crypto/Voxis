@@ -193,7 +193,7 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
 
   if (String(personality.name || "").toLowerCase().includes("rick") && shouldInject(`${input}:rick`, 0.28)) {
     output = output.replace(/\bI\b/g, "I-uh-I");
-    output = `*burp* ${output}`;
+    output = `[BURP] ${output}`;  // marker stripped in ttsService before reaching TTS engine
   }
 
   // Strip markdown formatting — bold, italic, action-notation, code spans,

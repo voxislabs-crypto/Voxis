@@ -239,10 +239,18 @@ function resolveMood(personality = {}) {
 export function prepareSpeechSynthesis({ personality, text, voiceProfile }) {
   const mood = resolveMood(personality);
 
+  // stylizeSpeech may prepend [BURP] markers for Rick-style personas.
+  // We strip them here — before TTS sees the text — and return them as sfx
+  // metadata so the performance controller can emit sfx events to the frontend.
+  const sfx = [];
+  let directedText = stylizeSpeech(text, personality, mood) || String(text || "").trim();
+  directedText = directedText.replace(/\[BURP\]\s*/g, () => { sfx.push("burp"); return ""; }).trim();
+
   return {
     mood,
-    directedText: stylizeSpeech(text, personality, mood) || String(text || "").trim(),
+    directedText,
     adjustedVoiceProfile: applyMoodToVoice(voiceProfile, mood),
+    sfx,
   };
 }
 
@@ -397,7 +405,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
-  const { directedText, adjustedVoiceProfile } = prepareSpeechSynthesis({
+  const { directedText, adjustedVoiceProfile, sfx } = prepareSpeechSynthesis({
     personality,
     text,
     voiceProfile,
@@ -410,6 +418,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
         ...audio,
         directedText,
         adjustedVoiceProfile,
+        sfx,
       };
     } catch (error) {
       if (requested === "piper") {
@@ -427,6 +436,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
           ...audio,
           directedText,
           adjustedVoiceProfile,
+          sfx,
         };
       }
 
@@ -444,5 +454,6 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     ...audio,
     directedText,
     adjustedVoiceProfile,
+    sfx,
   };
 }

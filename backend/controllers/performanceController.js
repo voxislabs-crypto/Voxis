@@ -140,6 +140,11 @@ export async function performanceHandler(req, res, next) {
             voiceProfile,
             speechHint: segment.audioDirection || null,
           });
+          // Emit SFX events before the audio so the frontend can fire them
+          // in queue order (e.g. burp plays just before the spoken line).
+          for (const sound of (audio.sfx || [])) {
+            send({ type: "sfx", sound });
+          }
           send({
             type: "audio",
             segmentId: segment.id,
