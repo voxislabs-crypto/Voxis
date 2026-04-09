@@ -1489,6 +1489,8 @@ function NeuralLayoutView({
   reconditioningActive,
   hasIntent,
   identityActive,
+  onOpenPersonaEditor,
+  onUpdateMemory,
 }) {
   const name = personality?.name || "Unknown";
   const moodLabel = personality?.moodLabel || personality?.mood || "neutral";
@@ -1497,6 +1499,26 @@ function NeuralLayoutView({
   const goal = latestDebug?.goal?.goal || "—";
   const goalSource = latestDebug?.goal?.source || "—";
   const violations = latestDebug?.scientist?.validation?.violations || [];
+
+  const [editingMemoryId, setEditingMemoryId] = useState(null);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [savingMemoryId, setSavingMemoryId] = useState(null);
+
+  function openEditor(section, query, category, memoryId = null, itemId = null) {
+    if (!onOpenPersonaEditor) return;
+    onOpenPersonaEditor({ section, query, category, memoryId, itemId });
+  }
+
+  async function saveMemoryEdit(row) {
+    if (!onUpdateMemory) return;
+    setSavingMemoryId(row.id);
+    try {
+      await onUpdateMemory({ memoryId: row.id, content: memoryDraft, memoryType: row.memoryType });
+    } finally {
+      setSavingMemoryId(null);
+      setEditingMemoryId(null);
+    }
+  }
 
   // Mood bars: map -1..1 to 0..100%
   function pct(val) { return `${Math.round(((Number(val) + 1) / 2) * 100)}%`; }
@@ -1529,15 +1551,31 @@ function NeuralLayoutView({
       <div className="neural-layout-section">
         <h6 className="neural-layout-title">Character</h6>
         <div className="neural-layout-kv">
+          <div className="neural-kv-row">
+            <span className="neural-kv-key">Name</span>
+            <span className="neural-kv-val">{name}</span>
+          </div>
           {[
-            { k: "Name", v: name },
-            { k: "Speech Style", v: speechStyle },
-            { k: "Traits", v: traits },
-            { k: "Alignment", v: personality?.alignmentProfile?.enabled ? String(personality.alignmentProfile.alignment || "true_neutral").replaceAll("_", " ") : "—" },
-          ].map(({ k, v }) => (
-            <div key={k} className="neural-kv-row">
+            { k: "Speech Style", v: speechStyle, section: "behavior", category: "mood", q: speechStyle },
+            { k: "Traits", v: traits, section: "behavior", category: "traits", q: "" },
+            { k: "Alignment", v: personality?.alignmentProfile?.enabled ? String(personality.alignmentProfile.alignment || "true_neutral").replaceAll("_", " ") : "—", section: "behavior", category: "mood", q: "alignment" },
+          ].map(({ k, v, section, category, q }) => (
+            <div key={k} className="neural-kv-row" style={{ alignItems: "flex-start" }}>
               <span className="neural-kv-key">{k}</span>
-              <span className="neural-kv-val">{v}</span>
+              <span className="neural-kv-val" style={{ display: "flex", alignItems: "flex-start", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <span>{v}</span>
+                {onOpenPersonaEditor ? (
+                  <button
+                    type="button"
+                    className="neural-leaf-btn icon"
+                    style={{ fontSize: "0.6rem", padding: "2px 6px", opacity: 0.7 }}
+                    onClick={() => openEditor(section, q, category)}
+                    title={`Open ${k} in Persona Editor`}
+                  >
+                    ↗
+                  </button>
+                ) : null}
+              </span>
             </div>
           ))}
         </div>
@@ -1585,6 +1623,17 @@ function NeuralLayoutView({
         <h6 className="neural-layout-title">
           Memory
           <span className="nlabel">{memoryRows.length} entries</span>
+          {onOpenPersonaEditor ? (
+            <button
+              type="button"
+              className="neural-leaf-btn"
+              style={{ fontSize: "0.6rem", padding: "2px 8px", marginLeft: "auto" }}
+              onClick={() => openEditor("memory", "", "memory")}
+              title="Open memory section in Persona Editor"
+            >
+              Open Memory Editor ↗
+            </button>
+          ) : null}
         </h6>
         {memoryRows.length === 0 ? (
           <p style={{ margin: 0, color: "#688", fontSize: "0.72rem" }}>No memory entries this turn.</p>
@@ -1594,8 +1643,9 @@ function NeuralLayoutView({
               <tr>
                 <th>Source</th>
                 <th>Type</th>
-                <th>Importance</th>
+                <th>Imp</th>
                 <th>Content</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -1608,7 +1658,66 @@ function NeuralLayoutView({
                     {row.memoryType}
                   </td>
                   <td style={{ color: "#ffd870", textAlign: "center" }}>{row.importance}</td>
-                  <td>{row.content}</td>
+                  <td>
+                    {editingMemoryId === row.id ? (
+                      <textarea
+                        className="neural-leaf-editor"
+                        style={{ minHeight: "56px", fontSize: "0.7rem" }}
+                        value={memoryDraft}
+                        onChange={(e) => setMemoryDraft(e.target.value)}
+                      />
+                    ) : (
+                      row.content
+                    )}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
+                    {editingMemoryId === row.id ? (
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button
+                          type="button"
+                          className="neural-leaf-btn"
+                          style={{ fontSize: "0.6rem", padding: "2px 7px" }}
+                          disabled={savingMemoryId === row.id}
+                          onClick={() => void saveMemoryEdit(row)}
+                        >
+                          {savingMemoryId === row.id ? "…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          className="neural-leaf-btn"
+                          style={{ fontSize: "0.6rem", padding: "2px 7px", opacity: 0.6 }}
+                          onClick={() => setEditingMemoryId(null)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        {onUpdateMemory ? (
+                          <button
+                            type="button"
+                            className="neural-leaf-btn icon"
+                            style={{ fontSize: "0.6rem", padding: "2px 6px" }}
+                            title="Edit inline"
+                            onClick={() => { setEditingMemoryId(row.id); setMemoryDraft(row.content); }}
+                          >
+                            ✎
+                          </button>
+                        ) : null}
+                        {onOpenPersonaEditor ? (
+                          <button
+                            type="button"
+                            className="neural-leaf-btn icon"
+                            style={{ fontSize: "0.6rem", padding: "2px 6px" }}
+                            title="Open in Persona Editor"
+                            onClick={() => openEditor("memory", row.content, "memory", row.id, `memory-item-${row.id}`)}
+                          >
+                            ↗
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2148,6 +2257,8 @@ export default function NeuralCore({
                 reconditioningActive={reconditioningActive}
                 hasIntent={hasIntent}
                 identityActive={identityActive}
+                onOpenPersonaEditor={onOpenPersonaEditor}
+                onUpdateMemory={onUpdateMemory}
               />
             ) : (
               <>
