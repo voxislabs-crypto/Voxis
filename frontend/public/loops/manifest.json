@@ -1,0 +1,14 @@
+{
+  "version": "0.2",
+  "description": "EPF mood loop manifest. Drop real WAV/MP3 loops here with the same filenames to replace the silent placeholders. Loops are played continuously during their segment and cross-faded when the segment changes.",
+  "loops": {
+    "ambient":   { "file": "/loops/ambient.wav",   "label": "Ambient / Intro",         "defaultVolume": 0.35 },
+    "hype":      { "file": "/loops/hype.wav",       "label": "High-Energy Verse",       "defaultVolume": 0.40 },
+    "chorus":    { "file": "/loops/chorus.wav",     "label": "Anthemic Chorus",         "defaultVolume": 0.45 },
+    "breakdown": { "file": "/loops/breakdown.wav",  "label": "Emotional Breakdown",     "defaultVolume": 0.28 },
+    "outro":     { "file": "/loops/outro.wav",      "label": "Outro / Decay",           "defaultVolume": 0.20 }
+  },
+  "crossfadeDurationMs": 800,
+  "ttsVolumeMultiplier": 1.0,
+  "musicVolumeMultiplier": 0.55
+}

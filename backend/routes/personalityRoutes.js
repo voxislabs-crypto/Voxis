@@ -26,6 +26,10 @@ import {
   updateMemoryHandler,
   deleteMemoryHandler,
 } from "../controllers/memoryController.js";
+import {
+  performanceHandler,
+  parsePerformanceHandler,
+} from "../controllers/performanceController.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 
 const router = Router();
@@ -51,5 +55,7 @@ router.get("/personality/:id/voice-samples", requireAuth, getVoiceSamplesHandler
 router.post("/personality/:id/voice-samples/confirm", requireAuth, confirmVoiceSampleHandler);
 router.get("/personality/:id/voice-samples/audio/:clipFile", requireAuth, streamVoiceSampleAudioHandler);
 router.patch("/personality/:id/voice", requireAuth, updateVoiceProfileHandler);
+router.post("/personality/:id/performance", requireAuth, performanceHandler);
+router.post("/personality/:id/performance/parse", requireAuth, parsePerformanceHandler);
 
 export default router;

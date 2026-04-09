@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
+import PerformancePlayer from "./PerformancePlayer.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
+
+// Lightweight EPF detection — mirrors backend isPerformanceOutput
+function isEPF(text) {
+  return /\[\[[A-Za-z]+\d+\]\]/.test(text) && /^\[:\]/m.test(text);
+}
 
 const chatStyles = `
   .chat-shell {
@@ -871,6 +877,7 @@ export default function ChatWindow({
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [speechEnergy, setSpeechEnergy] = useState(0);
   const [debugMode, setDebugMode] = useState(true);
+  const [performanceText, setPerformanceText] = useState(null); // EPF text to perform
   const lastGeneratedRef = useRef("");
   const lastNarrationRef = useRef("");
   const messageListRef = useRef(null);
@@ -1318,6 +1325,14 @@ export default function ChatWindow({
   return (
     <>
       <style>{chatStyles}</style>
+      {performanceText && (
+        <PerformancePlayer
+          personalityId={personality.id}
+          text={performanceText}
+          voiceProfile={voiceProfile}
+          onClose={() => setPerformanceText(null)}
+        />
+      )}
       <div className="chat-shell">
         <div className={`chat-card${neuralActivity > 0.4 ? " neural-active" : ""}`}>
           <NeuralCore
@@ -1532,6 +1547,7 @@ export default function ChatWindow({
                     ) : message.role === "assistant" ? (
                       (() => {
                         const formatted = formatAssistantContentForMode(message.content, activeMode);
+                        const canPerform = !message.live && isEPF(message.content);
                         return (
                           <>
                             <div className="assistant-normal-main">{formatted.main}</div>
@@ -1541,6 +1557,27 @@ export default function ChatWindow({
                                 {formatted.nextQuestions}
                               </div>
                             ) : null}
+                            {canPerform && (
+                              <button
+                                type="button"
+                                style={{
+                                  marginTop: "10px",
+                                  padding: "6px 14px",
+                                  borderRadius: "999px",
+                                  border: "1px solid rgba(0,234,255,0.30)",
+                                  background: "rgba(0,234,255,0.08)",
+                                  color: "#00eaff",
+                                  fontWeight: 800,
+                                  fontSize: "0.75rem",
+                                  letterSpacing: "0.12em",
+                                  textTransform: "uppercase",
+                                  cursor: "pointer",
+                                }}
+                                onClick={() => setPerformanceText(message.content)}
+                              >
+                                ▶ Perform
+                              </button>
+                            )}
                           </>
                         );
                       })()

@@ -27,6 +27,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [VAD Mood Engine](#vad-mood-engine)
    - [Research Pipeline](#research-pipeline)
    - [Chat Controller Flow](#chat-controller-flow)
+   - [EPF — Emergent Performance Format](#epf--emergent-performance-format)
    - [Server-Side TTS](#server-side-tts)
    - [Database & Migrations](#database--migrations)
 8. [How It Works — Frontend](#how-it-works--frontend)
@@ -717,6 +718,64 @@ It runs built-in scenarios like reform pressure, false vulnerability, authority 
 - an optional LLM judge summary with transcript-level scores, strengths, and issues
 
 The same evaluator is also exposed over HTTP:
+
+---
+
+### EPF — Emergent Performance Format
+
+**EPF v0.2** is an original structured output format produced natively by performance-mode personalities like P.Rick. A single LLM response encodes a complete timed multimedia script: dialogue lines, segment timing, scene markers, and audio direction — all in one reply.
+
+**Format anatomy:**
+
+```
+[[B1]]
+[20.0:]
+[:] Oh jeez, 'Wuzzup!'? Is this a time warp?
+[:] Look, I could tell you about the heat death of your pathetic little star...
+
+An erratic and hyper-intelligent Experimental Hip-Hop verse defined by...
+```
+
+- `[[B1]]` — segment marker (letter = type, number = index)
+- `[20.0:]` — start time in seconds
+- `[:]` lines — spoken dialogue fed to TTS
+- Long descriptive text — audio direction, mapped to a mood loop ID
+
+**Segment letters → types:**
+
+| Letter | Type | Mood Loop |
+|---|---|---|
+| A | Intro | ambient |
+| B | Verse | hype |
+| C | Chorus | chorus |
+| D | Bridge/Breakdown | breakdown |
+| E | Outro | outro |
+
+**Backend endpoints:**
+
+- `POST /personality/:id/performance` — NDJSON stream. Parses the EPF text, then streams chunks: `script` → `segment` → `audio` (base64 per line) → `done`. The client receives the parsed script immediately and audio chunks arrive as they are synthesised — segment N is already playing while segment N+1 is generating.
+- `POST /personality/:id/performance/parse` — Returns the parsed EPF script as JSON without generating audio. Useful for testing.
+
+**Frontend playback (`PerformancePlayer.jsx`):**
+
+- Detects EPF replies in chat automatically — a `▶ Perform` button appears on qualifying assistant messages
+- Opens a fullscreen overlay player with:
+  - Segment timeline chips (highlights active segment)
+  - Mood bar with real-time label
+  - Live lyrics display (current line + previous)
+  - Pause/resume controls
+  - Progress bar
+  - Music volume slider
+- **Web Audio mood loop engine** — loads background loops from `frontend/public/loops/` and cross-fades between them as segments change. Configured by `frontend/public/loops/manifest.json`.
+
+**Adding real music loops:**
+
+Drop royalty-free or Creative Commons WAV/MP3 files into `frontend/public/loops/` with these filenames:
+`ambient.wav`, `hype.wav`, `chorus.wav`, `breakdown.wav`, `outro.wav`
+
+The placeholder files are silent 1-second WAVs — replace them with real loops and the engine picks them up immediately without any code changes. Loop length doesn't matter; they loop continuously and cross-fade on segment transitions.
+
+**$12/month server reality:** All music playback is client-side (Web Audio API). The server only runs TTS synthesis per dialogue line. No GPU required.
 
 - `POST /personality/:id/harness` with body `{ "scenario": "villain_marathon", "judge": true }`
 
