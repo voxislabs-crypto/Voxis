@@ -927,6 +927,10 @@ export default function NeuralCoreThreeScene({
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [sceneHovered, setSceneHovered] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  // Incrementing this key forces React to fully unmount + remount the Canvas
+  // after a context restore, giving R3F a clean WebGL context and stopping
+  // all stale useFrame loops from running against a dead GPU context.
+  const [canvasKey, setCanvasKey] = useState(0);
   const glCanvasRef = useRef(null);
   const contextLostHandlerRef = useRef(null);
   const contextRestoredHandlerRef = useRef(null);
@@ -943,7 +947,7 @@ export default function NeuralCoreThreeScene({
       if (onLost) canvas.removeEventListener("webglcontextlost", onLost, false);
       if (onRestored) canvas.removeEventListener("webglcontextrestored", onRestored, false);
     };
-  }, []);
+  }, [])
 
   const graph = useMemo(() =>
     buildThreeGraphModel({
@@ -999,7 +1003,9 @@ export default function NeuralCoreThreeScene({
       {!hideLabels && <style>{threeSceneStyles}</style>}
       {!hideLabels && <div className="neural-three-hint">3D Neural Core · click nodes to inspect and zoom</div>}
 
+      {!contextLost && (
       <Canvas
+        key={canvasKey}
         camera={{ position: [0, 0.15, 6], fov: 48 }}
         dpr={[1, 1.2]}
         gl={{
@@ -1014,10 +1020,13 @@ export default function NeuralCoreThreeScene({
 
           const handleContextLost = (event) => {
             event.preventDefault();
+            // Unmount Canvas entirely so R3F useFrame loops stop immediately
             setContextLost(true);
           };
 
           const handleContextRestored = () => {
+            // Remount with a new key to get a fresh R3F+WebGL context
+            setCanvasKey((k) => k + 1);
             setContextLost(false);
           };
 
@@ -1054,10 +1063,11 @@ export default function NeuralCoreThreeScene({
           setHoveredNodeId={setHoveredNodeId}
         />
       </Canvas>
+      )}
 
       {contextLost && !hideLabels ? (
         <div className="neural-three-hint" style={{ top: 46 }}>
-          GPU context reset detected. Recovering Neural Core...
+          GPU context reset — Neural Core recovering...
         </div>
       ) : null}
 
