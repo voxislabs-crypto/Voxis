@@ -4,6 +4,7 @@ import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
+import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
 
 // Lightweight EPF detection — mirrors backend isPerformanceOutput
 function isEPF(text) {
@@ -69,6 +70,7 @@ const chatStyles = `
     height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
+    box-shadow: 0 0 10px var(--mood-dot-glow, rgba(0, 234, 255, 0.45));
   }
 
   .chat-header p {
@@ -556,13 +558,80 @@ const chatStyles = `
   }
 
   .avatar-panel-mood {
-    margin-top: 5px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-    color: rgba(0, 234, 255, 0.52);
+    margin-top: 10px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
     text-align: center;
+  }
+
+  .avatar-panel-zone-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--zone-border, rgba(0, 234, 255, 0.25));
+    color: var(--zone-text, rgba(0, 234, 255, 0.8));
+    background: var(--zone-surface, rgba(0, 234, 255, 0.08));
+    box-shadow: 0 0 14px var(--zone-glow, rgba(0, 234, 255, 0.2));
+  }
+
+  .avatar-panel-emotion {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: rgba(212, 235, 255, 0.94);
+    line-height: 1.45;
+  }
+
+  .avatar-panel-spectrum {
+    margin-top: 2px;
+    width: 100%;
+    padding: 0 6px;
+  }
+
+  .avatar-panel-spectrum-track {
+    position: relative;
+    height: 6px;
+    width: 100%;
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(196, 224, 255, 0.18);
+    background: linear-gradient(90deg,
+      rgba(96, 165, 250, 0.8) 0%,
+      rgba(52, 211, 153, 0.86) 36%,
+      rgba(251, 191, 36, 0.9) 66%,
+      rgba(251, 113, 133, 0.9) 100%);
+  }
+
+  .avatar-panel-spectrum-marker {
+    position: absolute;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    background: var(--zone-accent, #00eaff);
+    box-shadow: 0 0 12px var(--zone-glow, rgba(0, 234, 255, 0.4));
+    transform: translate(-50%, -50%);
+    transition: left 420ms ease;
+  }
+
+  .avatar-panel-intensity {
+    margin-top: 4px;
+    font-size: 0.56rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(188, 220, 245, 0.72);
   }
 
   .avatar-panel-divider {
@@ -938,6 +1007,11 @@ export default function ChatWindow({
   const avatarMood = useMemo(
     () => displayDebug?.mood?.after || personality?.moodState || { valence: 0, arousal: 0, dominance: 0 },
     [displayDebug, personality?.moodState],
+  );
+
+  const emotionSpectrum = useMemo(
+    () => interpretEmotionSpectrum(avatarMood),
+    [avatarMood],
   );
 
   // ── Neural activity: combines real brain heartbeat + phase signals ───────
@@ -1350,14 +1424,10 @@ export default function ChatWindow({
                   {personality.moodState && (
                     <span
                       className="mood-dot"
-                      title={personality.moodLabel || ""}
+                      title={emotionSpectrum.displayLabel}
                       style={{
-                        background:
-                          personality.moodState.valence > 0.2
-                            ? "#4ade80"
-                            : personality.moodState.valence < -0.2
-                            ? "#f87171"
-                            : "#fbbf24",
+                        background: emotionSpectrum.zone.accent,
+                        "--mood-dot-glow": emotionSpectrum.zone.glow,
                       }}
                     />
                   )}
@@ -1470,11 +1540,33 @@ export default function ChatWindow({
             </div>
             <div className="avatar-panel-name">{personality.name}</div>
             <div className="avatar-panel-mood">
-              {avatarMood.valence > 0.15
-                ? "Positive"
-                : avatarMood.valence < -0.15
-                ? "Negative"
-                : "Neutral"}
+              <span
+                className="avatar-panel-zone-pill"
+                style={{
+                  "--zone-border": emotionSpectrum.zone.border,
+                  "--zone-text": emotionSpectrum.zone.text,
+                  "--zone-glow": emotionSpectrum.zone.glow,
+                  "--zone-surface": emotionSpectrum.zone.surface,
+                }}
+              >
+                {emotionSpectrum.zone.label}
+              </span>
+              <span className="avatar-panel-emotion">{emotionSpectrum.displayLabel}</span>
+              <div className="avatar-panel-spectrum">
+                <div className="avatar-panel-spectrum-track">
+                  <span
+                    className="avatar-panel-spectrum-marker"
+                    style={{
+                      left: `${Math.round(((emotionSpectrum.normalized.valence + 1) / 2) * 100)}%`,
+                      "--zone-accent": emotionSpectrum.zone.accent,
+                      "--zone-glow": emotionSpectrum.zone.glow,
+                    }}
+                  />
+                </div>
+                <div className="avatar-panel-intensity">
+                  Intensity {Math.round(emotionSpectrum.intensity * 100)}%
+                </div>
+              </div>
             </div>
             <div className="avatar-panel-divider" />
             <div className="avatar-panel-stats">
