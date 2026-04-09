@@ -140,6 +140,7 @@ What this demonstrates in minutes:
 - After a successful reload, Voice Lab briefly shows `Updated just now` next to the reload control for quick confirmation.
 - The ongoing speaking-stack implementation plan and checklist are tracked in `docs/TTS_EVOLUTION_CHECKLIST.md`.
 - Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
+- Voice Lab and LLM Settings now share one runtime `Default Voice Source` preference, so `auto` can prefer either dedicated TTS providers or the cloud/LLM voice path without the two panels fighting each other.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
@@ -854,6 +855,12 @@ Engine resolution:
 - `engine: "auto"` -> elevenlabs -> cartesia -> cloud -> piper -> kokoro fallback chain
 
 When auto fallback is triggered, Voxis now attempts to preserve voice identity by carrying normalized voice-family hints (for example register/presentation/sample label) into the next engine instead of resetting to a generic default.
+
+`Default Voice Source` behavior:
+
+- `Use TTS as default voice` makes `auto` prefer dedicated TTS providers first.
+- `Use LLM as default voice` makes `auto` prefer the cloud/LLM voice path first.
+- The setting is shared between Voice Lab and LLM Settings, and switching one side automatically flips the other on the next read/refresh.
 
 `voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, Piper-specific `piperModelPath`/`piperSpeaker`, Kokoro `kokoroVoice`, ElevenLabs settings (`elevenLabsVoiceId`, `elevenLabsModel`, `stability`, `similarityBoost`, `style`), and Cartesia settings (`cartesiaVoiceId`, `cartesiaModel`). The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
 

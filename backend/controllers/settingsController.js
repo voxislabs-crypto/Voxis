@@ -9,6 +9,8 @@ import {
   getTtsCredential,
   setTtsCredential,
   clearTtsCredential,
+  getVoiceDefaults,
+  setVoiceDefaults,
 } from "../models/settingsModel.js";
 import {
   detectProviderByApiKey,
@@ -217,7 +219,17 @@ export function getTtsSettingsHandler(_req, res) {
       ...meta,
     };
   });
-  return res.json({ providers: result });
+  return res.json({ providers: result, voiceDefaults: getVoiceDefaults() });
+}
+
+export function saveVoiceDefaultsHandler(req, res) {
+  const source = String(req.body?.source || "").trim().toLowerCase();
+  if (!["tts", "llm"].includes(source)) {
+    return res.status(400).json({ error: "source must be 'tts' or 'llm'." });
+  }
+
+  const updated = setVoiceDefaults({ source });
+  return res.json(updated);
 }
 
 export function saveTtsCredentialHandler(req, res, next) {

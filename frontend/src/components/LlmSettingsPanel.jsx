@@ -76,6 +76,49 @@ const settingsStyles = `
     cursor: wait;
   }
 
+  .llm-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid rgba(0, 180, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(0, 180, 255, 0.05);
+  }
+
+  .llm-toggle-copy {
+    display: grid;
+    gap: 4px;
+  }
+
+  .llm-toggle-copy strong {
+    color: var(--text);
+    font-size: 0.92rem;
+  }
+
+  .llm-toggle-copy span {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .llm-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .llm-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #00bfff;
+    cursor: pointer;
+  }
+
   .llm-connected {
     padding: 12px;
     border-radius: 12px;
@@ -126,6 +169,8 @@ export default function LlmSettingsPanel({ onStatus }) {
   const [ttsModel, setTtsModel] = useState("");
   const [isSavingTts, setIsSavingTts] = useState(false);
   const [isDisconnectingTts, setIsDisconnectingTts] = useState(false);
+  const [defaultVoiceSource, setDefaultVoiceSource] = useState("tts");
+  const [isSavingDefaultVoiceSource, setIsSavingDefaultVoiceSource] = useState(false);
 
   const selectedProvider = useMemo(
     () => providers.find((candidate) => candidate.id === provider) || null,
@@ -221,6 +266,7 @@ export default function LlmSettingsPanel({ onStatus }) {
 
       const ttsProviderList = Array.isArray(ttsData.providers) ? ttsData.providers : [];
       setTtsProviders(ttsProviderList);
+      setDefaultVoiceSource(ttsData?.voiceDefaults?.source === "llm" ? "llm" : "tts");
       const connectedProvider = ttsProviderList.find((entry) => entry.connected) || ttsProviderList[0] || null;
       if (connectedProvider) {
         setTtsProvider(connectedProvider.provider);
@@ -292,6 +338,39 @@ export default function LlmSettingsPanel({ onStatus }) {
       onStatus?.({ type: "error", message: error.message || "Failed to disconnect TTS provider." });
     } finally {
       setIsDisconnectingTts(false);
+    }
+  }
+
+  async function updateDefaultVoiceSource(nextSource) {
+    if (!["tts", "llm"].includes(nextSource) || nextSource === defaultVoiceSource) {
+      return;
+    }
+
+    setIsSavingDefaultVoiceSource(true);
+    try {
+      const response = await authFetch("/settings/voice-defaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: nextSource }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update default voice source.");
+      }
+
+      const normalized = data.source === "llm" ? "llm" : "tts";
+      setDefaultVoiceSource(normalized);
+      onStatus?.({
+        type: "success",
+        message:
+          normalized === "llm"
+            ? "Cloud/LLM is now the default voice source. Dedicated TTS default was turned off."
+            : "Dedicated TTS is now the default voice source. Cloud/LLM default was turned off.",
+      });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to update default voice source." });
+    } finally {
+      setIsSavingDefaultVoiceSource(false);
     }
   }
 
@@ -534,10 +613,54 @@ export default function LlmSettingsPanel({ onStatus }) {
         </div>
       ) : null}
 
+      <div className="llm-toggle-row">
+        <div className="llm-toggle-copy">
+          <strong>Default Voice Source</strong>
+          <span>
+            When auto voice selection is used, this decides whether Voxis prefers the cloud/LLM voice path or dedicated TTS providers first.
+          </span>
+        </div>
+        <label className="llm-toggle">
+          <input
+            type="checkbox"
+            checked={defaultVoiceSource === "llm"}
+            onChange={(event) => {
+              if (event.target.checked) {
+                void updateDefaultVoiceSource("llm");
+              }
+            }}
+            disabled={isSavingDefaultVoiceSource || isLoading}
+          />
+          <span>Use LLM as default voice</span>
+        </label>
+      </div>
+
       <h3>Runtime TTS BYOK Settings</h3>
       <p>
         Save ElevenLabs or Cartesia keys from the browser. These stay on the server and are used by Voice Lab.
       </p>
+
+      <div className="llm-toggle-row">
+        <div className="llm-toggle-copy">
+          <strong>Dedicated TTS Default</strong>
+          <span>
+            Turn this on in Voice Lab if you want auto voice routing to prefer ElevenLabs, Cartesia, Piper, or Kokoro before the cloud/LLM path.
+          </span>
+        </div>
+        <label className="llm-toggle">
+          <input
+            type="checkbox"
+            checked={defaultVoiceSource === "tts"}
+            onChange={(event) => {
+              if (event.target.checked) {
+                void updateDefaultVoiceSource("tts");
+              }
+            }}
+            disabled={isSavingDefaultVoiceSource || isLoading}
+          />
+          <span>Use TTS as default voice</span>
+        </label>
+      </div>
 
       <div className="llm-grid">
         <div className="llm-field">

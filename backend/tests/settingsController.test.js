@@ -6,6 +6,9 @@ const mockGetSavedLlmCredential = vi.fn();
 const mockGetSavedLlmCredentials = vi.fn();
 const mockSetLlmRuntimeConfig = vi.fn();
 const mockUpsertSavedLlmCredential = vi.fn();
+const mockGetAllTtsCredentials = vi.fn();
+const mockGetVoiceDefaults = vi.fn();
+const mockSetVoiceDefaults = vi.fn();
 
 const mockDetectProviderByApiKey = vi.fn();
 const mockFetchProviderModels = vi.fn();
@@ -18,6 +21,12 @@ vi.mock("../models/settingsModel.js", () => ({
   getSavedLlmCredentials: mockGetSavedLlmCredentials,
   setLlmRuntimeConfig: mockSetLlmRuntimeConfig,
   upsertSavedLlmCredential: mockUpsertSavedLlmCredential,
+  getAllTtsCredentials: mockGetAllTtsCredentials,
+  getTtsCredential: vi.fn(),
+  setTtsCredential: vi.fn(),
+  clearTtsCredential: vi.fn(),
+  getVoiceDefaults: mockGetVoiceDefaults,
+  setVoiceDefaults: mockSetVoiceDefaults,
 }));
 
 vi.mock("../services/providerDiscoveryService.js", () => ({
@@ -42,10 +51,15 @@ describe("settingsController", () => {
     mockGetSavedLlmCredentials.mockReset();
     mockSetLlmRuntimeConfig.mockReset();
     mockUpsertSavedLlmCredential.mockReset();
+    mockGetAllTtsCredentials.mockReset();
+    mockGetVoiceDefaults.mockReset();
+    mockSetVoiceDefaults.mockReset();
     mockDetectProviderByApiKey.mockReset();
     mockFetchProviderModels.mockReset();
     mockListSupportedProviders.mockReset();
     mockGetSavedLlmCredentials.mockReturnValue([]);
+    mockGetAllTtsCredentials.mockReturnValue([]);
+    mockGetVoiceDefaults.mockReturnValue({ source: "tts", updatedAt: "2026-04-09T00:00:00.000Z" });
   });
 
   it("returns saved provider hints with the public LLM settings", async () => {
@@ -149,6 +163,40 @@ describe("settingsController", () => {
       expect.objectContaining({
         connected: true,
         providerName: "OpenRouter",
+      }),
+    );
+  });
+
+  it("returns shared default voice source with the public TTS settings", async () => {
+    mockGetAllTtsCredentials.mockReturnValue([
+      {
+        provider: "elevenlabs",
+        apiKey: "sk_tts_secret",
+        voiceId: "voice-1",
+        model: "eleven_multilingual_v2",
+        updatedAt: "2026-04-09T00:00:00.000Z",
+      },
+    ]);
+    mockGetVoiceDefaults.mockReturnValue({ source: "llm", updatedAt: "2026-04-09T01:00:00.000Z" });
+
+    const { getTtsSettingsHandler } = await import("../controllers/settingsController.js");
+    const res = createResponse();
+
+    getTtsSettingsHandler({}, res);
+
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        voiceDefaults: {
+          source: "llm",
+          updatedAt: "2026-04-09T01:00:00.000Z",
+        },
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            provider: "elevenlabs",
+            connected: true,
+            voiceId: "voice-1",
+          }),
+        ]),
       }),
     );
   });

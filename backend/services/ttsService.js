@@ -12,7 +12,7 @@ import {
   applyProsodyToElevenLabsText,
   applyProsodyToKokoroText,
 } from "./prosodyCompiler.js";
-import { getTtsCredential } from "../models/settingsModel.js";
+import { getTtsCredential, getVoiceDefaults } from "../models/settingsModel.js";
 
 const require = createRequire(import.meta.url);
 
@@ -461,8 +461,13 @@ function resolveEngine(voiceProfile) {
   return autoOrder[0] || "kokoro";
 }
 
-function getAutoEngineOrder(voiceProfile) {
-  return ["elevenlabs", "cartesia", "cloud", "piper", "kokoro"].filter((engine) => {
+export function getAutoEngineOrder(voiceProfile) {
+  const defaultSource = getVoiceDefaults().source;
+  const preferredOrder = defaultSource === "llm"
+    ? ["cloud", "elevenlabs", "cartesia", "piper", "kokoro"]
+    : ["elevenlabs", "cartesia", "cloud", "piper", "kokoro"];
+
+  return preferredOrder.filter((engine) => {
     if (engine === "elevenlabs") return isElevenLabsConfigured();
     if (engine === "cartesia") return isCartesiaConfigured();
     if (engine === "cloud") return isCloudConfigured();

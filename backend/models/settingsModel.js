@@ -3,6 +3,7 @@ import db from "../db/db.js";
 const LLM_CONFIG_KEY = "llm_config";
 const LLM_SAVED_CREDENTIALS_KEY = "llm_saved_credentials";
 const TTS_CREDENTIALS_KEY = "tts_credentials";
+const VOICE_DEFAULTS_KEY = "voice_defaults";
 
 function parseJsonObject(value) {
   try {
@@ -83,6 +84,12 @@ function writeAppSetting(key, value) {
      VALUES (?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
   ).run(key, JSON.stringify(value));
+}
+
+function sanitizeVoiceSource(source) {
+  return ["tts", "llm"].includes(String(source || "").trim().toLowerCase())
+    ? String(source).trim().toLowerCase()
+    : "tts";
 }
 
 export function getLlmRuntimeConfig() {
@@ -235,4 +242,23 @@ export function clearTtsCredential(provider) {
   const store = readTtsStore();
   delete store[id];
   writeAppSetting(TTS_CREDENTIALS_KEY, store);
+}
+
+export function getVoiceDefaults() {
+  const row = db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(VOICE_DEFAULTS_KEY);
+  const parsed = parseJsonObject(row?.value || "") || {};
+  return {
+    source: sanitizeVoiceSource(parsed.source),
+    updatedAt: String(parsed.updatedAt || "").trim(),
+  };
+}
+
+export function setVoiceDefaults({ source }) {
+  const normalized = {
+    source: sanitizeVoiceSource(source),
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeAppSetting(VOICE_DEFAULTS_KEY, normalized);
+  return getVoiceDefaults();
 }

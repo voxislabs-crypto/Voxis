@@ -282,6 +282,66 @@ const voiceLabStyles = `
     font-family: "JetBrains Mono", "Courier New", monospace;
   }
 
+  .vlab-callout {
+    grid-column: 1 / -1;
+    padding: 14px;
+    border: 1px solid rgba(0, 180, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(0, 180, 255, 0.05);
+    display: grid;
+    gap: 12px;
+  }
+
+  .vlab-callout-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .vlab-callout-title {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #9fe7ff;
+  }
+
+  .vlab-callout-copy {
+    margin: 4px 0 0;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .vlab-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .vlab-key-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: #7fe7b1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: "JetBrains Mono", "Courier New", monospace;
+  }
+
+  .vlab-doc-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 700;
+  }
+
+  .vlab-doc-link:hover {
+    text-decoration: underline;
+  }
+
   /* ── Sliders ──────────────────────────────────────────────── */
   .vlab-slider-row {
     display: flex;
@@ -734,6 +794,12 @@ export default function VoiceLab({
   const [isLoadingProviderOptions, setIsLoadingProviderOptions] = useState(false);
   const [providerOptionsReloadToken, setProviderOptionsReloadToken] = useState(0);
   const [providerLastUpdatedAt, setProviderLastUpdatedAt] = useState({ elevenlabs: 0, cartesia: 0 });
+  const [ttsSettings, setTtsSettings] = useState([]);
+  const [defaultVoiceSource, setDefaultVoiceSource] = useState("tts");
+  const [ttsApiKey, setTtsApiKey] = useState("");
+  const [isSavingTtsKey, setIsSavingTtsKey] = useState(false);
+  const [isDisconnectingTtsKey, setIsDisconnectingTtsKey] = useState(false);
+  const [isSavingDefaultVoiceSource, setIsSavingDefaultVoiceSource] = useState(false);
   const [cloudModels, setCloudModels] = useState(CLOUD_MODEL_PRESETS);
   const [isLoadingCloudModels, setIsLoadingCloudModels] = useState(false);
   const [cloudModelError, setCloudModelError] = useState("");
@@ -804,6 +870,9 @@ export default function VoiceLab({
   const activeProviderUpdatedAt = selectedProviderId ? Number(providerLastUpdatedAt[selectedProviderId] || 0) : 0;
   const showProviderUpdated = !isLoadingProviderOptions && activeProviderUpdatedAt > 0;
   const showCloudUpdated = !isLoadingCloudModels && cloudLastUpdatedAt > 0;
+  const activeTtsSetting = selectedProviderId
+    ? ttsSettings.find((entry) => entry.provider === selectedProviderId) || null
+    : null;
 
   const supportsCloudModelCatalog = voiceProfile.engine === "cloud" || voiceProfile.engine === "auto";
   const selectedCloudModelOption = cloudModels.some((model) => model.id === voiceProfile.providerModel)
@@ -884,6 +953,35 @@ export default function VoiceLab({
     void loadPiperVoices();
     return () => { ignore = true; };
   }, [authFetch, personality?.id, voiceProfile.engine]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadTtsSettings() {
+      try {
+        const response = await authFetch("/settings/tts");
+        const payload = await readApiResponsePayload(response);
+        if (!response.ok) {
+          throw new Error(getApiErrorMessage(response, payload, "Failed to load TTS settings."));
+        }
+        if (ignore) {
+          return;
+        }
+        setTtsSettings(Array.isArray(payload?.providers) ? payload.providers : []);
+        setDefaultVoiceSource(payload?.voiceDefaults?.source === "llm" ? "llm" : "tts");
+      } catch (error) {
+        if (!ignore) {
+          setTtsSettings([]);
+          setDefaultVoiceSource("tts");
+        }
+      }
+    }
+
+    void loadTtsSettings();
+    return () => {
+      ignore = true;
+    };
+  }, [authFetch, personality?.id]);
 
   useEffect(() => {
     if (!personality || voiceProfile.engine !== "kokoro") return;
@@ -1319,6 +1417,118 @@ export default function VoiceLab({
     }
   }
 
+  async function saveInlineTtsCredential() {
+    if (!selectedProviderId) {
+      return;
+    }
+
+    if (!ttsApiKey.trim()) {
+      onStatus?.({ type: "error", message: "API key is required before saving provider credentials." });
+      return;
+    }
+
+    setIsSavingTtsKey(true);
+    try {
+      const response = await authFetch(`/settings/tts/${selectedProviderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: ttsApiKey.trim(),
+          voiceId: activeVoiceValue,
+          model: activeModelValue,
+        }),
+      });
+      const payload = await readApiResponsePayload(response);
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(response, payload, "Failed to save TTS credentials."));
+      }
+
+      setTtsApiKey("");
+
+      const settingsResponse = await authFetch("/settings/tts");
+      const settingsPayload = await readApiResponsePayload(settingsResponse);
+      if (!settingsResponse.ok) {
+        throw new Error(getApiErrorMessage(settingsResponse, settingsPayload, "Saved key, but failed to refresh TTS settings."));
+      }
+
+      setTtsSettings(Array.isArray(settingsPayload?.providers) ? settingsPayload.providers : []);
+      setProviderOptionsReloadToken((n) => n + 1);
+      onStatus?.({
+        type: "success",
+        message: `Saved ${payload?.name || selectedProviderId} API key in Voice Lab.`,
+      });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to save TTS credentials." });
+    } finally {
+      setIsSavingTtsKey(false);
+    }
+  }
+
+  async function disconnectInlineTtsCredential() {
+    if (!selectedProviderId) {
+      return;
+    }
+
+    setIsDisconnectingTtsKey(true);
+    try {
+      const response = await authFetch(`/settings/tts/${selectedProviderId}`, {
+        method: "DELETE",
+      });
+      const payload = await readApiResponsePayload(response);
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(response, payload, "Failed to disconnect TTS provider."));
+      }
+
+      const settingsResponse = await authFetch("/settings/tts");
+      const settingsPayload = await readApiResponsePayload(settingsResponse);
+      if (!settingsResponse.ok) {
+        throw new Error(getApiErrorMessage(settingsResponse, settingsPayload, "Disconnected key, but failed to refresh TTS settings."));
+      }
+
+      setTtsSettings(Array.isArray(settingsPayload?.providers) ? settingsPayload.providers : []);
+      setTtsApiKey("");
+      setProviderOptionsReloadToken((n) => n + 1);
+      onStatus?.({ type: "success", message: `Disconnected ${selectedProviderId} in Voice Lab.` });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to disconnect TTS provider." });
+    } finally {
+      setIsDisconnectingTtsKey(false);
+    }
+  }
+
+  async function updateDefaultVoiceSource(nextSource) {
+    if (!["tts", "llm"].includes(nextSource) || nextSource === defaultVoiceSource) {
+      return;
+    }
+
+    setIsSavingDefaultVoiceSource(true);
+    try {
+      const response = await authFetch("/settings/voice-defaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: nextSource }),
+      });
+      const payload = await readApiResponsePayload(response);
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(response, payload, "Failed to update default voice source."));
+      }
+
+      const normalizedSource = payload?.source === "llm" ? "llm" : "tts";
+      setDefaultVoiceSource(normalizedSource);
+      onStatus?.({
+        type: "success",
+        message:
+          normalizedSource === "tts"
+            ? "Dedicated TTS is now the default voice source. Cloud/LLM default was turned off."
+            : "Cloud/LLM is now the default voice source. Dedicated TTS default was turned off.",
+      });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to update default voice source." });
+    } finally {
+      setIsSavingDefaultVoiceSource(false);
+    }
+  }
+
   async function extractProsodyTemplate() {
     if (!personality?.id || !prosodyUrl.trim()) {
       return;
@@ -1414,7 +1624,7 @@ export default function VoiceLab({
                   value={voiceProfile.engine}
                   onChange={(e) => updateVoiceField("engine", e.target.value)}
                 >
-                  <option value="auto">auto (cloud -&gt; piper -&gt; kokoro)</option>
+                  <option value="auto">auto (elevenlabs -&gt; cartesia -&gt; cloud -&gt; piper -&gt; kokoro)</option>
                   <option value="cloud">cloud</option>
                   <option value="piper">piper</option>
                   <option value="kokoro">kokoro (free local)</option>
@@ -1422,6 +1632,107 @@ export default function VoiceLab({
                   <option value="cartesia">cartesia (BYOK)</option>
                 </select>
               </div>
+
+              <div className="vlab-callout">
+                <div className="vlab-callout-head">
+                  <div>
+                    <p className="vlab-callout-title">Default Voice Source</p>
+                    <p className="vlab-callout-copy">
+                      This controls what the <strong>auto</strong> engine prefers first: dedicated TTS providers or the cloud/LLM voice path.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="vlab-toggle-row" style={{ marginTop: 4 }}>
+                  <label className="vlab-toggle">
+                    <input
+                      type="checkbox"
+                      checked={defaultVoiceSource === "tts"}
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          void updateDefaultVoiceSource("tts");
+                        }
+                      }}
+                      disabled={isSavingDefaultVoiceSource}
+                    />
+                    <span className="vlab-toggle-track" />
+                    <span className="vlab-toggle-label">Use TTS as default voice source</span>
+                  </label>
+                  <span className="vlab-reload-meta" style={{ color: "var(--muted)", textTransform: "none", letterSpacing: "normal" }}>
+                    {defaultVoiceSource === "tts" ? "Auto prefers dedicated TTS providers first." : "Auto currently prefers cloud/LLM voice first."}
+                  </span>
+                </div>
+              </div>
+
+              {selectedProviderId ? (
+                <div className="vlab-callout">
+                  <div className="vlab-callout-head">
+                    <div>
+                      <p className="vlab-callout-title">Runtime BYOK</p>
+                      <p className="vlab-callout-copy">
+                        Save or replace your {activeTtsSetting?.name || selectedProviderId} API key directly in Voice Lab.
+                        {" "}
+                        {activeTtsSetting?.docsUrl ? (
+                          <a
+                            className="vlab-doc-link"
+                            href={activeTtsSetting.docsUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Provider docs
+                          </a>
+                        ) : null}
+                      </p>
+                    </div>
+                    {activeTtsSetting?.connected ? (
+                      <span className="vlab-key-hint">Saved key: {activeTtsSetting.keyHint}</span>
+                    ) : null}
+                  </div>
+
+                  <div className="vlab-grid">
+                    <div className="vlab-field">
+                      <label htmlFor="vlab-provider-api-key">API Key</label>
+                      <input
+                        id="vlab-provider-api-key"
+                        className="vlab-input"
+                        type="password"
+                        autoComplete="off"
+                        value={ttsApiKey}
+                        onChange={(e) => setTtsApiKey(e.target.value)}
+                        placeholder={activeTtsSetting?.connected ? "Paste a new key to replace the saved one" : "Paste provider API key"}
+                      />
+                      <small className="vlab-small">
+                        {activeTtsSetting?.pricingNote || "Saved in runtime settings, matching the LLM Settings BYOK flow."}
+                      </small>
+                    </div>
+
+                    <div className="vlab-field">
+                      <label>Credential Actions</label>
+                      <div className="vlab-inline-actions">
+                        <button
+                          type="button"
+                          className="vlab-btn"
+                          onClick={saveInlineTtsCredential}
+                          disabled={isSavingTtsKey || isDisconnectingTtsKey}
+                        >
+                          {isSavingTtsKey ? "Saving..." : activeTtsSetting?.connected ? "Update Key" : "Save Key"}
+                        </button>
+                        <button
+                          type="button"
+                          className="vlab-btn sec"
+                          onClick={disconnectInlineTtsCredential}
+                          disabled={!activeTtsSetting?.connected || isSavingTtsKey || isDisconnectingTtsKey}
+                        >
+                          {isDisconnectingTtsKey ? "Disconnecting..." : "Disconnect"}
+                        </button>
+                      </div>
+                      <small className="vlab-small">
+                        Saving here updates the same runtime TTS credentials used by the provider voice/model reload buttons.
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="vlab-field">
                 <div className="vlab-label-row">
