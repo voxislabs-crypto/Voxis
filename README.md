@@ -25,6 +25,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [Reconditioning](#reconditioning)
    - [Creative Context (Villain / Dark Characters)](#creative-context-villain--dark-characters)
    - [VAD Mood Engine](#vad-mood-engine)
+  - [Emotional State Architecture](#emotional-state-architecture)
    - [Research Pipeline](#research-pipeline)
    - [Chat Controller Flow](#chat-controller-flow)
    - [EPF — Emergent Performance Format](#epf--emergent-performance-format)
@@ -89,13 +90,22 @@ Potential application surfaces:
 User Input
   |
   v
-Mood Engine + Memory Retrieval + Intent Engine
+Mood Engine (VAD Update)
   |
   v
-Persona Prompt Builder
+EmotionFrame (Shared Emotional State)
+  |
+  v
+Memory Retrieval + Intent Engine
+  |
+  v
+Persona Prompt Builder (Consumes EmotionFrame)
   |
   v
 LLM Response
+  |
+  v
+TTS + Avatar (Consume EmotionFrame)
   |
   v
 Async Memory Extraction + Memory Upsert
@@ -676,6 +686,47 @@ Each context also has a unique **drift note** used in reconditioning anchors. Fo
 **Prompt injection** — `moodToPromptFragment()` converts the current VAD state into a behavioral tendency string (e.g. "mildly on edge, guarded") and injects it as a late system message after the reconditioning anchor, exploiting the model's recency bias. When mood is near-baseline, the fragment is omitted entirely to avoid polluting the context window.
 
 **UI exposure** — each chat response returns `moodState: {valence, arousal, dominance}` and `moodLabel: string`. The frontend uses `valence` to drive a colored dot in the chat header (green > 0.2, amber −0.2–0.2, red < −0.2) and shows `moodLabel` in the meta-row and personality card.
+
+### Emotional State Architecture
+
+Voxis uses a unified emotional state model to ensure consistency across cognition, expression, and visualization.
+
+**Core principle**
+
+- All emotional state originates from the VAD Mood Engine.
+- No subsystem (LLM, TTS, UI, Avatar) is allowed to independently derive or override emotional state.
+
+**Emotional state flow**
+
+- VAD (Valence-Arousal-Dominance) is the authoritative emotional truth state.
+- This state is transformed into a shared per-turn object: EmotionFrame.
+- EmotionFrame is the only emotional object that downstream systems consume.
+
+**EmotionFrame responsibilities**
+
+- Raw VAD values (truth layer)
+- Derived emotional interpretation (label, zone, intensity)
+- Expression guidance (speech pacing, tone bias)
+- Avatar behavior guidance
+- Metadata (drift direction, momentum, timestamps)
+
+**Emotion interpretation rule**
+
+- Voxis can use emotion taxonomies (including wheel-inspired mappings) as interpretation layers.
+- The wheel is not a state machine.
+- The wheel does not control emotional transitions.
+- The wheel is used only to map continuous VAD values into human-readable emotional semantics.
+
+**System invariants**
+
+- VAD is the only source of emotional truth.
+- EmotionFrame is the only shared emotional object.
+- All subsystems read emotional interpretation from EmotionFrame.
+- No subsystem computes a separate emotional interpretation in isolation.
+
+**Continuity model**
+
+Emotional state evolves continuously across turns and decays toward baseline over time, creating a persistent affective trajectory rather than isolated mood snapshots.
 
 ---
 
