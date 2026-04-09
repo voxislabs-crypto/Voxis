@@ -8,6 +8,7 @@ import {
 import { moodFromLabel } from "../services/moodEngine.js";
 import { mapToVoxisPersonality } from "../services/hybridPersonalityService.js";
 import { getAllVoicePresets, recommendVoicePreset } from "../services/voicePresetsService.js";
+import { sanitizeVoiceProfile } from "../services/voiceProfileSanitizer.js";
 
 function sanitizeItems(items) {
   if (!Array.isArray(items)) {
@@ -35,40 +36,6 @@ function sanitizeSourceUrls(items) {
   return items
     .map((item) => String(item || "").trim())
     .filter((item) => /^https?:\/\//i.test(item));
-}
-
-function sanitizeVoiceProfile(input) {
-  const voiceProfile = input && typeof input === "object" ? input : {};
-  const engine = String(voiceProfile.engine || "auto").trim().toLowerCase();
-  const piperSpeaker = Number(voiceProfile.piperSpeaker);
-  return {
-    enabled: voiceProfile.enabled !== false,
-    autoplay: Boolean(voiceProfile.autoplay),
-    engine: ["auto", "cloud", "openai", "piper", "kokoro", "elevenlabs", "cartesia"].includes(engine)
-      ? engine === "openai"
-        ? "cloud"
-        : engine
-      : "auto",
-    pitch: Math.min(1.6, Math.max(0.5, Number(voiceProfile.pitch) || 1)),
-    rate: Math.min(1.6, Math.max(0.6, Number(voiceProfile.rate) || 1)),
-    preferredVoice: String(
-      voiceProfile.preferredVoice || voiceProfile.providerVoice || "alloy",
-    ).trim(),
-    providerVoice: String(
-      voiceProfile.providerVoice || voiceProfile.preferredVoice || "alloy",
-    ).trim(),
-    providerModel: String(voiceProfile.providerModel || "gpt-4o-mini-tts").trim(),
-    piperModelPath: String(voiceProfile.piperModelPath || "").trim(),
-    piperSpeaker: Number.isFinite(piperSpeaker) && piperSpeaker >= 0 ? Math.floor(piperSpeaker) : null,
-    kokoroVoice: String(voiceProfile.kokoroVoice || "af_heart").trim(),
-    elevenLabsVoiceId: String(voiceProfile.elevenLabsVoiceId || "").trim(),
-    elevenLabsModel: String(voiceProfile.elevenLabsModel || "eleven_multilingual_v2").trim(),
-    stability: Math.min(1, Math.max(0, Number(voiceProfile.stability ?? 0.5))),
-    similarityBoost: Math.min(1, Math.max(0, Number(voiceProfile.similarityBoost ?? 0.75))),
-    style: Math.min(1, Math.max(0, Number(voiceProfile.style ?? 0.5))),
-    cartesiaVoiceId: String(voiceProfile.cartesiaVoiceId || "").trim(),
-    cartesiaModel: String(voiceProfile.cartesiaModel || "sonic-2").trim(),
-  };
 }
 
 function sanitizeResearchSources(items) {

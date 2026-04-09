@@ -138,6 +138,7 @@ What this demonstrates in minutes:
 - ElevenLabs voice dropdowns now render built-in voices first, then a `My Voices` section with your custom voices.
 - Voice and model dropdowns now include a manual `Reload` action so newly created provider voices/models can be pulled in immediately.
 - After a successful reload, Voice Lab briefly shows `Updated just now` next to the reload control for quick confirmation.
+- The ongoing speaking-stack implementation plan and checklist are tracked in `docs/TTS_EVOLUTION_CHECKLIST.md`.
 - Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.

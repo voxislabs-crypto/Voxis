@@ -20,6 +20,43 @@ const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "mp3";
+const DEFAULT_FETCH_TIMEOUT_MS = 9000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWithTimeoutRetry(url, options = {}, { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, retries = 0 } = {}) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetchWithTimeout(url, options, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) {
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error("Request failed.");
+}
 
 function getCloudConfig() {
   return {
@@ -203,7 +240,14 @@ export async function listPiperVoiceOptions({ searchDirs = [] } = {}) {
 
 function isCloudConfigured() {
   const { apiKey, baseUrl } = getCloudConfig();
-  return Boolean(apiKey) || baseUrl !== DEFAULT_TTS_BASE_URL;
+  const allowNoKey = String(process.env.TTS_ALLOW_NO_KEY || "").trim().toLowerCase() === "true";
+
+  if (allowNoKey) {
+    return Boolean(baseUrl);
+  }
+
+  // Default: require a key so we avoid false positives that trigger 401/403 loops.
+  return Boolean(apiKey);
 }
 
 function isPiperConfigured(voiceProfile = null) {
@@ -221,10 +265,18 @@ function resolveEngine(voiceProfile) {
   if (requested === "piper") return "piper";
   if (requested === "cloud" || requested === "openai") return "cloud";
 
-  // Auto: preserve backward-compat order (cloud → piper), then Kokoro as built-in fallback.
-  if (isCloudConfigured()) return "cloud";
-  if (isPiperConfigured(voiceProfile)) return "piper";
-  return "kokoro";
+  const autoOrder = getAutoEngineOrder(voiceProfile);
+  return autoOrder[0] || "kokoro";
+}
+
+function getAutoEngineOrder(voiceProfile) {
+  return ["elevenlabs", "cartesia", "cloud", "piper", "kokoro"].filter((engine) => {
+    if (engine === "elevenlabs") return isElevenLabsConfigured();
+    if (engine === "cartesia") return isCartesiaConfigured();
+    if (engine === "cloud") return isCloudConfigured();
+    if (engine === "piper") return isPiperConfigured(voiceProfile);
+    return isKokoroAvailable();
+  });
 }
 
 export function isTtsConfigured(voiceProfile = null) {
@@ -301,7 +353,7 @@ async function generateCloudSpeechAudio({ personality, text, voiceProfile, speec
     throw error;
   }
 
-  const response = await fetch(`${config.baseUrl}/audio/speech`, {
+  const response = await fetchWithTimeoutRetry(`${config.baseUrl}/audio/speech`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -322,7 +374,7 @@ async function generateCloudSpeechAudio({ personality, text, voiceProfile, speec
         .filter(Boolean)
         .join(" "),
     }),
-  });
+  }, { retries: 1 });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -555,7 +607,7 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
   const similarityBoost = Math.min(1, Math.max(0, Number(voiceProfile?.similarityBoost ?? 0.75)));
   const style = Math.min(1, Math.max(0, Number(voiceProfile?.style ?? 0.5)));
 
-  const response = await fetch(
+  const response = await fetchWithTimeoutRetry(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
     {
       method: "POST",
@@ -575,6 +627,7 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
         },
       }),
     },
+    { retries: 1 },
   );
 
   if (!response.ok) {
@@ -617,7 +670,7 @@ async function generateCartesiaSpeechAudio({ text, voiceProfile }) {
     throw error;
   }
 
-  const response = await fetch("https://api.cartesia.ai/tts/bytes", {
+  const response = await fetchWithTimeoutRetry("https://api.cartesia.ai/tts/bytes", {
     method: "POST",
     headers: {
       "X-API-Key": config.apiKey,
@@ -630,7 +683,7 @@ async function generateCartesiaSpeechAudio({ text, voiceProfile }) {
       voice: { mode: "id", id: voiceId },
       output_format: { container: "mp3", bit_rate: 128000, sample_rate: 44100 },
     }),
-  });
+  }, { retries: 1 });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);
@@ -688,12 +741,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     if (requested !== "auto") throw primaryError;
 
     // Auto fallback chain: try remaining engines in priority order.
-    const fallbackOrder = ["cloud", "piper", "kokoro"].filter((e) => {
-      if (e === engine) return false;
-      if (e === "cloud") return isCloudConfigured();
-      if (e === "piper") return isPiperConfigured(voiceProfile);
-      return isKokoroAvailable();
-    });
+    const fallbackOrder = getAutoEngineOrder(voiceProfile).filter((candidate) => candidate !== engine);
 
     for (const fallbackEngine of fallbackOrder) {
       try {
@@ -805,7 +853,7 @@ async function fetchElevenLabsOptions() {
   let error = "";
 
   try {
-    const voicesResponse = await fetch("https://api.elevenlabs.io/v1/voices", { headers });
+    const voicesResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/voices", { headers }, { retries: 1 });
     if (!voicesResponse.ok) {
       throw new Error(`voices request failed (${voicesResponse.status})`);
     }
@@ -836,7 +884,7 @@ async function fetchElevenLabsOptions() {
   }
 
   try {
-    const modelsResponse = await fetch("https://api.elevenlabs.io/v1/models", { headers });
+    const modelsResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/models", { headers }, { retries: 1 });
     if (!modelsResponse.ok) {
       throw new Error(`models request failed (${modelsResponse.status})`);
     }
@@ -893,7 +941,7 @@ async function fetchCartesiaOptions() {
   let error = "";
 
   try {
-    const voicesResponse = await fetch("https://api.cartesia.ai/voices", { headers });
+    const voicesResponse = await fetchWithTimeoutRetry("https://api.cartesia.ai/voices", { headers }, { retries: 1 });
     if (!voicesResponse.ok) {
       throw new Error(`voices request failed (${voicesResponse.status})`);
     }
@@ -916,7 +964,7 @@ async function fetchCartesiaOptions() {
   }
 
   try {
-    const modelsResponse = await fetch("https://api.cartesia.ai/models", { headers });
+    const modelsResponse = await fetchWithTimeoutRetry("https://api.cartesia.ai/models", { headers }, { retries: 1 });
     if (!modelsResponse.ok) {
       throw new Error(`models request failed (${modelsResponse.status})`);
     }
