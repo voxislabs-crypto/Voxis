@@ -144,6 +144,7 @@ export default function ApiDiagnosticsPanel({ onStatus }) {
     try {
       const checks = [
         { id: "/health", label: "Backend health", withAuth: false },
+        { id: "/health/tts", label: "TTS health", withAuth: false },
         { id: "/me", label: "Auth /me", withAuth: true },
         { id: "/personalities", label: "Auth /personalities", withAuth: true },
       ];
@@ -158,14 +159,17 @@ export default function ApiDiagnosticsPanel({ onStatus }) {
       setResults(next);
 
       const health = next.find((item) => item.id === "/health");
+      const ttsHealth = next.find((item) => item.id === "/health/tts");
       const me = next.find((item) => item.id === "/me");
 
       if (!health?.ok) {
         onStatus?.({ type: "error", message: "Backend health check failed. This is likely PM2/Nginx upstream, not Clerk." });
+      } else if (ttsHealth && !ttsHealth.ok) {
+        onStatus?.({ type: "error", message: "TTS health failed. Check optional engine install state and backend logs." });
       } else if (health.ok && me && me.status === 401) {
         onStatus?.({ type: "error", message: "Auth failed: check Clerk live/test key pairing in backend and frontend env." });
       } else if (next.every((item) => item.ok)) {
-        onStatus?.({ type: "success", message: "Diagnostics passed: health + auth routes are reachable." });
+        onStatus?.({ type: "success", message: "Diagnostics passed: backend, TTS, and auth routes are reachable." });
       }
     } finally {
       setRunning(false);

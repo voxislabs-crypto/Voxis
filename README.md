@@ -836,6 +836,13 @@ Kokoro warm cache behavior:
 - Backend startup triggers a background Kokoro preload.
 - On first server boot, this can download the model (about 171 MB) and cache it for later requests.
 - `npm run build` does not perform this download; backend start/restart does.
+- If `kokoro-js` is not installed, Voxis now skips Kokoro preload cleanly instead of crashing the backend.
+
+Health and diagnostics:
+
+- `GET /health` confirms the backend process is alive.
+- `GET /health/tts` reports TTS engine status so you can see which engines are installed, configured, and loaded.
+- The frontend `Connectivity Diagnostics` panel calls these health endpoints plus `/me` and `/personalities` to separate auth failures from upstream/process failures.
 
 In Voice Lab, `Sample Transmission Text` now displays the directed preview line returned by the backend after Speech Director + mood voice modulation are applied, making it easier to validate how the saved character will actually perform before using live chat playback.
 

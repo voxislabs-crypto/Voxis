@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
-import { KokoroTTS } from "kokoro-js";
 import { getTtsCredential } from "../models/settingsModel.js";
+
+const require = createRequire(import.meta.url);
 
 // Kokoro — lazy-loaded singleton. Model (~171 MB for q8) downloads from HuggingFace on first use.
 let _kokoroTts = null;
 let _kokoroInitPromise = null;
+let _kokoroModule = null;
+let _kokoroImportError = null;
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
@@ -428,31 +432,79 @@ function getKokoroConfig() {
   };
 }
 
+function isKokoroPackageInstalled() {
+  try {
+    require.resolve("kokoro-js");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isKokoroAvailable() {
-  return true;
+  return isKokoroPackageInstalled();
+}
+
+async function loadKokoroModule() {
+  if (_kokoroModule) {
+    return _kokoroModule;
+  }
+
+  if (!isKokoroPackageInstalled()) {
+    const error = new Error("kokoro-js is not installed.");
+    error.statusCode = 500;
+    _kokoroImportError = error;
+    throw error;
+  }
+
+  try {
+    const mod = await import("kokoro-js");
+    _kokoroModule = mod;
+    _kokoroImportError = null;
+    return mod;
+  } catch (error) {
+    _kokoroImportError = error;
+    throw error;
+  }
 }
 
 async function loadKokoroTts() {
   if (_kokoroTts) return _kokoroTts;
   if (_kokoroInitPromise) return _kokoroInitPromise;
-  _kokoroInitPromise = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0", {
-    dtype: getKokoroConfig().dtype,
-  }).then((tts) => {
-    _kokoroTts = tts;
-    _kokoroInitPromise = null;
-    return tts;
-  });
+  _kokoroInitPromise = loadKokoroModule()
+    .then(({ KokoroTTS }) => KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0", {
+      dtype: getKokoroConfig().dtype,
+    }))
+    .then((tts) => {
+      _kokoroTts = tts;
+      _kokoroInitPromise = null;
+      return tts;
+    })
+    .catch((error) => {
+      _kokoroInitPromise = null;
+      throw error;
+    });
   return _kokoroInitPromise;
 }
 
 // Called on server startup so the model is warm before the first user request.
 export async function preloadKokoro() {
+  if (!isKokoroPackageInstalled()) {
+    console.warn("[Kokoro] kokoro-js not installed; skipping preload.");
+    return;
+  }
   console.log("[Kokoro] Loading model (first run may download ~171 MB)...");
   await loadKokoroTts();
   console.log("[Kokoro] Model ready.");
 }
 
 async function generateKokoroSpeechAudio({ text, voiceProfile }) {
+  if (!isKokoroPackageInstalled()) {
+    const error = new Error("Kokoro engine is not installed. Install kokoro-js or choose another TTS engine.");
+    error.statusCode = 500;
+    throw error;
+  }
+
   const config = getKokoroConfig();
   const voice = String(voiceProfile?.kokoroVoice || voiceProfile?.providerVoice || config.voice).trim();
   const tmpFile = path.join(os.tmpdir(), `voxis-kokoro-${randomUUID()}.wav`);
@@ -707,10 +759,30 @@ export function listKokoroVoices() {
 
 export function listProviderStatus() {
   return {
-    kokoro: { available: isKokoroAvailable(), requiresSetup: false },
+    kokoro: {
+      available: isKokoroAvailable(),
+      installed: isKokoroPackageInstalled(),
+      loaded: Boolean(_kokoroTts),
+      requiresSetup: false,
+    },
     elevenlabs: { available: isElevenLabsConfigured(), requiresEnv: "ELEVENLABS_API_KEY or Settings -> TTS" },
     cartesia: { available: isCartesiaConfigured(), requiresEnv: "CARTESIA_API_KEY or Settings -> TTS" },
     piper: { available: isPiperConfigured(), requiresEnv: "PIPER_MODEL_PATH" },
     cloud: { available: isCloudConfigured(), requiresEnv: "TTS_API_KEY or LLM_API_KEY" },
+  };
+}
+
+export async function getTtsHealthStatus() {
+  const providerStatus = listProviderStatus();
+
+  return {
+    status: "ok",
+    engines: {
+      ...providerStatus,
+      kokoro: {
+        ...providerStatus.kokoro,
+        importError: _kokoroImportError ? String(_kokoroImportError.message || _kokoroImportError) : "",
+      },
+    },
   };
 }

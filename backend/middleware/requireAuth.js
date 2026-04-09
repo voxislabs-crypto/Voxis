@@ -1,4 +1,3 @@
-import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { clerkMiddleware, getAuth } from "@clerk/express";
@@ -6,7 +5,13 @@ import { createUser, getUserByClerkId } from "../models/userModel.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, "..", ".env") });
+
+try {
+  const dotenv = await import("dotenv");
+  dotenv.default.config({ path: path.join(__dirname, "..", ".env") });
+} catch {
+  // PM2/system env is enough in production; missing dotenv should not crash auth.
+}
 
 // Verifies the Clerk JWT on every request that uses this middleware.
 // On success, attaches req.clerkUserId (string) and req.voxisUser (the local DB record).

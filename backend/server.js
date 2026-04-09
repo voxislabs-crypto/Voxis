@@ -1,4 +1,3 @@
-import "dotenv/config";
 import express from "express";
 import cors from "cors";
 
@@ -9,8 +8,14 @@ import userRoutes from "./routes/userRoutes.js";
 import loopRoutes from "./routes/loopRoutes.js";
 import sfxRoutes from "./routes/sfxRoutes.js";
 import { initSfxCache } from "./services/sfxCacheService.js";
-import { preloadKokoro } from "./services/ttsService.js";
+import { getTtsHealthStatus, preloadKokoro } from "./services/ttsService.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
+
+try {
+  await import("dotenv/config");
+} catch {
+  console.warn("[Env] dotenv not installed; relying on PM2/system environment only.");
+}
 
 const app = express();
 const port = Number(process.env.PORT || 3101);
@@ -29,6 +34,15 @@ app.use(clerkVerify);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/health/tts", async (_req, res, next) => {
+  try {
+    const status = await getTtsHealthStatus();
+    res.json(status);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use(personalityRoutes);
