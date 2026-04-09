@@ -97,4 +97,25 @@ describe("prosodyExtractionService", () => {
 
     await expect(fs.access(workspaceDir)).rejects.toBeTruthy();
   });
+
+  it("surfaces a clear error when a required prosody tool is missing", async () => {
+    await expect(
+      extractProsodyTemplateFromUrl({
+        personalityId: 45,
+        url: "https://example.com/fail",
+        deps: {
+          createWorkspace: () => fs.mkdtemp(path.join(tempRoot, "workspace-")),
+          downloadAudio: async () => {
+            const error = new Error("spawn yt-dlp ENOENT");
+            error.code = "ENOENT";
+            error.statusCode = 500;
+            throw error;
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      message: expect.stringContaining("Prosody extraction failed"),
+    });
+  });
 });

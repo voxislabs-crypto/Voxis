@@ -21,6 +21,15 @@ function validateUrl(input) {
   return value;
 }
 
+function createMissingToolError(command, error) {
+  const wrapped = new Error(
+    `Required prosody extraction tool '${command}' is not installed or not on PATH. Install it and retry.`,
+  );
+  wrapped.statusCode = 500;
+  wrapped.code = error?.code || "ENOENT";
+  return wrapped;
+}
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -39,7 +48,14 @@ function runCommand(command, args, options = {}) {
       stderr += String(chunk || "");
     });
 
-    child.on("error", (error) => reject(error));
+    child.on("error", (error) => {
+      if (error?.code === "ENOENT") {
+        reject(createMissingToolError(command, error));
+        return;
+      }
+
+      reject(error);
+    });
 
     child.on("close", (code) => {
       if (code === 0) {
@@ -109,7 +125,14 @@ async function defaultAnalyzeAudio({ audioPath }) {
     audioPath,
   ]);
 
-  const metadata = JSON.parse(probe.stdout || "{}");
+  let metadata = {};
+  try {
+    metadata = JSON.parse(probe.stdout || "{}");
+  } catch {
+    const error = new Error("ffprobe returned invalid JSON while analyzing the prosody source audio.");
+    error.statusCode = 502;
+    throw error;
+  }
   const stream = Array.isArray(metadata.streams) ? metadata.streams[0] || {} : {};
   const format = metadata.format || {};
 
@@ -258,7 +281,7 @@ export async function extractProsodyTemplateFromUrl({
     }
 
     const wrapped = new Error(`Prosody extraction failed: ${error.message || error}`);
-    wrapped.statusCode = error.statusCode || 502;
+    wrapped.statusCode = error.statusCode || (error?.code === "ENOENT" ? 500 : 502);
     throw wrapped;
   } finally {
     await removePath(workspaceDir).catch(() => {});

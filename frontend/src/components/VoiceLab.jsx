@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import VoiceSampleSelector from "./VoiceSampleSelector.jsx";
 
 const voiceLabStyles = `
@@ -1332,10 +1333,10 @@ export default function VoiceLab({
         body: JSON.stringify({ url: prosodyUrl.trim() }),
       });
 
-      const payload = await response.json();
+      const payload = await readApiResponsePayload(response);
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to extract prosody template.");
+        throw new Error(getApiErrorMessage(response, payload, "Failed to extract prosody template."));
       }
 
       onPersonalityUpdated?.(payload.personality);

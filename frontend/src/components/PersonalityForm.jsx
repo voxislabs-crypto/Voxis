@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import AvatarCore from "./AvatarCore.jsx";
 import BigFiveRadar from "./BigFiveRadar.jsx";
 import AlignmentGrid from "./AlignmentGrid.jsx";
@@ -996,9 +997,9 @@ export default function PersonalityForm({
             body: JSON.stringify({ url: prosodyUrl }),
           });
 
-          const prosodyPayload = await prosodyResponse.json();
+          const prosodyPayload = await readApiResponsePayload(prosodyResponse);
           if (!prosodyResponse.ok) {
-            throw new Error(prosodyPayload.error || "Failed to extract prosody template.");
+            throw new Error(getApiErrorMessage(prosodyResponse, prosodyPayload, "Failed to extract prosody template."));
           }
 
           finalPersonality = prosodyPayload.personality || data;

@@ -888,6 +888,8 @@ Required host tools for URL extraction:
 - `yt-dlp` for audio retrieval
 - `ffprobe` and `ffmpeg` for media metadata + silence cadence analysis
 
+If `yt-dlp`, `ffmpeg`, or `ffprobe` is missing, prosody extraction now fails with an explicit tool-not-installed error instead of a generic JSON parse failure in the UI.
+
 Optional command overrides:
 
 - `PROSODY_YTDLP_COMMAND`

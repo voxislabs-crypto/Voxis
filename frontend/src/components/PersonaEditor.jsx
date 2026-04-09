@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import MemoryJournal from "./MemoryJournal.jsx";
 import { usePersonaState } from "../state/PersonaStateContext.jsx";
 
@@ -594,9 +595,15 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
           body: JSON.stringify({ url: prosodyUrl }),
         });
 
-        const prosodyPayload = await prosodyResponse.json();
+        const prosodyPayload = await readApiResponsePayload(prosodyResponse);
         if (!prosodyResponse.ok) {
-          throw new Error(prosodyPayload.error || "Persona saved, but prosody extraction failed.");
+          throw new Error(
+            getApiErrorMessage(
+              prosodyResponse,
+              prosodyPayload,
+              "Persona saved, but prosody extraction failed.",
+            ),
+          );
         }
 
         finalData = prosodyPayload.personality || data;
