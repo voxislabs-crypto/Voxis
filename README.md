@@ -131,9 +131,11 @@ What this demonstrates in minutes:
 - Prosody source links can now be submitted from Voice Lab, Character Request links, and Persona Editor; Voxis downloads source audio, derives rhythm/cadence/prosody template metrics, attaches the template to the persona, and removes temp audio workspace files after processing.
 - Quick voice controls (enable, autoplay, play-latest, stop, save) stay embedded in the Chat tab as compact cyberpunk toggle switches so you never have to leave the conversation.
 - Voice Lab now supports `auto`, `cloud`, `piper`, `kokoro`, `elevenlabs`, and `cartesia` engines.
+- When `cloud` (or `auto`) is selected, the `TTS Model` dropdown auto-populates from the active Runtime LLM provider models, with custom model fallback.
 - When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
 - When `Kokoro` is selected, Voice Lab loads bundled free voice presets and the backend can warm-download/cache the model on server startup.
-- For `ElevenLabs` and `Cartesia`, Voice Lab now auto-loads voice and model dropdown options from the provider APIs using your saved BYOK credentials, with custom ID input fallback when needed.
+- For `ElevenLabs` and `Cartesia`, Voice Lab auto-loads voice and model dropdown options from provider APIs using your saved BYOK credentials, with custom ID input fallback when needed.
+- ElevenLabs voice dropdowns now render built-in voices first, then a `My Voices` section with your custom voices.
 - Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.

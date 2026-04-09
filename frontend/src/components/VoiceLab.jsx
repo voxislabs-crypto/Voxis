@@ -623,6 +623,10 @@ const CARTESIA_MODEL_PRESETS = [
   { id: "sonic-2", label: "sonic-2" },
 ];
 
+const CLOUD_MODEL_PRESETS = [
+  { id: "gpt-4o-mini-tts", label: "gpt-4o-mini-tts" },
+];
+
 const CUSTOM_OPTION = "__custom__";
 
 export default function VoiceLab({
@@ -674,16 +678,23 @@ export default function VoiceLab({
   const [providerOptions, setProviderOptions] = useState({
     elevenlabs: {
       voices: ELEVENLABS_VOICE_PRESETS.filter((voice) => voice.id),
+      builtinVoices: ELEVENLABS_VOICE_PRESETS.filter((voice) => voice.id),
+      customVoices: [],
       models: ELEVENLABS_MODEL_PRESETS,
       error: "",
     },
     cartesia: {
       voices: CARTESIA_VOICE_PRESETS.filter((voice) => voice.id),
+      builtinVoices: CARTESIA_VOICE_PRESETS.filter((voice) => voice.id),
+      customVoices: [],
       models: CARTESIA_MODEL_PRESETS,
       error: "",
     },
   });
   const [isLoadingProviderOptions, setIsLoadingProviderOptions] = useState(false);
+  const [cloudModels, setCloudModels] = useState(CLOUD_MODEL_PRESETS);
+  const [isLoadingCloudModels, setIsLoadingCloudModels] = useState(false);
+  const [cloudModelError, setCloudModelError] = useState("");
 
   // Refs
   const audioRef = useRef(null);
@@ -716,8 +727,15 @@ export default function VoiceLab({
     : "";
 
   const activeProviderOptions = selectedProviderId
-    ? providerOptions[selectedProviderId] || { voices: [], models: [], error: "" }
-    : { voices: [], models: [], error: "" };
+    ? providerOptions[selectedProviderId] || { voices: [], builtinVoices: [], customVoices: [], models: [], error: "" }
+    : { voices: [], builtinVoices: [], customVoices: [], models: [], error: "" };
+
+  const activeBuiltinVoices = Array.isArray(activeProviderOptions.builtinVoices)
+    ? activeProviderOptions.builtinVoices
+    : [];
+  const activeCustomVoices = Array.isArray(activeProviderOptions.customVoices)
+    ? activeProviderOptions.customVoices
+    : [];
 
   const activeVoiceValue = selectedProviderId === "elevenlabs"
     ? voiceProfile.elevenLabsVoiceId || voiceProfile.providerVoice || ""
@@ -737,6 +755,11 @@ export default function VoiceLab({
 
   const selectedModelOption = activeProviderOptions.models.some((model) => model.id === activeModelValue)
     ? activeModelValue
+    : CUSTOM_OPTION;
+
+  const supportsCloudModelCatalog = voiceProfile.engine === "cloud" || voiceProfile.engine === "auto";
+  const selectedCloudModelOption = cloudModels.some((model) => model.id === voiceProfile.providerModel)
+    ? voiceProfile.providerModel
     : CUSTOM_OPTION;
 
   // ── Effects ──────────────────────────────────────────────────────
@@ -889,6 +912,12 @@ export default function VoiceLab({
           ...cur,
           [selectedProviderId]: {
             voices,
+            builtinVoices: Array.isArray(data.builtinVoices) && data.builtinVoices.length
+              ? data.builtinVoices
+              : selectedProviderId === "elevenlabs"
+                ? voices
+                : fallbackVoices,
+            customVoices: Array.isArray(data.customVoices) ? data.customVoices : [],
             models,
             error: String(data.error || "").trim(),
           },
@@ -923,7 +952,7 @@ export default function VoiceLab({
         setProviderOptions((cur) => ({
           ...cur,
           [selectedProviderId]: {
-            ...(cur[selectedProviderId] || { voices: [], models: [] }),
+            ...(cur[selectedProviderId] || { voices: [], builtinVoices: [], customVoices: [], models: [] }),
             error: error.message || "Failed to load provider options.",
           },
         }));
@@ -935,6 +964,48 @@ export default function VoiceLab({
     void loadProviderOptions();
     return () => { ignore = true; };
   }, [authFetch, personality?.id, selectedProviderId]);
+
+  useEffect(() => {
+    if (!personality || !supportsCloudModelCatalog) return;
+
+    let ignore = false;
+
+    async function loadCloudModels() {
+      setIsLoadingCloudModels(true);
+      setCloudModelError("");
+      try {
+        const response = await authFetch("/settings/llm");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to load cloud models.");
+        if (ignore) return;
+
+        const models = (Array.isArray(data.models) ? data.models : [])
+          .map((model) => ({
+            id: String(model?.id || "").trim(),
+            label: String(model?.name || model?.id || "").trim(),
+          }))
+          .filter((model) => model.id);
+
+        const nextModels = models.length ? models : CLOUD_MODEL_PRESETS;
+        setCloudModels(nextModels);
+        setVoiceProfile((cur) => {
+          if (nextModels.some((model) => model.id === cur.providerModel) || cur.providerModel) {
+            return cur;
+          }
+          return { ...cur, providerModel: nextModels[0]?.id || cur.providerModel || "gpt-4o-mini-tts" };
+        });
+      } catch (error) {
+        if (ignore) return;
+        setCloudModels(CLOUD_MODEL_PRESETS);
+        setCloudModelError(error.message || "Failed to load cloud models.");
+      } finally {
+        if (!ignore) setIsLoadingCloudModels(false);
+      }
+    }
+
+    void loadCloudModels();
+    return () => { ignore = true; };
+  }, [authFetch, personality?.id, supportsCloudModelCatalog]);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
@@ -1359,7 +1430,13 @@ export default function VoiceLab({
                       <option value="" disabled>
                         {isLoadingProviderOptions ? "LOADING PROVIDER VOICES..." : "Select an ElevenLabs voice"}
                       </option>
-                      {activeProviderOptions.voices.map((voice) => (
+                      {activeBuiltinVoices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.label}</option>
+                      ))}
+                      {activeCustomVoices.length ? (
+                        <option value="__my_voices__" disabled>My Voices</option>
+                      ) : null}
+                      {activeCustomVoices.map((voice) => (
                         <option key={voice.id} value={voice.id}>{voice.label}</option>
                       ))}
                       <option value={CUSTOM_OPTION}>Custom voice id</option>
@@ -1481,6 +1558,45 @@ export default function VoiceLab({
                         placeholder={selectedProviderId === "elevenlabs" ? "eleven_multilingual_v2" : "sonic-2"}
                       />
                     ) : null}
+                    <small className="vlab-small">
+                      {activeProviderOptions.error || "Auto-loaded from your configured provider API key."}
+                    </small>
+                  </>
+                ) : supportsCloudModelCatalog ? (
+                  <>
+                    <select
+                      id="vlab-model"
+                      className="vlab-select"
+                      value={selectedCloudModelOption}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (next === CUSTOM_OPTION) {
+                          updateVoiceField("providerModel", "");
+                          return;
+                        }
+
+                        updateVoiceField("providerModel", next);
+                      }}
+                    >
+                      <option value="" disabled>
+                        {isLoadingCloudModels ? "LOADING CLOUD MODELS..." : "Select a cloud model"}
+                      </option>
+                      {cloudModels.map((model) => (
+                        <option key={model.id} value={model.id}>{model.label}</option>
+                      ))}
+                      <option value={CUSTOM_OPTION}>Custom model id</option>
+                    </select>
+                    {selectedCloudModelOption === CUSTOM_OPTION ? (
+                      <input
+                        className="vlab-input"
+                        value={voiceProfile.providerModel || ""}
+                        onChange={(e) => updateVoiceField("providerModel", e.target.value)}
+                        placeholder="gpt-4o-mini-tts"
+                      />
+                    ) : null}
+                    <small className="vlab-small">
+                      {cloudModelError || "Auto-loaded from Runtime LLM provider model list."}
+                    </small>
                   </>
                 ) : (
                   <input

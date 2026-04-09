@@ -799,6 +799,8 @@ async function fetchElevenLabsOptions() {
   };
 
   let voices = [];
+  let builtinVoices = [];
+  let customVoices = [];
   let models = [];
   let error = "";
 
@@ -808,13 +810,27 @@ async function fetchElevenLabsOptions() {
       throw new Error(`voices request failed (${voicesResponse.status})`);
     }
     const payload = await voicesResponse.json();
-    voices = (Array.isArray(payload?.voices) ? payload.voices : [])
-      .map((voice) => ({
-        id: String(voice?.voice_id || "").trim(),
-        label: normalizeOptionName(voice?.name, voice?.voice_id),
-      }))
-      .filter((voice) => voice.id)
-      .sort(sortByLabel);
+    const mapped = (Array.isArray(payload?.voices) ? payload.voices : [])
+      .map((voice) => {
+        const id = String(voice?.voice_id || "").trim();
+        const label = normalizeOptionName(voice?.name, voice?.voice_id);
+        const category = String(voice?.category || "").trim().toLowerCase();
+        if (!id) {
+          return null;
+        }
+
+        return {
+          id,
+          label,
+          category,
+          isCustom: category !== "premade",
+        };
+      })
+      .filter(Boolean);
+
+    builtinVoices = mapped.filter((voice) => !voice.isCustom).sort(sortByLabel);
+    customVoices = mapped.filter((voice) => voice.isCustom).sort(sortByLabel);
+    voices = [...builtinVoices, ...customVoices].map(({ id, label }) => ({ id, label }));
   } catch (fetchError) {
     error = `Unable to fetch ElevenLabs voices: ${fetchError.message || fetchError}`;
   }
@@ -843,6 +859,8 @@ async function fetchElevenLabsOptions() {
     provider: "elevenlabs",
     connected: true,
     voices,
+    builtinVoices: builtinVoices.map(({ id, label }) => ({ id, label })),
+    customVoices: customVoices.map(({ id, label }) => ({ id, label })),
     models,
     defaults: {
       voiceId: config.voiceId,
