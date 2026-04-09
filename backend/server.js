@@ -9,6 +9,7 @@ import userRoutes from "./routes/userRoutes.js";
 import loopRoutes from "./routes/loopRoutes.js";
 import sfxRoutes from "./routes/sfxRoutes.js";
 import { initSfxCache } from "./services/sfxCacheService.js";
+import { preloadKokoro } from "./services/ttsService.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
 
 const app = express();
@@ -53,4 +54,6 @@ app.listen(port, () => {
   console.log(`Voxis backend listening on port ${port}`);
   // Non-blocking SFX pre-fetch on startup
   initSfxCache().catch((err) => console.warn("[SFX Cache] init error:", err.message));
+  // Pre-load Kokoro model in the background so the first TTS request is instant
+  preloadKokoro().catch((err) => console.warn("[Kokoro] preload error:", err.message));
 });

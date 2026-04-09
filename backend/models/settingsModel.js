@@ -2,6 +2,7 @@ import db from "../db/db.js";
 
 const LLM_CONFIG_KEY = "llm_config";
 const LLM_SAVED_CREDENTIALS_KEY = "llm_saved_credentials";
+const TTS_CREDENTIALS_KEY = "tts_credentials";
 
 function parseJsonObject(value) {
   try {
@@ -169,4 +170,69 @@ export function upsertSavedLlmCredential({ provider, baseUrl, apiKey }) {
   });
 
   return getSavedLlmCredentials();
+}
+
+// ── TTS Credentials (BYOK) ──────────────────────────────────────────────────
+// Stores per-provider API keys for ElevenLabs and Cartesia in SQLite so users
+// can configure them from the browser without touching .env files.
+
+const TTS_PROVIDERS = ["elevenlabs", "cartesia"];
+
+function sanitizeTtsProvider(id) {
+  return TTS_PROVIDERS.includes(String(id || "").trim().toLowerCase())
+    ? String(id).trim().toLowerCase()
+    : null;
+}
+
+function sanitizeTtsCredential(provider, data) {
+  if (!data || typeof data !== "object") return null;
+  return {
+    provider,
+    apiKey: String(data.apiKey || "").trim(),
+    voiceId: String(data.voiceId || "").trim(),
+    model: String(data.model || "").trim(),
+    updatedAt: String(data.updatedAt || "").trim(),
+  };
+}
+
+function readTtsStore() {
+  const row = db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(TTS_CREDENTIALS_KEY);
+  return parseJsonObject(row?.value || "") || {};
+}
+
+export function getTtsCredential(provider) {
+  const id = sanitizeTtsProvider(provider);
+  if (!id) return null;
+  const store = readTtsStore();
+  return sanitizeTtsCredential(id, store[id]) || null;
+}
+
+export function getAllTtsCredentials() {
+  const store = readTtsStore();
+  return TTS_PROVIDERS.map((id) => sanitizeTtsCredential(id, store[id])).filter(Boolean);
+}
+
+export function setTtsCredential({ provider, apiKey, voiceId = "", model = "" }) {
+  const id = sanitizeTtsProvider(provider);
+  if (!id) throw Object.assign(new Error(`Unknown TTS provider: ${provider}`), { statusCode: 400 });
+  const key = String(apiKey || "").trim();
+  if (!key) throw Object.assign(new Error("apiKey is required."), { statusCode: 400 });
+
+  const store = readTtsStore();
+  store[id] = {
+    apiKey: key,
+    voiceId: String(voiceId || "").trim(),
+    model: String(model || "").trim(),
+    updatedAt: new Date().toISOString(),
+  };
+  writeAppSetting(TTS_CREDENTIALS_KEY, store);
+  return getTtsCredential(id);
+}
+
+export function clearTtsCredential(provider) {
+  const id = sanitizeTtsProvider(provider);
+  if (!id) throw Object.assign(new Error(`Unknown TTS provider: ${provider}`), { statusCode: 400 });
+  const store = readTtsStore();
+  delete store[id];
+  writeAppSetting(TTS_CREDENTIALS_KEY, store);
 }

@@ -5,6 +5,10 @@ import {
   getSavedLlmCredentials,
   setLlmRuntimeConfig,
   upsertSavedLlmCredential,
+  getAllTtsCredentials,
+  getTtsCredential,
+  setTtsCredential,
+  clearTtsCredential,
 } from "../models/settingsModel.js";
 import {
   detectProviderByApiKey,
@@ -165,4 +169,81 @@ export function selectLlmModelHandler(req, res) {
 export function disconnectLlmSettingsHandler(_req, res) {
   clearLlmRuntimeConfig();
   return res.json(toPublicConfig(null));
+}
+
+// ── TTS Settings (BYOK) ────────────────────────────────────────────────────
+
+const TTS_PROVIDER_META = {
+  elevenlabs: {
+    name: "ElevenLabs",
+    defaultVoiceId: "21m00Tcm4TlvDq8ikWAM",
+    defaultModel: "eleven_multilingual_v2",
+    pricingNote: "Free tier: 10k chars/month. Paid from ~$11/million.",
+    docsUrl: "https://elevenlabs.io/voice-library",
+  },
+  cartesia: {
+    name: "Cartesia",
+    defaultVoiceId: "a0e99841-438c-4a64-b679-ae501e7d6091",
+    defaultModel: "sonic-2",
+    pricingNote: "Free tier available. Paid ~$0.65/million chars.",
+    docsUrl: "https://play.cartesia.ai/voices",
+  },
+};
+
+function toPublicTtsCredential(cred) {
+  if (!cred) return null;
+  return {
+    provider: cred.provider,
+    connected: Boolean(cred.apiKey),
+    keyHint: maskApiKey(cred.apiKey),
+    voiceId: cred.voiceId || "",
+    model: cred.model || "",
+    updatedAt: cred.updatedAt || "",
+    ...TTS_PROVIDER_META[cred.provider],
+  };
+}
+
+export function getTtsSettingsHandler(_req, res) {
+  const saved = getAllTtsCredentials();
+  const result = Object.entries(TTS_PROVIDER_META).map(([id, meta]) => {
+    const cred = saved.find((c) => c.provider === id);
+    return {
+      provider: id,
+      connected: Boolean(cred?.apiKey),
+      keyHint: cred ? maskApiKey(cred.apiKey) : "",
+      voiceId: cred?.voiceId || "",
+      model: cred?.model || "",
+      updatedAt: cred?.updatedAt || "",
+      ...meta,
+    };
+  });
+  return res.json({ providers: result });
+}
+
+export function saveTtsCredentialHandler(req, res, next) {
+  try {
+    const provider = String(req.params.provider || "").trim().toLowerCase();
+    const apiKey = String(req.body?.apiKey || "").trim();
+    const voiceId = String(req.body?.voiceId || "").trim();
+    const model = String(req.body?.model || "").trim();
+
+    if (!apiKey) {
+      return res.status(400).json({ error: "apiKey is required." });
+    }
+
+    const saved = setTtsCredential({ provider, apiKey, voiceId, model });
+    return res.json(toPublicTtsCredential(saved));
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export function clearTtsCredentialHandler(req, res, next) {
+  try {
+    const provider = String(req.params.provider || "").trim().toLowerCase();
+    clearTtsCredential(provider);
+    return res.json({ provider, connected: false });
+  } catch (error) {
+    return next(error);
+  }
 }

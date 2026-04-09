@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
 import { KokoroTTS } from "kokoro-js";
+import { getTtsCredential } from "../models/settingsModel.js";
 
 // Kokoro — lazy-loaded singleton. Model (~171 MB for q8) downloads from HuggingFace on first use.
 let _kokoroTts = null;
@@ -444,6 +445,13 @@ async function loadKokoroTts() {
   return _kokoroInitPromise;
 }
 
+// Called on server startup so the model is warm before the first user request.
+export async function preloadKokoro() {
+  console.log("[Kokoro] Loading model (first run may download ~171 MB)...");
+  await loadKokoroTts();
+  console.log("[Kokoro] Model ready.");
+}
+
 async function generateKokoroSpeechAudio({ text, voiceProfile }) {
   const config = getKokoroConfig();
   const voice = String(voiceProfile?.kokoroVoice || voiceProfile?.providerVoice || config.voice).trim();
@@ -466,11 +474,13 @@ async function generateKokoroSpeechAudio({ text, voiceProfile }) {
 // === ELEVENLABS TTS ===
 
 function getElevenLabsConfig() {
+  // DB credential (BYOK from browser) takes priority over .env
+  let dbCred = null;
+  try { dbCred = getTtsCredential("elevenlabs"); } catch { /* db may not be ready */ }
   return {
-    apiKey: process.env.ELEVENLABS_API_KEY || "",
-    // Default: "Rachel" — browse voices at https://elevenlabs.io/voice-library
-    voiceId: process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
-    model: process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
+    apiKey: dbCred?.apiKey || process.env.ELEVENLABS_API_KEY || "",
+    voiceId: dbCred?.voiceId || process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
+    model: dbCred?.model || process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
   };
 }
 
@@ -530,11 +540,13 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
 // Pricing: ~$0.65/million chars (Sonic-2). Free tier + API key at https://cartesia.ai
 
 function getCartesiaConfig() {
+  // DB credential (BYOK from browser) takes priority over .env
+  let dbCred = null;
+  try { dbCred = getTtsCredential("cartesia"); } catch { /* db may not be ready */ }
   return {
-    apiKey: process.env.CARTESIA_API_KEY || "",
-    // Pick a voice ID from https://play.cartesia.ai/voices
-    voiceId: process.env.CARTESIA_VOICE_ID || "a0e99841-438c-4a64-b679-ae501e7d6091",
-    model: process.env.CARTESIA_MODEL || "sonic-2",
+    apiKey: dbCred?.apiKey || process.env.CARTESIA_API_KEY || "",
+    voiceId: dbCred?.voiceId || process.env.CARTESIA_VOICE_ID || "a0e99841-438c-4a64-b679-ae501e7d6091",
+    model: dbCred?.model || process.env.CARTESIA_MODEL || "sonic-2",
   };
 }
 
