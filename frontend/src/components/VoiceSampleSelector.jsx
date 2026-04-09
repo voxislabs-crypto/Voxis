@@ -209,7 +209,7 @@ export default function VoiceSampleSelector({
   const [isConfirming, setIsConfirming] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
 
-  if (!voiceSamples || voiceSamples.representatives.length === 0) {
+  if (!voiceSamples || !voiceSamples.representatives || voiceSamples.representatives.length === 0) {
     return null;
   }
 
