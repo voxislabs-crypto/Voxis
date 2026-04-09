@@ -827,9 +827,11 @@ Prosody compiler flow (new):
 Initial engine-first adapter rollout now prioritizes your primary targets:
 
 - `elevenlabs`: envelope maps into runtime `style`, `stability`, and target speaking rate
+- `elevenlabs`: word-level emphasis cues are now compiled and applied as provider-aware text shaping before synthesis
 - `kokoro`: envelope maps into text timing/phrasing shaping before synthesis
+- `kokoro`: word-level emphasis cues are also applied in the pre-synthesis text shaping pass
 
-Voice Lab sample previews now include this compiled prosody telemetry (`phrasing`, `intensity`, `confidence`) so you can inspect how the persona speech intent is being compiled per request.
+Voice Lab sample previews now include this compiled prosody telemetry (`phrasing`, `intensity`, `confidence`, `emphasis`) so you can inspect how the persona speech intent is being compiled per request.
 
 Engine resolution:
 

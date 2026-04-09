@@ -37,7 +37,7 @@ Move from "styled text + TTS" to "personality speech rendering" where cadence, r
   - [x] target rate
   - [x] pause profile
   - [x] phrasing style
-  - [ ] emphasis profile
+  - [x] emphasis profile
   - [x] intensity
   - [x] confidence score
 - [x] Add safe fallback envelope when prosody data is missing.
@@ -45,10 +45,12 @@ Move from "styled text + TTS" to "personality speech rendering" where cadence, r
 ## Sprint C - Engine Adapters
 
 - [x] ElevenLabs adapter: map envelope to speed/stability/style.
+- [x] ElevenLabs adapter: apply emphasis-aware text shaping.
 - [ ] Cartesia adapter: map envelope to pacing/timbre controls.
 - [ ] Cloud adapter: map envelope to speed + instruction shaping.
 - [ ] Piper adapter: map envelope to length_scale/noise/noise_w.
 - [x] Kokoro adapter: map envelope to voice/timing strategy.
+- [x] Kokoro adapter: apply emphasis-aware text shaping.
 - [ ] Add capability map so unsupported controls degrade gracefully.
 
 ## Sprint D - Semantic Safety for Stylization

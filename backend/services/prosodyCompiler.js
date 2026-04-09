@@ -1,3 +1,5 @@
+import { getSpeechProfile } from "./speechProfiles.js";
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -32,6 +34,67 @@ function estimateConfidence({ hasTemplate, hasSamples, hasMood }) {
   return clamp(confidence, 0, 1);
 }
 
+function tokenizeLower(text) {
+  return String(text || "")
+    .toLowerCase()
+    .match(/[a-z][a-z'-]{2,}/g) || [];
+}
+
+function uniqueTerms(terms) {
+  return Array.from(new Set((Array.isArray(terms) ? terms : []).map((term) => String(term || "").trim().toLowerCase()).filter(Boolean)));
+}
+
+function collectEmphasisCandidates(personality = {}, directedText = "") {
+  const profile = getSpeechProfile(personality);
+  const textTokens = tokenizeLower(directedText);
+  const textTokenSet = new Set(textTokens);
+
+  const phraseTerms = uniqueTerms(
+    (Array.isArray(personality?.notablePhrases) ? personality.notablePhrases : [])
+      .flatMap((phrase) => tokenizeLower(phrase))
+      .filter((term) => term.length >= 4),
+  );
+  const profileTerms = uniqueTerms(profile?.emphasisWords || []);
+  const behaviorTerms = uniqueTerms(
+    (Array.isArray(personality?.behaviorRules) ? personality.behaviorRules : [])
+      .flatMap((rule) => tokenizeLower(rule))
+      .filter((term) => term.length >= 5),
+  );
+
+  const candidates = uniqueTerms([...phraseTerms, ...profileTerms, ...behaviorTerms])
+    .filter((term) => textTokenSet.has(term))
+    .slice(0, 4);
+
+  return candidates.map((term, index) => ({
+    term,
+    strength: Number(clamp(0.82 - index * 0.12, 0.4, 0.9).toFixed(3)),
+  }));
+}
+
+function applyWordLevelEmphasis(text, emphasisWords = [], { punctuation = "commas" } = {}) {
+  let output = String(text || "").trim();
+  if (!output || !Array.isArray(emphasisWords) || emphasisWords.length === 0) {
+    return output;
+  }
+
+  for (const item of emphasisWords) {
+    const term = String(item?.term || "").trim();
+    if (!term) {
+      continue;
+    }
+
+    const pattern = new RegExp(`\\b(${term.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")})\\b`, "i");
+    output = output.replace(pattern, (match) => {
+      if (punctuation === "ellipses") {
+        return `... ${match.toUpperCase()} ...`;
+      }
+      return `${match.toUpperCase()},`;
+    });
+  }
+
+  return output.replace(/\s{2,}/g, " ").replace(/,\s*,/g, ",").trim();
+}
+
 export function compileProsodyEnvelope({ personality = {}, mood = {}, voiceProfile = {}, directedText = "", speechHint = "" }) {
   const template = personality?.prosodyTemplate && typeof personality.prosodyTemplate === "object"
     ? personality.prosodyTemplate
@@ -61,6 +124,7 @@ export function compileProsodyEnvelope({ personality = {}, mood = {}, voiceProfi
 
   const phrasing = detectPhrasing({ cadenceLabel, arousal, speechHint });
   const intensity = clamp(0.45 + (Math.abs(arousal) * 0.35) + (Math.max(0, dominance) * 0.2), 0, 1);
+  const emphasisWords = collectEmphasisCandidates(personality, directedText);
 
   const elevenLabs = {
     stability: clamp(
@@ -74,11 +138,13 @@ export function compileProsodyEnvelope({ personality = {}, mood = {}, voiceProfi
       1,
     ),
     similarityBoost: clamp(asNumber(voiceProfile?.similarityBoost, 0.75), 0, 1),
+    emphasisMode: phrasing === "measured" ? "commas" : "ellipses",
   };
 
   const kokoro = {
     pauseSeconds: clamp(avgPauseSeconds, 0.1, 0.8),
     phrasing,
+    emphasisMode: phrasing === "bursty" ? "ellipses" : "commas",
   };
 
   const confidence = estimateConfidence({
@@ -98,6 +164,10 @@ export function compileProsodyEnvelope({ personality = {}, mood = {}, voiceProfi
     phrasing,
     intensity: Number(intensity.toFixed(3)),
     confidence: Number(confidence.toFixed(3)),
+    emphasis: {
+      words: emphasisWords,
+      count: emphasisWords.length,
+    },
     provider: {
       elevenlabs: elevenLabs,
       kokoro,
@@ -109,6 +179,11 @@ export function compileProsodyEnvelope({ personality = {}, mood = {}, voiceProfi
       speechHint: String(speechHint || "").trim(),
     },
   };
+}
+
+export function applyProsodyToElevenLabsText(text, envelope = {}) {
+  const punctuation = String(envelope?.provider?.elevenlabs?.emphasisMode || "commas");
+  return applyWordLevelEmphasis(text, envelope?.emphasis?.words || [], { punctuation });
 }
 
 export function applyProsodyToKokoroText(text, envelope = {}) {
@@ -129,6 +204,10 @@ export function applyProsodyToKokoroText(text, envelope = {}) {
   if (pauseSeconds >= 0.45) {
     output = output.replace(/([!?])\s+/g, "$1... ");
   }
+
+  output = applyWordLevelEmphasis(output, envelope?.emphasis?.words || [], {
+    punctuation: String(envelope?.provider?.kokoro?.emphasisMode || "commas"),
+  });
 
   return output.replace(/\s{2,}/g, " ").trim();
 }

@@ -1938,7 +1938,8 @@ export default function VoiceLab({
                       {" "}
                       | Phrasing: {String(previewTelemetry.prosodyEnvelope.phrasing || "balanced")} | Intensity:
                       {` ${Number(previewTelemetry.prosodyEnvelope.intensity ?? 0.5).toFixed(2)}`} | Confidence:
-                      {` ${Number(previewTelemetry.prosodyEnvelope.confidence ?? 0).toFixed(2)}`}
+                      {` ${Number(previewTelemetry.prosodyEnvelope.confidence ?? 0).toFixed(2)}`} | Emphasis:
+                      {` ${(previewTelemetry.prosodyEnvelope.emphasis?.words || []).map((item) => item.term).join(", ") || "none"}`}
                     </>
                   ) : null}
                 </div>

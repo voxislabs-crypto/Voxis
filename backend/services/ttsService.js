@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
-import { compileProsodyEnvelope, applyProsodyToKokoroText } from "./prosodyCompiler.js";
+import { compileProsodyEnvelope, applyProsodyToElevenLabsText, applyProsodyToKokoroText } from "./prosodyCompiler.js";
 import { getTtsCredential } from "../models/settingsModel.js";
 
 const require = createRequire(import.meta.url);
@@ -342,6 +342,7 @@ function prepareEngineInput({ engine, text, voiceProfile, prosodyEnvelope }) {
 
   if (engine === "elevenlabs") {
     const provider = prosodyEnvelope?.provider?.elevenlabs || {};
+    synthesisText = applyProsodyToElevenLabsText(text, prosodyEnvelope);
     profile.stability = Number(provider.stability ?? profile.stability ?? 0.5);
     profile.style = Number(provider.style ?? profile.style ?? 0.5);
     profile.similarityBoost = Number(provider.similarityBoost ?? profile.similarityBoost ?? 0.75);
