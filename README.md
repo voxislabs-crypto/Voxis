@@ -26,6 +26,7 @@ Voxis is a full-stack prototype for building, researching, and chatting with dee
    - [Creative Context (Villain / Dark Characters)](#creative-context-villain--dark-characters)
    - [VAD Mood Engine](#vad-mood-engine)
   - [Emotional State Architecture](#emotional-state-architecture)
+  - [Emotion Change Acceptance Checklist](#emotion-change-acceptance-checklist)
    - [Research Pipeline](#research-pipeline)
    - [Chat Controller Flow](#chat-controller-flow)
    - [EPF — Emergent Performance Format](#epf--emergent-performance-format)
@@ -727,6 +728,18 @@ Voxis uses a unified emotional state model to ensure consistency across cognitio
 **Continuity model**
 
 Emotional state evolves continuously across turns and decays toward baseline over time, creating a persistent affective trajectory rather than isolated mood snapshots.
+
+### Emotion Change Acceptance Checklist
+
+All PRs that modify mood, emotion labels, emotion telemetry, avatar emotional rendering, or TTS emotional behavior must satisfy every item below before merge.
+
+1. Emotional truth authority is unchanged: raw emotional state still originates from VAD and not from UI/TTS/LLM side calculations.
+2. EmotionFrame contract is preserved: downstream layers consume shared emotional interpretation and do not compute isolated alternate interpretations.
+3. Wheel/taxonomy role remains interpretive only: no taxonomy-driven transition logic or state machine replacements are introduced.
+4. Cross-surface consistency is preserved: at least one validation path confirms label/zone/intensity alignment between chat avatar and voice telemetry.
+5. Continuity behavior remains intact: momentum/decay trajectory semantics are unchanged unless the PR explicitly proposes and documents a physics-level change.
+6. Observability remains intact: debug or telemetry outputs still expose enough information to inspect emotional before/after behavior.
+7. Documentation is updated in this README whenever the emotional contract, EmotionFrame structure, or consumer behavior changes.
 
 ---
 
