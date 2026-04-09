@@ -199,6 +199,37 @@ const voiceLabStyles = `
     color: var(--muted);
   }
 
+  .vlab-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .vlab-reload-btn {
+    border: 1px solid rgba(0, 180, 255, 0.25);
+    background: rgba(0, 180, 255, 0.08);
+    color: var(--accent);
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .vlab-reload-btn:hover {
+    border-color: rgba(0, 200, 255, 0.5);
+    background: rgba(0, 180, 255, 0.15);
+  }
+
+  .vlab-reload-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
   .vlab-input,
   .vlab-select,
   .vlab-textarea {
@@ -692,9 +723,11 @@ export default function VoiceLab({
     },
   });
   const [isLoadingProviderOptions, setIsLoadingProviderOptions] = useState(false);
+  const [providerOptionsReloadToken, setProviderOptionsReloadToken] = useState(0);
   const [cloudModels, setCloudModels] = useState(CLOUD_MODEL_PRESETS);
   const [isLoadingCloudModels, setIsLoadingCloudModels] = useState(false);
   const [cloudModelError, setCloudModelError] = useState("");
+  const [cloudModelsReloadToken, setCloudModelsReloadToken] = useState(0);
 
   // Refs
   const audioRef = useRef(null);
@@ -963,7 +996,7 @@ export default function VoiceLab({
 
     void loadProviderOptions();
     return () => { ignore = true; };
-  }, [authFetch, personality?.id, selectedProviderId]);
+  }, [authFetch, personality?.id, selectedProviderId, providerOptionsReloadToken]);
 
   useEffect(() => {
     if (!personality || !supportsCloudModelCatalog) return;
@@ -1005,7 +1038,7 @@ export default function VoiceLab({
 
     void loadCloudModels();
     return () => { ignore = true; };
-  }, [authFetch, personality?.id, supportsCloudModelCatalog]);
+  }, [authFetch, personality?.id, supportsCloudModelCatalog, cloudModelsReloadToken]);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
@@ -1344,17 +1377,29 @@ export default function VoiceLab({
               </div>
 
               <div className="vlab-field">
-                <label>
-                  {voiceProfile.engine === "piper"
-                    ? "Piper Voice"
-                    : voiceProfile.engine === "kokoro"
-                      ? "Kokoro Voice"
-                      : voiceProfile.engine === "elevenlabs"
-                        ? "ElevenLabs Voice"
-                        : voiceProfile.engine === "cartesia"
-                          ? "Cartesia Voice"
-                          : "TTS Voice"}
-                </label>
+                <div className="vlab-label-row">
+                  <label>
+                    {voiceProfile.engine === "piper"
+                      ? "Piper Voice"
+                      : voiceProfile.engine === "kokoro"
+                        ? "Kokoro Voice"
+                        : voiceProfile.engine === "elevenlabs"
+                          ? "ElevenLabs Voice"
+                          : voiceProfile.engine === "cartesia"
+                            ? "Cartesia Voice"
+                            : "TTS Voice"}
+                  </label>
+                  {(voiceProfile.engine === "elevenlabs" || voiceProfile.engine === "cartesia") ? (
+                    <button
+                      type="button"
+                      className="vlab-reload-btn"
+                      onClick={() => setProviderOptionsReloadToken((n) => n + 1)}
+                      disabled={isLoadingProviderOptions}
+                    >
+                      {isLoadingProviderOptions ? "Loading..." : "Reload"}
+                    </button>
+                  ) : null}
+                </div>
                 {voiceProfile.engine === "piper" ? (
                   <>
                     <select
@@ -1511,7 +1556,25 @@ export default function VoiceLab({
               </div>
 
               <div className="vlab-field">
-                <label htmlFor="vlab-model">TTS Model</label>
+                <div className="vlab-label-row">
+                  <label htmlFor="vlab-model">TTS Model</label>
+                  {(selectedProviderId || supportsCloudModelCatalog) ? (
+                    <button
+                      type="button"
+                      className="vlab-reload-btn"
+                      onClick={() => {
+                        if (selectedProviderId) {
+                          setProviderOptionsReloadToken((n) => n + 1);
+                        } else {
+                          setCloudModelsReloadToken((n) => n + 1);
+                        }
+                      }}
+                      disabled={selectedProviderId ? isLoadingProviderOptions : isLoadingCloudModels}
+                    >
+                      {(selectedProviderId ? isLoadingProviderOptions : isLoadingCloudModels) ? "Loading..." : "Reload"}
+                    </button>
+                  ) : null}
+                </div>
                 {selectedProviderId ? (
                   <>
                     <select

@@ -136,6 +136,7 @@ What this demonstrates in minutes:
 - When `Kokoro` is selected, Voice Lab loads bundled free voice presets and the backend can warm-download/cache the model on server startup.
 - For `ElevenLabs` and `Cartesia`, Voice Lab auto-loads voice and model dropdown options from provider APIs using your saved BYOK credentials, with custom ID input fallback when needed.
 - ElevenLabs voice dropdowns now render built-in voices first, then a `My Voices` section with your custom voices.
+- Voice and model dropdowns now include a manual `Reload` action so newly created provider voices/models can be pulled in immediately.
 - Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
