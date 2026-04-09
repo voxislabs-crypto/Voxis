@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
+import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
 import VoiceSampleSelector from "./VoiceSampleSelector.jsx";
 
 const voiceLabStyles = `
@@ -1347,8 +1348,10 @@ export default function VoiceLab({
       const engineHeader = response.headers.get("X-Voxis-Tts-Engine");
       const adjustedVoiceHeader = response.headers.get("X-Voxis-Adjusted-Voice");
       const prosodyHeader = response.headers.get("X-Voxis-Prosody");
+      const telemetryHeader = response.headers.get("X-Voxis-Tts-Telemetry");
       let adjustedVoice = null;
       let prosodyEnvelope = null;
+      let ttsTelemetry = null;
 
       if (adjustedVoiceHeader) {
         try {
@@ -1366,11 +1369,24 @@ export default function VoiceLab({
         }
       }
 
+      if (telemetryHeader) {
+        try {
+          ttsTelemetry = JSON.parse(decodeURIComponent(telemetryHeader));
+        } catch {
+          ttsTelemetry = null;
+        }
+      }
+
+      const fallbackMood = personality?.moodState || personality?.moodBaseline || {};
+      const emotionFrame = ttsTelemetry?.emotionFrame || interpretEmotionSpectrum(fallbackMood);
+
       setDirectedPreview(directedHeader ? decodeURIComponent(directedHeader) : text);
       setPreviewTelemetry({
         engine: engineHeader || voiceProfile.engine || "auto",
         adjustedVoice,
         prosodyEnvelope,
+        emotionFrame,
+        ttsTelemetry,
       });
 
       const blob = await response.blob();
@@ -2252,6 +2268,14 @@ export default function VoiceLab({
                       {` ${Number(previewTelemetry.prosodyEnvelope.intensity ?? 0.5).toFixed(2)}`} | Confidence:
                       {` ${Number(previewTelemetry.prosodyEnvelope.confidence ?? 0).toFixed(2)}`} | Emphasis:
                       {` ${(previewTelemetry.prosodyEnvelope.emphasis?.words || []).map((item) => item.term).join(", ") || "none"}`}
+                    </>
+                  ) : null}
+                  {previewTelemetry?.emotionFrame ? (
+                    <>
+                      {" "}
+                      | Emotion: {String(previewTelemetry.emotionFrame.displayLabel || "Neutral")} | Zone:
+                      {` ${String(previewTelemetry.emotionFrame.zone?.label || "Green Zone")}`} | Emotional Intensity:
+                      {` ${Math.round(Number(previewTelemetry.emotionFrame.intensity || 0) * 100)}%`}
                     </>
                   ) : null}
                 </div>

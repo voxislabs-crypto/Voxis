@@ -175,6 +175,8 @@ What this demonstrates in minutes:
 - Ambient avatar mouth now also supports phase-aware color/chaos mapping (intent, memory, generation, reply, recovery) and chat avatars bind mouth movement to actual audio playback state so Piper/web audio playback animates the mouth even after text streaming completes.
 - Ambient avatar now includes micro-expression mapping (brow asymmetry, per-eye openness variance, gaze bias, and pupil dilation/constraint) driven by phase + mood/arousal so expression motion remains subtle but personality-visible before full micro-expression authoring.
 - Chat ambient avatar mood readout now uses a VAD-driven emotion spectrum interpreter (wheel-inspired zone colors + nuanced labels) so UI emotion labels emerge from live dynamics instead of static taxonomy selection.
+- Ambient avatar zone labels now animate on zone transitions and include an inline emotional-drift sparkline so short-horizon mood movement is visible without opening debug.
+- TTS telemetry now carries the interpreted emotion frame, and Voice Lab sample preview displays the same emotion label/zone/intensity used by avatar readouts for cross-surface consistency.
 - App shell now layers a cinematic cyberpunk video backdrop with a mood-reactive shader canvas that adapts to live chat phase signals and respects reduced-motion preferences.
 - Saved Personas rail now starts minimized by default and expands on demand to reduce visual load while keeping quick persona access one click away.
 - Persona editing now uses a centralized `PersonaState` context so the Neural Core graph, leaf popups, and Persona Editor tree read/write the same source of truth in real time.

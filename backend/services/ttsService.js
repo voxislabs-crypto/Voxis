@@ -12,6 +12,7 @@ import {
   applyProsodyToElevenLabsText,
   applyProsodyToKokoroText,
 } from "./prosodyCompiler.js";
+import { interpretEmotionSpectrum } from "./emotionSpectrum.js";
 import { getTtsCredential, getVoiceDefaults } from "../models/settingsModel.js";
 
 const require = createRequire(import.meta.url);
@@ -987,6 +988,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     voiceProfile,
     speechHint,
   });
+  const emotionFrame = interpretEmotionSpectrum(resolveMood(personality));
   const attemptedEngines = [];
 
   async function runEngine(eng, profileOverride = adjustedVoiceProfile) {
@@ -1030,6 +1032,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
         chosenEngine: audio.engine || engine,
         attemptedEngines,
         fallbackUsed: false,
+        emotionFrame,
       },
       sfx,
     };
@@ -1057,6 +1060,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
             fallbackUsed: true,
             fallbackFrom: engine,
             fallbackReason: primaryError.message || "Primary engine failed.",
+            emotionFrame,
           },
           sfx,
         };

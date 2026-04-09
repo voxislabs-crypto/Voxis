@@ -421,6 +421,16 @@ const chatStyles = `
     padding-bottom: 14px;
   }
 
+  .voice-telemetry {
+    margin-top: -4px;
+    margin-bottom: 12px;
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(168, 224, 255, 0.8);
+    line-height: 1.45;
+  }
+
   .voice-btn {
     padding: 9px 15px;
     border: none;
@@ -584,6 +594,16 @@ const chatStyles = `
     box-shadow: 0 0 14px var(--zone-glow, rgba(0, 234, 255, 0.2));
   }
 
+  @keyframes zoneShiftPulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+    48% { transform: scale(1.05); box-shadow: 0 0 16px var(--zone-glow, rgba(0, 234, 255, 0.35)); }
+    100% { transform: scale(1); box-shadow: 0 0 14px var(--zone-glow, rgba(0, 234, 255, 0.2)); }
+  }
+
+  .avatar-panel-zone-pill.zone-shift {
+    animation: zoneShiftPulse 520ms ease;
+  }
+
   .avatar-panel-emotion {
     font-size: 0.66rem;
     font-weight: 700;
@@ -626,12 +646,60 @@ const chatStyles = `
     transition: left 420ms ease;
   }
 
+  @keyframes zoneMarkerFlash {
+    0% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.2); }
+    100% { transform: translate(-50%, -50%) scale(1); }
+  }
+
+  .avatar-panel-spectrum-marker.zone-shift {
+    animation: zoneMarkerFlash 520ms ease;
+  }
+
   .avatar-panel-intensity {
     margin-top: 4px;
     font-size: 0.56rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: rgba(188, 220, 245, 0.72);
+  }
+
+  .avatar-panel-drift {
+    width: 100%;
+    margin-top: 6px;
+    border: 1px solid rgba(134, 205, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(3, 16, 34, 0.6);
+    padding: 4px 6px 5px;
+  }
+
+  .avatar-panel-drift-label {
+    font-size: 0.52rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(169, 216, 252, 0.64);
+    margin-bottom: 2px;
+  }
+
+  .avatar-panel-drift svg {
+    width: 100%;
+    height: 24px;
+    display: block;
+  }
+
+  .avatar-panel-drift-axis {
+    stroke: rgba(160, 200, 236, 0.32);
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+  }
+
+  .avatar-panel-drift-line {
+    fill: none;
+    stroke: #8de8ff;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px rgba(141, 232, 255, 0.45));
   }
 
   .avatar-panel-divider {
@@ -941,14 +1009,19 @@ export default function ChatWindow({
   const [audioUrl, setAudioUrl] = useState("");
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [speechEnergy, setSpeechEnergy] = useState(0);
+  const [voiceTelemetry, setVoiceTelemetry] = useState(null);
   const [debugMode, setDebugMode] = useState(true);
   const [performanceText, setPerformanceText] = useState(null); // EPF text to perform
+  const [emotionDrift, setEmotionDrift] = useState([]);
+  const [zoneShiftActive, setZoneShiftActive] = useState(false);
   const lastGeneratedRef = useRef("");
   const lastNarrationRef = useRef("");
   const messageListRef = useRef(null);
   const audioRef = useRef(null);
   const speechEnergyTimerRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
+  const zoneShiftTimerRef = useRef(null);
+  const prevZoneKeyRef = useRef("");
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const latestAssistantMessage = useMemo(
@@ -1013,6 +1086,22 @@ export default function ChatWindow({
     () => interpretEmotionSpectrum(avatarMood),
     [avatarMood],
   );
+
+  const emotionDriftPath = useMemo(() => {
+    if (emotionDrift.length <= 1) {
+      return "";
+    }
+
+    const width = 100;
+    const height = 24;
+    return emotionDrift
+      .map((value, index) => {
+        const x = (index / (emotionDrift.length - 1)) * width;
+        const y = ((1 - (Number(value || 0) + 1) / 2) * (height - 2)) + 1;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  }, [emotionDrift]);
 
   // ── Neural activity: combines real brain heartbeat + phase signals ───────
   const [brainActivity, setBrainActivity] = useState(0);
@@ -1099,6 +1188,43 @@ export default function ChatWindow({
   }, [personality]);
 
   useEffect(() => {
+    setVoiceTelemetry(null);
+    setEmotionDrift([]);
+    prevZoneKeyRef.current = "";
+  }, [personality?.id]);
+
+  useEffect(() => {
+    const nextValence = Number(avatarMood?.valence || 0);
+    setEmotionDrift((current) => {
+      const appended = [...current, Math.max(-1, Math.min(1, nextValence))];
+      return appended.slice(-28);
+    });
+  }, [avatarMood?.valence]);
+
+  useEffect(() => {
+    const currentZoneKey = String(emotionSpectrum?.zone?.key || "");
+    if (!currentZoneKey) {
+      return;
+    }
+
+    if (!prevZoneKeyRef.current) {
+      prevZoneKeyRef.current = currentZoneKey;
+      return;
+    }
+
+    if (prevZoneKeyRef.current !== currentZoneKey) {
+      setZoneShiftActive(true);
+      if (zoneShiftTimerRef.current) {
+        window.clearTimeout(zoneShiftTimerRef.current);
+      }
+      zoneShiftTimerRef.current = window.setTimeout(() => {
+        setZoneShiftActive(false);
+      }, 540);
+      prevZoneKeyRef.current = currentZoneKey;
+    }
+  }, [emotionSpectrum?.zone?.key]);
+
+  useEffect(() => {
     return () => {
       if (speechEnergyTimerRef.current) {
         window.clearInterval(speechEnergyTimerRef.current);
@@ -1107,6 +1233,10 @@ export default function ChatWindow({
 
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
+      }
+
+      if (zoneShiftTimerRef.current) {
+        window.clearTimeout(zoneShiftTimerRef.current);
       }
     };
   }, [audioUrl]);
@@ -1277,6 +1407,17 @@ export default function ChatWindow({
         }
 
         throw new Error(errorMessage);
+      }
+
+      const ttsTelemetryHeader = response.headers.get("X-Voxis-Tts-Telemetry");
+      if (ttsTelemetryHeader) {
+        try {
+          setVoiceTelemetry(JSON.parse(decodeURIComponent(ttsTelemetryHeader)));
+        } catch {
+          setVoiceTelemetry(null);
+        }
+      } else {
+        setVoiceTelemetry(null);
       }
 
       const blob = await response.blob();
@@ -1505,6 +1646,14 @@ export default function ChatWindow({
               </button>
             </div>
 
+            {voiceTelemetry?.emotionFrame ? (
+              <div className="voice-telemetry">
+                Voice emotion: {String(voiceTelemetry.emotionFrame.displayLabel || "Neutral")} | Zone:
+                {` ${String(voiceTelemetry.emotionFrame.zone?.label || "Green Zone")}`} | Intensity:
+                {` ${Math.round(Number(voiceTelemetry.emotionFrame.intensity || 0) * 100)}%`}
+              </div>
+            ) : null}
+
             {audioUrl ? (
               <audio
                 id="voxis-audio-player"
@@ -1541,7 +1690,7 @@ export default function ChatWindow({
             <div className="avatar-panel-name">{personality.name}</div>
             <div className="avatar-panel-mood">
               <span
-                className="avatar-panel-zone-pill"
+                className={`avatar-panel-zone-pill${zoneShiftActive ? " zone-shift" : ""}`}
                 style={{
                   "--zone-border": emotionSpectrum.zone.border,
                   "--zone-text": emotionSpectrum.zone.text,
@@ -1555,7 +1704,7 @@ export default function ChatWindow({
               <div className="avatar-panel-spectrum">
                 <div className="avatar-panel-spectrum-track">
                   <span
-                    className="avatar-panel-spectrum-marker"
+                    className={`avatar-panel-spectrum-marker${zoneShiftActive ? " zone-shift" : ""}`}
                     style={{
                       left: `${Math.round(((emotionSpectrum.normalized.valence + 1) / 2) * 100)}%`,
                       "--zone-accent": emotionSpectrum.zone.accent,
@@ -1565,6 +1714,13 @@ export default function ChatWindow({
                 </div>
                 <div className="avatar-panel-intensity">
                   Intensity {Math.round(emotionSpectrum.intensity * 100)}%
+                </div>
+                <div className="avatar-panel-drift">
+                  <div className="avatar-panel-drift-label">Emotional Drift</div>
+                  <svg viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                    <line className="avatar-panel-drift-axis" x1="0" y1="12" x2="100" y2="12" />
+                    {emotionDriftPath ? <polyline className="avatar-panel-drift-line" points={emotionDriftPath} /> : null}
+                  </svg>
                 </div>
               </div>
             </div>
