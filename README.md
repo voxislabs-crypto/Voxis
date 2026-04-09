@@ -130,7 +130,11 @@ What this demonstrates in minutes:
 - Voice Lab sample synthesis now surfaces the Speech Director's transformed preview text and adjusted rate/pitch telemetry, so the TTS tab shows the same persona-driven output path used by live playback.
 - Prosody source links can now be submitted from Voice Lab, Character Request links, and Persona Editor; Voxis downloads source audio, derives rhythm/cadence/prosody template metrics, attaches the template to the persona, and removes temp audio workspace files after processing.
 - Quick voice controls (enable, autoplay, play-latest, stop, save) stay embedded in the Chat tab as compact cyberpunk toggle switches so you never have to leave the conversation.
+- Voice Lab now supports `auto`, `cloud`, `piper`, `kokoro`, `elevenlabs`, and `cartesia` engines.
 - When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
+- When `Kokoro` is selected, Voice Lab loads bundled free voice presets and the backend can warm-download/cache the model on server startup.
+- For `ElevenLabs` and `Cartesia`, Voice Lab includes starter voice-id presets plus custom voice-id input so you can test quickly and then refine.
+- Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.
 - Pull research into the character form from Wikipedia, blogs, and YouTube URLs. Sources are ranked, shown as editable cards, and prunable before saving.
@@ -149,8 +153,9 @@ What this demonstrates in minutes:
 - A VAD (Valence–Arousal–Dominance) mood engine models the character's affective state continuously. Every incoming message nudges mood along three axes; mood decays back toward the character's baseline between turns.
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
 - The runtime prompt package now includes dedicated sections for Big Five register, optional moral compass overlay, and expression style while preserving memory, mood, and active intent orchestration.
-- TTS now includes a Speech Director layer that reshapes outgoing text cadence using personality and live VAD mood before synthesis, so Piper/cloud output carries stronger character rhythm.
-- Server-side voice output through any OpenAI-compatible TTS endpoint with per-character voice settings.
+- TTS now includes a Speech Director layer that reshapes outgoing text cadence using personality and live VAD mood before synthesis, so cadence/rhythm cues propagate into every engine path.
+- Server-side voice output supports OpenAI-compatible cloud TTS plus Piper, Kokoro, ElevenLabs (BYOK), and Cartesia (BYOK) with per-character voice settings.
+- Existing SFX markers (for example `[BURP]`) are extracted before synthesis and emitted as metadata, so voice engine changes do not break the current sound-effects chain.
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
 - The 3D Neural Core renderer now features a full "living brain" upgrade: lightning-crackle synaptic connections with traveling pulse dots, per-node burst flashes triggered by live LLM phases, smooth fluid floating drift, bloom post-processing (via `@react-three/postprocessing`), breathing node orbs, a glow-halo shell on every node, and an orbiting particle ring on the companion orb.
 - Saved persona cards now surface compact avatar thumbnails for faster visual selection.
@@ -278,16 +283,27 @@ cp backend/.env.example backend/.env
 | `EMBEDDING_MODEL` | Embedding model name for semantic memory retrieval (for example `nomic-embed-text-v1.5`) |
 | `TTS_API_KEY` | API key for TTS provider (can be the same as `LLM_API_KEY`) |
 | `TTS_BASE_URL` | Base URL for TTS provider (optional) |
-| `TTS_ENGINE` | Default engine selector: `auto`, `cloud`, or `piper` |
+| `TTS_ENGINE` | Default engine selector: `auto`, `cloud`, `piper`, `kokoro`, `elevenlabs`, or `cartesia` |
 | `PIPER_COMMAND` | Piper executable command (default: `piper`) |
 | `PIPER_MODEL_PATH` | Default `.onnx` model path used when engine resolves to Piper |
 | `PIPER_SPEAKER` | Optional default numeric speaker id for multi-speaker Piper models |
+| `KOKORO_DEFAULT_VOICE` | Optional default Kokoro voice id (for example `af_heart`) |
+| `KOKORO_DTYPE` | Optional Kokoro precision (`q8` recommended for low memory) |
+| `ELEVENLABS_API_KEY` | Optional env fallback for ElevenLabs (can also be set from browser settings) |
+| `ELEVENLABS_VOICE_ID` | Optional ElevenLabs default voice id |
+| `ELEVENLABS_MODEL` | Optional ElevenLabs model id (default `eleven_multilingual_v2`) |
+| `CARTESIA_API_KEY` | Optional env fallback for Cartesia (can also be set from browser settings) |
+| `CARTESIA_VOICE_ID` | Optional Cartesia default voice id |
+| `CARTESIA_MODEL` | Optional Cartesia model id (default `sonic-2`) |
 
 Voice Lab will also auto-scan common Piper model locations such as `/opt/piper/models` and the directory containing `PIPER_MODEL_PATH`, then present discovered voices in a dropdown when you switch the engine to `piper`.
 
 Research scraping works without any LLM credentials. If an LLM is configured, Voxis also synthesizes scraped source notes into a structured character profile automatically.
 
-If you do not want to store provider secrets in `.env`, open the frontend and use the `LLM Settings` tab to connect a provider at runtime.
+If you do not want to store provider secrets in `.env`, open the frontend and use the `LLM Settings` tab:
+
+- `Runtime LLM Settings` for chat/memory provider keys
+- `Runtime TTS BYOK Settings` for ElevenLabs/Cartesia keys
 
 YouTube transcript ingestion is best-effort — if captions cannot be retrieved, the video's metadata is kept as a lower-ranked source rather than failing the request.
 
@@ -803,9 +819,23 @@ Engine resolution:
 
 - `engine: "cloud"` -> OpenAI-compatible `/audio/speech`
 - `engine: "piper"` -> local Piper CLI synthesis
-- `engine: "auto"` -> Piper when configured, otherwise cloud
+- `engine: "kokoro"` -> local Kokoro synthesis via `kokoro-js`
+- `engine: "elevenlabs"` -> ElevenLabs API synthesis
+- `engine: "cartesia"` -> Cartesia API synthesis
+- `engine: "auto"` -> cloud -> piper -> kokoro fallback chain
 
-`voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, and Piper-specific `piperModelPath`/`piperSpeaker`. The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+`voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, Piper-specific `piperModelPath`/`piperSpeaker`, Kokoro `kokoroVoice`, ElevenLabs settings (`elevenLabsVoiceId`, `elevenLabsModel`, `stability`, `similarityBoost`, `style`), and Cartesia settings (`cartesiaVoiceId`, `cartesiaModel`). The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
+
+BYOK behavior:
+
+- ElevenLabs and Cartesia credentials can come from `.env` OR from browser-saved runtime settings (`/settings/tts/:provider`).
+- Browser-saved credentials are checked first, then `.env` is used as fallback.
+
+Kokoro warm cache behavior:
+
+- Backend startup triggers a background Kokoro preload.
+- On first server boot, this can download the model (about 171 MB) and cache it for later requests.
+- `npm run build` does not perform this download; backend start/restart does.
 
 In Voice Lab, `Sample Transmission Text` now displays the directed preview line returned by the backend after Speech Director + mood voice modulation are applied, making it easier to validate how the saved character will actually perform before using live chat playback.
 

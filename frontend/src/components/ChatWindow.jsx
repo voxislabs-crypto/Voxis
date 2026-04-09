@@ -816,26 +816,22 @@ function formatAssistantContentForMode(content, mode) {
     return { main: text, nextQuestions: "" };
   }
 
-  let main = text
+  const answerSection = text.match(
+    /(?:^|\n)\s*(?:1\)\s*)?Answer\s*:?\s*\n([\s\S]*?)(?=\n\s*2\)\s*Evidence|\n\s*3\)\s*Uncertainty|\n\s*4\)\s*Next Questions|$)/i,
+  );
+
+  if (answerSection?.[1]) {
+    return { main: String(answerSection[1]).trim(), nextQuestions: "" };
+  }
+
+  const stripped = text
+    .replace(/\n?\s*2\)\s*Evidence\s*[\s\S]*?(?=\n\s*3\)\s*Uncertainty|\n\s*4\)\s*Next Questions|$)/i, "")
+    .replace(/\n?\s*3\)\s*Uncertainty\s*[\s\S]*?(?=\n\s*4\)\s*Next Questions|$)/i, "")
+    .replace(/\n?\s*4\)\s*Next Questions\s*[\s\S]*$/i, "")
     .replace(/^\s*(?:1\)\s*)?Answer\s*:?\s*\n?/i, "")
     .trim();
 
-  main = main
-    .replace(/\n?\s*2\)\s*Evidence\s*[\s\S]*?(?=\n\s*3\)\s*Uncertainty|\n\s*4\)\s*Next Questions|$)/i, "")
-    .replace(/\n?\s*3\)\s*Uncertainty\s*[\s\S]*?(?=\n\s*4\)\s*Next Questions|$)/i, "")
-    .trim();
-
-  const nextQuestionsMatch = main.match(/\n\s*4\)\s*Next Questions\s*\n([\s\S]*)$/i);
-  if (!nextQuestionsMatch) {
-    return { main, nextQuestions: "" };
-  }
-
-  const nextQuestions = String(nextQuestionsMatch[1] || "").trim();
-  const nextQuestionsStart = Number(nextQuestionsMatch.index || 0);
-  return {
-    main: main.slice(0, nextQuestionsStart).trim(),
-    nextQuestions,
-  };
+  return { main: stripped, nextQuestions: "" };
 }
 
 export default function ChatWindow({

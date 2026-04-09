@@ -13,7 +13,7 @@ function sanitizeAgeBand(value) {
 
 function sanitizeMode(value, fallback = "scientist") {
   const normalized = String(value || fallback).trim().toLowerCase();
-  return ["kids", "scientist"].includes(normalized) ? normalized : fallback;
+  return ["kids", "scientist", "normal"].includes(normalized) ? normalized : fallback;
 }
 
 export function listUsersHandler(_req, res, next) {

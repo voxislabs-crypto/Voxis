@@ -708,8 +708,8 @@ export function listKokoroVoices() {
 export function listProviderStatus() {
   return {
     kokoro: { available: isKokoroAvailable(), requiresSetup: false },
-    elevenlabs: { available: isElevenLabsConfigured(), requiresEnv: "ELEVENLABS_API_KEY" },
-    cartesia: { available: isCartesiaConfigured(), requiresEnv: "CARTESIA_API_KEY" },
+    elevenlabs: { available: isElevenLabsConfigured(), requiresEnv: "ELEVENLABS_API_KEY or Settings -> TTS" },
+    cartesia: { available: isCartesiaConfigured(), requiresEnv: "CARTESIA_API_KEY or Settings -> TTS" },
     piper: { available: isPiperConfigured(), requiresEnv: "PIPER_MODEL_PATH" },
     cloud: { available: isCloudConfigured(), requiresEnv: "TTS_API_KEY or LLM_API_KEY" },
   };

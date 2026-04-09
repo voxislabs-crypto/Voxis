@@ -597,6 +597,22 @@ const voiceLabStyles = `
   }
 `;
 
+const ELEVENLABS_VOICE_PRESETS = [
+  { id: "", label: "Custom voice id" },
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel (default)" },
+  { id: "EXAVITQu4vr4xnSDxMaL", label: "Bella" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh" },
+  { id: "VR6AewLTigWG4xSOukaG", label: "Arnold" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni" },
+];
+
+const CARTESIA_VOICE_PRESETS = [
+  { id: "", label: "Custom voice id" },
+  { id: "a0e99841-438c-4a64-b679-ae501e7d6091", label: "Sonic default" },
+  { id: "694f9389-aac1-45b6-b726-9d9369183238", label: "Warm Narrator" },
+  { id: "2ee87190-8f84-4925-97da-e52547f9462c", label: "Balanced Voice" },
+];
+
 export default function VoiceLab({
   personality,
   messages,
@@ -618,6 +634,14 @@ export default function VoiceLab({
     providerModel: "gpt-4o-mini-tts",
     piperModelPath: "",
     piperSpeaker: "",
+    kokoroVoice: "af_heart",
+    elevenLabsVoiceId: "",
+    elevenLabsModel: "eleven_multilingual_v2",
+    stability: 0.5,
+    similarityBoost: 0.75,
+    style: 0.5,
+    cartesiaVoiceId: "",
+    cartesiaModel: "sonic-2",
   });
   const [sampleText, setSampleText] = useState("");
   const [prosodyUrl, setProsodyUrl] = useState("");
@@ -632,6 +656,9 @@ export default function VoiceLab({
   const [piperVoices, setPiperVoices] = useState([]);
   const [isLoadingPiperVoices, setIsLoadingPiperVoices] = useState(false);
   const [piperVoiceError, setPiperVoiceError] = useState("");
+  const [kokoroVoices, setKokoroVoices] = useState([]);
+  const [isLoadingKokoroVoices, setIsLoadingKokoroVoices] = useState(false);
+  const [kokoroVoiceError, setKokoroVoiceError] = useState("");
 
   // Refs
   const audioRef = useRef(null);
@@ -678,6 +705,14 @@ export default function VoiceLab({
         personality.voiceProfile?.piperSpeaker == null
           ? ""
           : String(personality.voiceProfile.piperSpeaker),
+      kokoroVoice: personality.voiceProfile?.kokoroVoice || "af_heart",
+      elevenLabsVoiceId: personality.voiceProfile?.elevenLabsVoiceId || "",
+      elevenLabsModel: personality.voiceProfile?.elevenLabsModel || "eleven_multilingual_v2",
+      stability: Number(personality.voiceProfile?.stability ?? 0.5),
+      similarityBoost: Number(personality.voiceProfile?.similarityBoost ?? 0.75),
+      style: Number(personality.voiceProfile?.style ?? 0.5),
+      cartesiaVoiceId: personality.voiceProfile?.cartesiaVoiceId || "",
+      cartesiaModel: personality.voiceProfile?.cartesiaModel || "sonic-2",
     });
     setProsodyUrl(personality.prosodySourceUrl || "");
     setVoiceSamples(personality.voiceSampleAnalysis || null);
@@ -723,6 +758,50 @@ export default function VoiceLab({
     }
 
     void loadPiperVoices();
+    return () => { ignore = true; };
+  }, [authFetch, personality?.id, voiceProfile.engine]);
+
+  useEffect(() => {
+    if (!personality || voiceProfile.engine !== "kokoro") return;
+
+    let ignore = false;
+
+    async function loadKokoroVoices() {
+      setIsLoadingKokoroVoices(true);
+      setKokoroVoiceError("");
+      try {
+        const response = await authFetch("/tts/kokoro-voices");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to load Kokoro voices.");
+        if (ignore) return;
+
+        const groups = data.voices && typeof data.voices === "object" ? data.voices : {};
+        const flattened = Object.entries(groups).flatMap(([group, items]) =>
+          (Array.isArray(items) ? items : []).map((voice) => ({
+            id: voice.id,
+            label: `${voice.label} (${group.replace(/_/g, " ")})`,
+          })),
+        );
+
+        setKokoroVoices(flattened);
+        setVoiceProfile((cur) => {
+          if (flattened.some((v) => v.id === cur.kokoroVoice)) {
+            return cur;
+          }
+          const first = flattened[0];
+          return first ? { ...cur, kokoroVoice: first.id, providerVoice: first.id, preferredVoice: first.id } : cur;
+        });
+      } catch (error) {
+        if (!ignore) {
+          setKokoroVoices([]);
+          setKokoroVoiceError(error.message || "Failed to load Kokoro voices.");
+        }
+      } finally {
+        if (!ignore) setIsLoadingKokoroVoices(false);
+      }
+    }
+
+    void loadKokoroVoices();
     return () => { ignore = true; };
   }, [authFetch, personality?.id, voiceProfile.engine]);
 
@@ -944,6 +1023,14 @@ export default function VoiceLab({
         providerModel: voiceProfile.providerModel,
         piperModelPath: voiceProfile.piperModelPath,
         piperSpeaker: voiceProfile.piperSpeaker === "" ? null : Number(voiceProfile.piperSpeaker),
+        kokoroVoice: voiceProfile.kokoroVoice,
+        elevenLabsVoiceId: voiceProfile.elevenLabsVoiceId,
+        elevenLabsModel: voiceProfile.elevenLabsModel,
+        stability: Number(voiceProfile.stability),
+        similarityBoost: Number(voiceProfile.similarityBoost),
+        style: Number(voiceProfile.style),
+        cartesiaVoiceId: voiceProfile.cartesiaVoiceId,
+        cartesiaModel: voiceProfile.cartesiaModel,
       });
     } finally {
       setIsSavingVoice(false);
@@ -1045,14 +1132,27 @@ export default function VoiceLab({
                   value={voiceProfile.engine}
                   onChange={(e) => updateVoiceField("engine", e.target.value)}
                 >
-                  <option value="auto">auto (prefer Piper)</option>
+                  <option value="auto">auto (cloud -&gt; piper -&gt; kokoro)</option>
                   <option value="cloud">cloud</option>
                   <option value="piper">piper</option>
+                  <option value="kokoro">kokoro (free local)</option>
+                  <option value="elevenlabs">elevenlabs (BYOK)</option>
+                  <option value="cartesia">cartesia (BYOK)</option>
                 </select>
               </div>
 
               <div className="vlab-field">
-                <label>{voiceProfile.engine === "piper" ? "Piper Voice" : "TTS Voice"}</label>
+                <label>
+                  {voiceProfile.engine === "piper"
+                    ? "Piper Voice"
+                    : voiceProfile.engine === "kokoro"
+                      ? "Kokoro Voice"
+                      : voiceProfile.engine === "elevenlabs"
+                        ? "ElevenLabs Voice"
+                        : voiceProfile.engine === "cartesia"
+                          ? "Cartesia Voice"
+                          : "TTS Voice"}
+                </label>
                 {voiceProfile.engine === "piper" ? (
                   <>
                     <select
@@ -1082,6 +1182,91 @@ export default function VoiceLab({
                           : "No local Piper models found. Run installer or set PIPER_MODEL_PATH."}
                     </small>
                   </>
+                ) : voiceProfile.engine === "kokoro" ? (
+                  <>
+                    <select
+                      className="vlab-select"
+                      value={voiceProfile.kokoroVoice || ""}
+                      onChange={(e) => {
+                        updateVoiceField("kokoroVoice", e.target.value);
+                        updateVoiceField("providerVoice", e.target.value);
+                        updateVoiceField("preferredVoice", e.target.value);
+                      }}
+                      disabled={isLoadingKokoroVoices || kokoroVoices.length === 0}
+                    >
+                      <option value="">
+                        {isLoadingKokoroVoices
+                          ? "LOADING KOKORO VOICES..."
+                          : kokoroVoices.length
+                            ? "Select a Kokoro voice"
+                            : "No Kokoro voices loaded"}
+                      </option>
+                      {kokoroVoices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.label}</option>
+                      ))}
+                    </select>
+                    <small className="vlab-small">
+                      {kokoroVoiceError || "Kokoro ships free local voices. First server run downloads model cache once."}
+                    </small>
+                  </>
+                ) : voiceProfile.engine === "elevenlabs" ? (
+                  <>
+                    <select
+                      className="vlab-select"
+                      value={voiceProfile.elevenLabsVoiceId || ""}
+                      onChange={(e) => {
+                        updateVoiceField("elevenLabsVoiceId", e.target.value);
+                        updateVoiceField("providerVoice", e.target.value);
+                        updateVoiceField("preferredVoice", e.target.value);
+                      }}
+                    >
+                      {ELEVENLABS_VOICE_PRESETS.map((voice) => (
+                        <option key={voice.id || "custom"} value={voice.id}>{voice.label}</option>
+                      ))}
+                    </select>
+                    {!voiceProfile.elevenLabsVoiceId ? (
+                      <input
+                        className="vlab-input"
+                        value={voiceProfile.providerVoice || ""}
+                        onChange={(e) => {
+                          updateVoiceField("providerVoice", e.target.value);
+                          updateVoiceField("preferredVoice", e.target.value);
+                          updateVoiceField("elevenLabsVoiceId", e.target.value);
+                        }}
+                        placeholder="Paste custom ElevenLabs voice id"
+                      />
+                    ) : null}
+                    <small className="vlab-small">BYOK key is saved in Settings -&gt; Runtime LLM + TTS.</small>
+                  </>
+                ) : voiceProfile.engine === "cartesia" ? (
+                  <>
+                    <select
+                      className="vlab-select"
+                      value={voiceProfile.cartesiaVoiceId || ""}
+                      onChange={(e) => {
+                        updateVoiceField("cartesiaVoiceId", e.target.value);
+                        updateVoiceField("providerVoice", e.target.value);
+                        updateVoiceField("preferredVoice", e.target.value);
+                      }}
+                    >
+                      {CARTESIA_VOICE_PRESETS.map((voice) => (
+                        <option key={voice.id || "custom"} value={voice.id}>{voice.label}</option>
+                      ))}
+                    </select>
+                    {!voiceProfile.cartesiaVoiceId ? (
+                      <input
+                        className="vlab-input"
+                        value={voiceProfile.providerVoice || ""}
+                        onChange={(e) => {
+                          updateVoiceField("providerVoice", e.target.value);
+                          updateVoiceField("preferredVoice", e.target.value);
+                          updateVoiceField("cartesiaVoiceId", e.target.value);
+                        }}
+                        placeholder="Paste custom Cartesia voice id"
+                      />
+                    ) : null}
+                    <small className="vlab-small">BYOK key is saved in Settings -&gt; Runtime LLM + TTS.</small>
+                  </>
                 ) : (
                   <input
                     className="vlab-input"
@@ -1100,9 +1285,32 @@ export default function VoiceLab({
                 <input
                   id="vlab-model"
                   className="vlab-input"
-                  value={voiceProfile.providerModel}
-                  onChange={(e) => updateVoiceField("providerModel", e.target.value)}
-                  placeholder={voiceProfile.engine === "piper" ? "cloud fallback model" : "gpt-4o-mini-tts"}
+                  value={
+                    voiceProfile.engine === "elevenlabs"
+                      ? voiceProfile.elevenLabsModel
+                      : voiceProfile.engine === "cartesia"
+                        ? voiceProfile.cartesiaModel
+                        : voiceProfile.providerModel
+                  }
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (voiceProfile.engine === "elevenlabs") {
+                      updateVoiceField("elevenLabsModel", value);
+                    } else if (voiceProfile.engine === "cartesia") {
+                      updateVoiceField("cartesiaModel", value);
+                    } else {
+                      updateVoiceField("providerModel", value);
+                    }
+                  }}
+                  placeholder={
+                    voiceProfile.engine === "piper"
+                      ? "cloud fallback model"
+                      : voiceProfile.engine === "elevenlabs"
+                        ? "eleven_multilingual_v2"
+                        : voiceProfile.engine === "cartesia"
+                          ? "sonic-2"
+                          : "gpt-4o-mini-tts"
+                  }
                 />
               </div>
 
@@ -1144,6 +1352,53 @@ export default function VoiceLab({
                         placeholder="0"
                       />
                     )}
+                  </div>
+                </>
+              )}
+
+              {voiceProfile.engine === "elevenlabs" && (
+                <>
+                  <div className="vlab-field">
+                    <label>Stability</label>
+                    <div className="vlab-slider-row">
+                      <input
+                        type="range"
+                        className="vlab-slider"
+                        min="0" max="1" step="0.01"
+                        value={voiceProfile.stability}
+                        onChange={(e) => updateVoiceField("stability", Number(e.target.value))}
+                        style={sliderStyle(voiceProfile.stability, 0, 1)}
+                      />
+                      <span className="vlab-slider-readout">{Number(voiceProfile.stability).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="vlab-field">
+                    <label>Similarity Boost</label>
+                    <div className="vlab-slider-row">
+                      <input
+                        type="range"
+                        className="vlab-slider"
+                        min="0" max="1" step="0.01"
+                        value={voiceProfile.similarityBoost}
+                        onChange={(e) => updateVoiceField("similarityBoost", Number(e.target.value))}
+                        style={sliderStyle(voiceProfile.similarityBoost, 0, 1)}
+                      />
+                      <span className="vlab-slider-readout">{Number(voiceProfile.similarityBoost).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="vlab-field">
+                    <label>Style</label>
+                    <div className="vlab-slider-row">
+                      <input
+                        type="range"
+                        className="vlab-slider"
+                        min="0" max="1" step="0.01"
+                        value={voiceProfile.style}
+                        onChange={(e) => updateVoiceField("style", Number(e.target.value))}
+                        style={sliderStyle(voiceProfile.style, 0, 1)}
+                      />
+                      <span className="vlab-slider-readout">{Number(voiceProfile.style).toFixed(2)}</span>
+                    </div>
                   </div>
                 </>
               )}

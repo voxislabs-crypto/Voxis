@@ -119,6 +119,13 @@ export default function LlmSettingsPanel({ onStatus }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [ttsProviders, setTtsProviders] = useState([]);
+  const [ttsProvider, setTtsProvider] = useState("elevenlabs");
+  const [ttsApiKey, setTtsApiKey] = useState("");
+  const [ttsVoiceId, setTtsVoiceId] = useState("");
+  const [ttsModel, setTtsModel] = useState("");
+  const [isSavingTts, setIsSavingTts] = useState(false);
+  const [isDisconnectingTts, setIsDisconnectingTts] = useState(false);
 
   const selectedProvider = useMemo(
     () => providers.find((candidate) => candidate.id === provider) || null,
@@ -144,6 +151,11 @@ export default function LlmSettingsPanel({ onStatus }) {
     );
   }, [baseUrl, provider, savedProviders]);
 
+  const selectedTtsProvider = useMemo(
+    () => ttsProviders.find((candidate) => candidate.provider === ttsProvider) || null,
+    [ttsProvider, ttsProviders],
+  );
+
   useEffect(() => {
     void initialize();
   }, []);
@@ -154,23 +166,36 @@ export default function LlmSettingsPanel({ onStatus }) {
     }
   }, [provider, selectedProvider?.baseUrl]);
 
+  useEffect(() => {
+    if (!selectedTtsProvider) {
+      return;
+    }
+    setTtsVoiceId(selectedTtsProvider.voiceId || selectedTtsProvider.defaultVoiceId || "");
+    setTtsModel(selectedTtsProvider.model || selectedTtsProvider.defaultModel || "");
+  }, [selectedTtsProvider?.provider, selectedTtsProvider?.voiceId, selectedTtsProvider?.model]);
+
   async function initialize() {
     setIsLoading(true);
 
     try {
-      const [providersResponse, settingsResponse] = await Promise.all([
+      const [providersResponse, settingsResponse, ttsResponse] = await Promise.all([
         authFetch("/settings/llm/providers"),
         authFetch("/settings/llm"),
+        authFetch("/settings/tts"),
       ]);
 
       const providersData = await providersResponse.json();
       const settingsData = await settingsResponse.json();
+      const ttsData = await ttsResponse.json();
 
       if (!providersResponse.ok) {
         throw new Error(providersData.error || "Failed to load providers.");
       }
       if (!settingsResponse.ok) {
         throw new Error(settingsData.error || "Failed to load current settings.");
+      }
+      if (!ttsResponse.ok) {
+        throw new Error(ttsData.error || "Failed to load TTS settings.");
       }
 
       const providerList = Array.isArray(providersData.providers) && providersData.providers.length
@@ -193,11 +218,80 @@ export default function LlmSettingsPanel({ onStatus }) {
         setAvailableModels([]);
         setModel("");
       }
+
+      const ttsProviderList = Array.isArray(ttsData.providers) ? ttsData.providers : [];
+      setTtsProviders(ttsProviderList);
+      const connectedProvider = ttsProviderList.find((entry) => entry.connected) || ttsProviderList[0] || null;
+      if (connectedProvider) {
+        setTtsProvider(connectedProvider.provider);
+        setTtsVoiceId(connectedProvider.voiceId || connectedProvider.defaultVoiceId || "");
+        setTtsModel(connectedProvider.model || connectedProvider.defaultModel || "");
+      }
     } catch (error) {
       onStatus?.({ type: "error", message: error.message || "Failed to load LLM settings." });
       setProviders(fallbackProviders());
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function saveTtsProvider() {
+    if (!ttsProvider) {
+      onStatus?.({ type: "error", message: "Choose a TTS provider first." });
+      return;
+    }
+    if (!ttsApiKey.trim()) {
+      onStatus?.({ type: "error", message: "TTS API key is required to save/update provider credentials." });
+      return;
+    }
+
+    setIsSavingTts(true);
+    try {
+      const response = await authFetch(`/settings/tts/${ttsProvider}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: ttsApiKey.trim(),
+          voiceId: ttsVoiceId.trim(),
+          model: ttsModel.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save TTS credentials.");
+      }
+
+      setTtsApiKey("");
+      await initialize();
+      onStatus?.({ type: "success", message: `Saved ${data.name || data.provider} credentials.` });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to save TTS credentials." });
+    } finally {
+      setIsSavingTts(false);
+    }
+  }
+
+  async function disconnectTtsProvider() {
+    if (!ttsProvider) {
+      return;
+    }
+
+    setIsDisconnectingTts(true);
+    try {
+      const response = await authFetch(`/settings/tts/${ttsProvider}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to disconnect TTS provider.");
+      }
+
+      await initialize();
+      onStatus?.({ type: "success", message: `Disconnected ${data.provider}.` });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to disconnect TTS provider." });
+    } finally {
+      setIsDisconnectingTts(false);
     }
   }
 
@@ -437,6 +531,90 @@ export default function LlmSettingsPanel({ onStatus }) {
       {connected?.connected ? (
         <div className="llm-connected">
           Connected provider: {connected.provider} | Active model: {connected.model || "not selected"} | Key hint: {connected.keyHint}
+        </div>
+      ) : null}
+
+      <h3>Runtime TTS BYOK Settings</h3>
+      <p>
+        Save ElevenLabs or Cartesia keys from the browser. These stay on the server and are used by Voice Lab.
+      </p>
+
+      <div className="llm-grid">
+        <div className="llm-field">
+          <label htmlFor="tts-provider">TTS Provider</label>
+          <select
+            id="tts-provider"
+            value={ttsProvider}
+            onChange={(event) => setTtsProvider(event.target.value)}
+            disabled={isLoading || isSavingTts || isDisconnectingTts}
+          >
+            {ttsProviders.map((candidate) => (
+              <option key={candidate.provider} value={candidate.provider}>
+                {candidate.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="llm-field">
+          <label htmlFor="tts-api-key">API Key</label>
+          <input
+            id="tts-api-key"
+            type="password"
+            autoComplete="off"
+            value={ttsApiKey}
+            onChange={(event) => setTtsApiKey(event.target.value)}
+            placeholder={selectedTtsProvider?.keyHint ? "Saved key on file. Enter a new one to replace it." : "Paste provider key"}
+            disabled={isLoading || isSavingTts}
+          />
+          {selectedTtsProvider?.keyHint ? (
+            <p>Saved key on file: {selectedTtsProvider.keyHint}</p>
+          ) : null}
+        </div>
+
+        <div className="llm-field">
+          <label htmlFor="tts-voice-id">Voice ID</label>
+          <input
+            id="tts-voice-id"
+            type="text"
+            value={ttsVoiceId}
+            onChange={(event) => setTtsVoiceId(event.target.value)}
+            placeholder={selectedTtsProvider?.defaultVoiceId || "Provider default voice"}
+            disabled={isLoading || isSavingTts}
+          />
+        </div>
+
+        <div className="llm-field">
+          <label htmlFor="tts-model">Model</label>
+          <input
+            id="tts-model"
+            type="text"
+            value={ttsModel}
+            onChange={(event) => setTtsModel(event.target.value)}
+            placeholder={selectedTtsProvider?.defaultModel || "Provider default model"}
+            disabled={isLoading || isSavingTts}
+          />
+        </div>
+      </div>
+
+      <div className="llm-actions">
+        <button type="button" onClick={() => void saveTtsProvider()} disabled={isSavingTts || isLoading}>
+          {isSavingTts ? "Saving..." : "Save TTS Provider"}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => void disconnectTtsProvider()}
+          disabled={!selectedTtsProvider?.connected || isDisconnectingTts || isLoading}
+        >
+          {isDisconnectingTts ? "Disconnecting..." : "Disconnect TTS Provider"}
+        </button>
+      </div>
+
+      {selectedTtsProvider ? (
+        <div className="llm-connected" style={{ borderColor: "rgba(0, 180, 255, 0.24)", background: "rgba(0, 180, 255, 0.08)", color: "#8fdfff" }}>
+          {selectedTtsProvider.name}: {selectedTtsProvider.connected ? "connected" : "not connected"}
+          {" | "}Pricing: {selectedTtsProvider.pricingNote}
         </div>
       ) : null}
     </div>
