@@ -95,8 +95,8 @@ export async function refreshMoodLoopHandler(req, res, next) {
       .json({ error: `Invalid mood "${mood}". Valid: ${validMoods.join(", ")}` });
   }
   try {
-    const entry = await fetchAndCacheMood(mood);
-    res.json({ ok: true, mood, entry });
+    const entries = await fetchAndCacheMood(mood);
+    res.json({ ok: true, mood, entries });
   } catch (err) {
     next(err);
   }

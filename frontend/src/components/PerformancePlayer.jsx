@@ -276,10 +276,12 @@ class MoodLoopEngine {
   constructor() {
     this.ctx = null;
     this.manifest = null;
-    this.buffers = {};
+    this.buffers = {};          // url → AudioBuffer  (keyed by file URL, not mood)
+    this.playedIndexes = {};    // mood → Set<index>  (tracks recently used to avoid repeats)
     this.currentSource = null;
     this.currentGain = null;
     this.currentMood = null;
+    this.currentBpm = null;     // BPM of currently playing loop (for playbackRate normalisation)
     this.masterGain = null;
     this.volume = 0.55;
     this.ready = false;
@@ -302,26 +304,75 @@ class MoodLoopEngine {
     }
   }
 
-  async _loadBuffer(mood) {
-    if (this.buffers[mood]) return this.buffers[mood];
-    if (!this.manifest?.loops?.[mood]) return null;
+  async _loadBuffer(url) {
+    if (this.buffers[url]) return this.buffers[url];
     try {
-      const resp = await fetch(this.manifest.loops[mood].file);
+      const resp = await fetch(url);
       const arrayBuffer = await resp.arrayBuffer();
       const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-      this.buffers[mood] = audioBuffer;
+      this.buffers[url] = audioBuffer;
       return audioBuffer;
     } catch {
       return null;
     }
   }
 
-  async switchMood(mood, fadeDurationMs = 800) {
+  // ── Loop selection ──────────────────────────────────────────────────────
+  // Score a loop entry against the EPF audioDirection text using tag/name
+  // keyword overlap. Zero-latency, no API calls.
+  _scoreLoop(entry, audioDirectionText) {
+    if (!audioDirectionText || !entry) return 0;
+    const haystack = [
+      ...(entry.tags || []),
+      entry.freesoundName || "",
+    ].join(" ").toLowerCase();
+    const needles = (audioDirectionText.toLowerCase().match(/\b\w{4,}\b/g) || []);
+    let score = 0;
+    for (const word of needles) {
+      if (haystack.includes(word)) score++;
+    }
+    return score;
+  }
+
+  // Pick the best loop candidate for a mood, preferring unplayed entries and
+  // highest audioDirection keyword match.
+  _pickLoop(mood, audioDirectionText) {
+    const candidates = this.manifest?.loops?.[mood];
+    if (!candidates?.length) return null;
+
+    const played = this.playedIndexes[mood] || new Set();
+    const scored = candidates.map((entry, i) => ({
+      entry,
+      i,
+      score: this._scoreLoop(entry, audioDirectionText),
+      fresh: !played.has(i),
+    }));
+
+    // Sort: unplayed first, then higher NLP score
+    scored.sort((a, b) => {
+      if (a.fresh !== b.fresh) return a.fresh ? -1 : 1;
+      return b.score - a.score;
+    });
+
+    const winner = scored[0];
+    if (!this.playedIndexes[mood]) this.playedIndexes[mood] = new Set();
+    this.playedIndexes[mood].add(winner.i);
+    // Reset rotation when all entries have been played (keep last to avoid immediate repeat)
+    if (this.playedIndexes[mood].size >= candidates.length) {
+      this.playedIndexes[mood] = new Set([winner.i]);
+    }
+    return winner.entry;
+  }
+
+  async switchMood(mood, fadeDurationMs = 800, audioDirection = null) {
     if (!this.ready || !this.ctx) return;
     if (this.currentMood === mood) return;
     this.currentMood = mood;
 
-    const buffer = await this._loadBuffer(mood);
+    const entry = this._pickLoop(mood, audioDirection);
+    if (!entry) return;
+
+    const buffer = await this._loadBuffer(entry.file);
 
     const fadeSecs = (fadeDurationMs || 800) / 1000;
     const now = this.ctx.currentTime;
@@ -339,6 +390,15 @@ class MoodLoopEngine {
 
     if (!buffer) return;
 
+    // BPM normalisation — adjust playbackRate so tempo transitions feel smooth.
+    // Clamped to ±8% to avoid audible pitch artefacts.
+    let playbackRate = 1.0;
+    if (this.currentBpm && entry.bpm && this.currentBpm !== entry.bpm) {
+      const ratio = this.currentBpm / entry.bpm;
+      playbackRate = Math.max(0.92, Math.min(1.08, ratio));
+    }
+    this.currentBpm = entry.bpm || null;
+
     // Fade in new source
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(0, now);
@@ -348,6 +408,7 @@ class MoodLoopEngine {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
+    source.playbackRate.value = playbackRate;
     source.connect(gain);
     source.start();
 
@@ -529,7 +590,7 @@ export default function PerformancePlayer({ personalityId, text, voiceProfile, o
       }
       case "segment": {
         setCurrentMood(msg.moodLoop || "ambient");
-        loopEngineRef.current?.switchMood(msg.moodLoop || "ambient");
+        loopEngineRef.current?.switchMood(msg.moodLoop || "ambient", undefined, msg.audioDirection || null);
         setActiveSegmentId(msg.segmentId);
         break;
       }

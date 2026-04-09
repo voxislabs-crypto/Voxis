@@ -147,7 +147,8 @@ async function freesoundSearch(config) {
       "is_explicit:0",
     ].join(" "),
     sort: "rating_desc",
-    fields: "id,name,duration,license,previews,avg_rating,num_ratings,url,username",
+    // ac_analysis gives us server-side BPM + key via AudioCommons — no WASM needed
+    fields: "id,name,duration,license,previews,avg_rating,num_ratings,url,username,tags,ac_analysis",
     page_size: "15",
     format: "json",
   });
@@ -167,8 +168,8 @@ async function freesoundSearch(config) {
   return resp.json();
 }
 
-function pickBestResult(results) {
-  if (!results?.results?.length) return null;
+function pickBestResults(results, n = 3) {
+  if (!results?.results?.length) return [];
 
   // Filter to accepted licenses, prefer higher ratings
   const valid = results.results
@@ -180,7 +181,7 @@ function pickBestResult(results) {
       return scoreB - scoreA;
     });
 
-  return valid[0] || null;
+  return valid.slice(0, n);
 }
 
 async function downloadAudio(sound, destPath) {
@@ -225,36 +226,49 @@ export async function fetchAndCacheMood(mood) {
   console.log(`[LoopCache] Searching Freesound for mood="${mood}" tags=${config.tags.join(",")}`);
 
   const results = await freesoundSearch(config);
-  const best = pickBestResult(results);
+  const candidates = pickBestResults(results, 3);
 
-  if (!best) {
+  if (!candidates.length) {
     throw new Error(`No CC-licensed results found on Freesound for mood "${mood}".`);
   }
 
-  console.log(`[LoopCache] Selected: "${best.name}" by ${best.username} (rating ${best.avg_rating}, license ${best.license})`);
+  const entries = [];
+  for (const sound of candidates) {
+    const filename = `${mood}-${sound.id}.mp3`;
+    const destPath = path.join(CACHE_DIR, filename);
+    try {
+      await downloadAudio(sound, destPath);
+      const bpm = sound.ac_analysis?.ac_tempo ? Math.round(sound.ac_analysis.ac_tempo) : null;
+      const key = sound.ac_analysis?.ac_tonality || null;
+      entries.push({
+        file: `/api/loops/audio/${filename}`,
+        label: config.label,
+        defaultVolume: config.defaultVolume,
+        freesoundId: sound.id,
+        freesoundName: sound.name,
+        freesoundUser: sound.username,
+        license: sound.license,
+        duration: sound.duration,
+        tags: Array.isArray(sound.tags) ? sound.tags : [],
+        bpm,
+        key,
+        cachedAt: new Date().toISOString(),
+      });
+      console.log(`[LoopCache] Cached mood="${mood}" → ${filename} (BPM=${bpm ?? "?"}${key ? ` key=${key}` : ""})`);
+    } catch (err) {
+      console.warn(`[LoopCache] Skipping sound ${sound.id} for mood "${mood}": ${err.message}`);
+    }
+  }
 
-  const ext = ".mp3"; // previews are always mp3
-  const filename = `${mood}-${best.id}${ext}`;
-  const destPath = path.join(CACHE_DIR, filename);
-
-  await downloadAudio(best, destPath);
+  if (!entries.length) {
+    throw new Error(`Failed to download any loops for mood "${mood}".`);
+  }
 
   const manifest = await readManifest();
-  manifest.loops[mood] = {
-    file: `/api/loops/audio/${filename}`,
-    label: config.label,
-    defaultVolume: config.defaultVolume,
-    freesoundId: best.id,
-    freesoundName: best.name,
-    freesoundUser: best.username,
-    license: best.license,
-    duration: best.duration,
-    cachedAt: new Date().toISOString(),
-  };
+  manifest.loops[mood] = entries;
   await writeManifest(manifest);
 
-  console.log(`[LoopCache] Cached mood="${mood}" → ${filename}`);
-  return manifest.loops[mood];
+  return entries;
 }
 
 /**
@@ -290,12 +304,19 @@ export async function getCachedManifest() {
   // For any mood not yet cached, fall back to the static placeholder WAV
   for (const mood of Object.keys(MOOD_SEARCH_CONFIG)) {
     if (!manifest.loops[mood]) {
-      manifest.loops[mood] = {
+      // Fallback to static placeholder WAV as a single-item array
+      manifest.loops[mood] = [{
         file: `/loops/${mood}.wav`,
         label: MOOD_SEARCH_CONFIG[mood].label,
         defaultVolume: MOOD_SEARCH_CONFIG[mood].defaultVolume,
+        bpm: null,
+        key: null,
+        tags: [],
         cached: false,
-      };
+      }];
+    } else if (!Array.isArray(manifest.loops[mood])) {
+      // Migrate old single-object format to array
+      manifest.loops[mood] = [manifest.loops[mood]];
     }
   }
 
@@ -331,19 +352,22 @@ export async function getCacheStatus() {
 
   const moods = await Promise.all(
     Object.keys(MOOD_SEARCH_CONFIG).map(async (mood) => {
-      const entry = manifest.loops[mood];
+      const raw = manifest.loops[mood];
+      const entries = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+      const first = entries[0];
       let fileExists = false;
-      if (entry?.file?.startsWith("/api/loops/audio/")) {
-        const filename = path.basename(entry.file);
+      if (first?.file?.startsWith("/api/loops/audio/")) {
+        const filename = path.basename(first.file);
         fileExists = Boolean(await getCachedFilePath(filename));
       }
       return {
         mood,
-        cached: Boolean(entry?.freesoundId) && fileExists,
-        freesoundId: entry?.freesoundId || null,
-        name: entry?.freesoundName || null,
-        license: entry?.license || null,
-        cachedAt: entry?.cachedAt || null,
+        cached: Boolean(first?.freesoundId) && fileExists,
+        count: entries.filter((e) => e.freesoundId).length,
+        freesoundId: first?.freesoundId || null,
+        name: first?.freesoundName || null,
+        license: first?.license || null,
+        cachedAt: first?.cachedAt || null,
       };
     }),
   );
