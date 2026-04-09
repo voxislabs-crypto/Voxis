@@ -46,18 +46,18 @@ Move from "styled text + TTS" to "personality speech rendering" where cadence, r
 
 - [x] ElevenLabs adapter: map envelope to speed/stability/style.
 - [x] ElevenLabs adapter: apply emphasis-aware text shaping.
-- [ ] Cartesia adapter: map envelope to pacing/timbre controls.
-- [ ] Cloud adapter: map envelope to speed + instruction shaping.
-- [ ] Piper adapter: map envelope to length_scale/noise/noise_w.
+- [x] Cartesia adapter: map envelope to pacing/text-shaping controls.
+- [x] Cloud adapter: map envelope to speed + instruction shaping.
+- [x] Piper adapter: map envelope to length_scale/noise/noise_w.
 - [x] Kokoro adapter: map envelope to voice/timing strategy.
 - [x] Kokoro adapter: apply emphasis-aware text shaping.
-- [ ] Add capability map so unsupported controls degrade gracefully.
+- [x] Add capability map so unsupported controls degrade gracefully.
 
 ## Sprint D - Semantic Safety for Stylization
 
-- [ ] Add context-aware stylization guardrails for factual/technical turns.
-- [ ] Preserve hedging words in precision contexts.
-- [ ] Keep aggressive stylization for performance/roleplay contexts only.
+- [x] Add context-aware stylization guardrails for factual/technical turns.
+- [x] Preserve hedging words in precision contexts.
+- [x] Keep aggressive stylization for performance/roleplay contexts only.
 
 ## Sprint E - Telemetry + Diagnostics
 

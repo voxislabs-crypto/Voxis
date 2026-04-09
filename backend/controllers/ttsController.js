@@ -85,6 +85,10 @@ export async function generateSpeechHandler(req, res, next) {
       "X-Voxis-Prosody",
       encodeURIComponent(JSON.stringify(audio.prosodyEnvelope || {})),
     );
+    res.setHeader(
+      "X-Voxis-Tts-Telemetry",
+      encodeURIComponent(JSON.stringify(audio.telemetry || {})),
+    );
     return res.send(audio.buffer);
   } catch (error) {
     return next(error);

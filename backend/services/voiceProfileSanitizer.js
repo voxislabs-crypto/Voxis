@@ -9,6 +9,8 @@ export function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   const fallback = fallbackProfile && typeof fallbackProfile === "object" ? fallbackProfile : {};
   const engine = String(source.engine || fallback.engine || "auto").trim().toLowerCase();
   const piperSpeaker = Number(source.piperSpeaker ?? fallback.piperSpeaker);
+  const selectedSampleIndex = Number(source.selectedSampleIndex ?? fallback.selectedSampleIndex);
+  const selectedVoiceConfidence = Number(source.selectedVoiceConfidence ?? fallback.selectedVoiceConfidence);
 
   return {
     enabled: source.enabled !== false,
@@ -33,5 +35,15 @@ export function sanitizeVoiceProfile(input, fallbackProfile = {}) {
     style: clampNumber(source.style ?? fallback.style, 0, 1, 0.5),
     cartesiaVoiceId: String(source.cartesiaVoiceId || fallback.cartesiaVoiceId || "").trim(),
     cartesiaModel: String(source.cartesiaModel || fallback.cartesiaModel || "sonic-2").trim(),
+    voiceSourceType: String(source.voiceSourceType || fallback.voiceSourceType || "").trim(),
+    selectedSampleIndex: Number.isFinite(selectedSampleIndex) && selectedSampleIndex >= 0 ? Math.floor(selectedSampleIndex) : null,
+    selectedVoiceLabel: String(source.selectedVoiceLabel || fallback.selectedVoiceLabel || "").trim(),
+    selectedVoiceConfidence: Number.isFinite(selectedVoiceConfidence) ? Math.min(1, Math.max(0, selectedVoiceConfidence)) : null,
+    selectedVoiceSample:
+      source.selectedVoiceSample && typeof source.selectedVoiceSample === "object"
+        ? { ...source.selectedVoiceSample }
+        : fallback.selectedVoiceSample && typeof fallback.selectedVoiceSample === "object"
+          ? { ...fallback.selectedVoiceSample }
+          : null,
   };
 }

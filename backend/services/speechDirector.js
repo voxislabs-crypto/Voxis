@@ -117,7 +117,17 @@ function emphasizeTerms(text, terms, maxReplacements = 3) {
   return output;
 }
 
-export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
+function stripSpeechMarkup(text) {
+  return String(text || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/`[^`\n]+`/g, (match) => match.slice(1, -1))
+    .replace(/^#{1,6}\s+/gm, "");
+}
+
+export function stylizeSpeech(rawText, personality = {}, moodOverride = null, options = {}) {
   const input = String(rawText || "").replace(/\s+/g, " ").trim();
   if (!input) {
     return "";
@@ -125,6 +135,8 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
 
   const mood = normalizeMood(personality, moodOverride);
   const profile = getSpeechProfile(personality);
+  const styleMode = String(options?.styleMode || "performance").trim().toLowerCase();
+  const precisionMode = styleMode === "precision";
   const arousal = Number(mood.arousal);
   const dominance = Number(mood.dominance);
   const signals = collectSignals(personality, profile);
@@ -134,15 +146,15 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
 
   let output = input;
 
-  if (signals.chaotic || signals.energy === "very_high" || isHighArousal || profile.pacing === "fast") {
+  if (!precisionMode && (signals.chaotic || signals.energy === "very_high" || isHighArousal || profile.pacing === "fast")) {
     output = output.replace(/,\s*/g, "... ").replace(/;\s*/g, "... ");
   }
 
-  if (signals.sarcastic) {
+  if (!precisionMode && signals.sarcastic) {
     output = output.replace(/\b(yeah|sure|right|okay|fine)\b(?!\.\.\.)/gi, "$1...");
   }
 
-  if (signals.calm || signals.energy === "low" || isLowArousal) {
+  if (!precisionMode && (signals.calm || signals.energy === "low" || isLowArousal)) {
     output = output.replace(/!+/g, ".").replace(/\?{2,}/g, "?");
     output = output.replace(/\.\s+(?=[A-Z])/g, "... ");
     if (output.endsWith(".")) {
@@ -150,7 +162,7 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
     }
   }
 
-  if (signals.assertive || signals.dramatic || isHighDominance) {
+  if (!precisionMode && (signals.assertive || signals.dramatic || isHighDominance)) {
     const emphasisTerms = Array.from(new Set([
       ...collectEmphasisTerms(personality),
       ...asArray(profile.emphasisWords).map((term) => String(term || "").toLowerCase()),
@@ -158,18 +170,18 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
     output = emphasizeTerms(output, emphasisTerms, 4);
   }
 
-  if (signals.energy === "very_high" || isHighArousal) {
+  if (!precisionMode && (signals.energy === "very_high" || isHighArousal)) {
     output = output.replace(/\.\s+(?=[A-Z])/g, "! ");
     if (output.endsWith(".")) {
       output = `${output.slice(0, -1)}!`;
     }
   }
 
-  if (Number.isFinite(dominance) && dominance > 0.5) {
+  if (!precisionMode && Number.isFinite(dominance) && dominance > 0.5) {
     output = output.replace(/\b(i think|maybe|perhaps)\b/gi, "").replace(/\s{2,}/g, " ");
   }
 
-  if (Number.isFinite(dominance) && dominance < -0.4) {
+  if (!precisionMode && Number.isFinite(dominance) && dominance < -0.4) {
     output = output.replace(/\./g, "...");
   }
 
@@ -177,7 +189,7 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
     .map((item) => String(item || "").trim())
     .filter(Boolean);
 
-  if (notablePhrases.length > 0) {
+  if (!precisionMode && notablePhrases.length > 0) {
     const injectSeed = `${personality.name || "anon"}:${input}`;
     if (shouldInject(injectSeed, 0.3)) {
       const index = Math.floor(hashString(`${injectSeed}:idx`) * notablePhrases.length);
@@ -187,24 +199,16 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
 
   const lowerTraits = asArray(personality.traits).map((item) => String(item || "").toLowerCase());
   const isErratic = lowerTraits.includes("erratic") || lowerTraits.includes("unstable");
-  if (isErratic && shouldInject(`${input}:stutter`, 0.2)) {
+  if (!precisionMode && isErratic && shouldInject(`${input}:stutter`, 0.2)) {
     output = output.replace(/\b([A-Za-z][A-Za-z']{3,})\b/, (word) => `${word[0]}-${word}`);
   }
 
-  if (String(personality.name || "").toLowerCase().includes("rick") && shouldInject(`${input}:rick`, 0.28)) {
+  if (!precisionMode && String(personality.name || "").toLowerCase().includes("rick") && shouldInject(`${input}:rick`, 0.28)) {
     output = output.replace(/\bI\b/g, "I-uh-I");
     output = `[BURP] ${output}`;  // marker stripped in ttsService before reaching TTS engine
   }
 
-  // Strip markdown formatting — bold, italic, action-notation, code spans,
-  // ATX headings — so TTS engines don't verbalize *, _, `, or # as symbols.
-  output = output
-    .replace(/\*\*([^*]+)\*\*/g, "$1")   // **bold** → bold
-    .replace(/\*([^*\n]+)\*/g, "$1")      // *italic* or *action* → word only
-    .replace(/__([^_\n]+)__/g, "$1")      // __bold__ → bold
-    .replace(/_([^_\n]+)_/g, "$1")        // _italic_ → italic
-    .replace(/`[^`\n]+`/g, (m) => m.slice(1, -1)) // `code` → code
-    .replace(/^#{1,6}\s+/gm, "");         // ## Heading → Heading
+  output = stripSpeechMarkup(output);
 
   output = output
     .replace(/\s+([,.!?])/g, "$1")

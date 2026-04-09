@@ -73,4 +73,51 @@ describe("ttsService Piper voice discovery", () => {
       }),
     );
   });
+
+  it("classifies technical turns as precision contexts for TTS stylization", async () => {
+    const { prepareSpeechSynthesis } = await import("../services/ttsService.js");
+
+    const result = prepareSpeechSynthesis({
+      personality: {
+        traits: ["sarcastic", "commanding"],
+        moodState: { arousal: 0.8, dominance: 0.7 },
+        expressionStyle: { energy: "very_high", sentenceStyle: "sharp", rules: ["dry wit"] },
+      },
+      text: "Maybe set PORT=3101 and keep the JSON payload unchanged.",
+      voiceProfile: { rate: 1, pitch: 1 },
+      speechHint: "deployment instructions",
+    });
+
+    expect(result.speechContext).toEqual(
+      expect.objectContaining({
+        category: "precision",
+        styleMode: "precision",
+      }),
+    );
+    expect(result.directedText).toBe("Maybe set PORT=3101 and keep the JSON payload unchanged.");
+    expect(result.prosodyEnvelope.emphasis.count).toBe(0);
+  });
+
+  it("builds identity-preserving fallback voices for Kokoro and cloud", async () => {
+    const { buildFallbackVoiceProfile, getEngineCapabilities } = await import("../services/ttsService.js");
+
+    const personality = { speechStyle: "measured and clear" };
+    const baseProfile = {
+      preferredVoice: "deep mentor",
+      selectedVoiceLabel: "baritone",
+      selectedVoiceSample: { voiceLabel: "baritone", voiceBand: "low", voiceQuality: "clear" },
+    };
+
+    const kokoroProfile = buildFallbackVoiceProfile("kokoro", baseProfile, personality);
+    const cloudProfile = buildFallbackVoiceProfile("cloud", baseProfile, personality);
+
+    expect(kokoroProfile.kokoroVoice).toBe("am_onyx");
+    expect(cloudProfile.providerVoice).toBe("onyx");
+    expect(getEngineCapabilities("piper")).toEqual(
+      expect.objectContaining({
+        textShaping: true,
+        nativeControls: expect.arrayContaining(["lengthScale"]),
+      }),
+    );
+  });
 });

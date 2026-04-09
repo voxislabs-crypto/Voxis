@@ -6,7 +6,12 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
-import { compileProsodyEnvelope, applyProsodyToElevenLabsText, applyProsodyToKokoroText } from "./prosodyCompiler.js";
+import {
+  compileProsodyEnvelope,
+  applyGenericProsodyText,
+  applyProsodyToElevenLabsText,
+  applyProsodyToKokoroText,
+} from "./prosodyCompiler.js";
 import { getTtsCredential } from "../models/settingsModel.js";
 
 const require = createRequire(import.meta.url);
@@ -22,6 +27,44 @@ const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "mp3";
 const DEFAULT_FETCH_TIMEOUT_MS = 9000;
+
+export const TTS_ENGINE_CAPABILITIES = Object.freeze({
+  elevenlabs: Object.freeze({
+    label: "ElevenLabs",
+    nativeControls: ["rate", "style", "stability", "similarityBoost"],
+    textShaping: true,
+    emphasis: true,
+    identityFallback: true,
+  }),
+  cartesia: Object.freeze({
+    label: "Cartesia",
+    nativeControls: [],
+    textShaping: true,
+    emphasis: true,
+    identityFallback: false,
+  }),
+  cloud: Object.freeze({
+    label: "Cloud",
+    nativeControls: ["speed", "instructions"],
+    textShaping: true,
+    emphasis: true,
+    identityFallback: true,
+  }),
+  piper: Object.freeze({
+    label: "Piper",
+    nativeControls: ["lengthScale", "noiseScale", "noiseW"],
+    textShaping: true,
+    emphasis: true,
+    identityFallback: true,
+  }),
+  kokoro: Object.freeze({
+    label: "Kokoro",
+    nativeControls: ["rate", "pauseProfile"],
+    textShaping: true,
+    emphasis: true,
+    identityFallback: true,
+  }),
+});
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -67,6 +110,10 @@ function getCloudConfig() {
     voice: process.env.TTS_DEFAULT_VOICE || DEFAULT_TTS_VOICE,
     format: process.env.TTS_RESPONSE_FORMAT || DEFAULT_TTS_FORMAT,
   };
+}
+
+export function getEngineCapabilities(engine) {
+  return TTS_ENGINE_CAPABILITIES[String(engine || "").trim().toLowerCase()] || null;
 }
 
 function getPiperConfig() {
@@ -257,6 +304,150 @@ function isPiperConfigured(voiceProfile = null) {
   return Boolean(overrideModelPath || modelPath);
 }
 
+function normalizeIdentifier(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, " ");
+}
+
+function inferAccent(identityText) {
+  if (/\bbrit|british|uk|england|bf_|bm_/.test(identityText)) {
+    return "british";
+  }
+  return "american";
+}
+
+function inferPresentation(identityText) {
+  if (/\bfemale|woman|girl|af_|bf_|alto|soprano|nova|shimmer|bella|alice|emma/.test(identityText)) {
+    return "feminine";
+  }
+  if (/\bmale|man|boy|am_|bm_|baritone|tenor|onyx|echo|fable|george/.test(identityText)) {
+    return "masculine";
+  }
+  return "neutral";
+}
+
+function inferRegister(identityText) {
+  if (/\bbass|deep|dark|low|baritone|onyx|fenrir/.test(identityText)) {
+    return "low";
+  }
+  if (/\bbright|light|high|alto|soprano|nova|heart|sky/.test(identityText)) {
+    return "high";
+  }
+  return "mid";
+}
+
+function buildVoiceIdentityProfile(personality = {}, voiceProfile = {}) {
+  const sample = voiceProfile?.selectedVoiceSample && typeof voiceProfile.selectedVoiceSample === "object"
+    ? voiceProfile.selectedVoiceSample
+    : {};
+  const sourceTokens = [
+    voiceProfile.preferredVoice,
+    voiceProfile.providerVoice,
+    voiceProfile.kokoroVoice,
+    voiceProfile.elevenLabsVoiceId,
+    voiceProfile.cartesiaVoiceId,
+    voiceProfile.selectedVoiceLabel,
+    sample.voiceLabel,
+    sample.voiceBand,
+    sample.voiceQuality,
+    personality?.speechStyle,
+  ]
+    .filter(Boolean)
+    .map(normalizeIdentifier)
+    .join(" ");
+
+  return {
+    accent: inferAccent(sourceTokens),
+    presentation: inferPresentation(sourceTokens),
+    register: inferRegister(sourceTokens),
+    sampleLabel: String(voiceProfile?.selectedVoiceLabel || sample.voiceLabel || "").trim(),
+    preferredVoice: String(voiceProfile?.preferredVoice || voiceProfile?.providerVoice || "").trim(),
+  };
+}
+
+function resolveKokoroVoiceForIdentity(identity = {}) {
+  const accentPrefix = identity.accent === "british" ? "b" : "a";
+  const presentationPrefix = identity.presentation === "masculine" ? "m" : "f";
+  const candidates = {
+    af: { low: "af_nicole", mid: "af_heart", high: "af_sky" },
+    am: { low: "am_onyx", mid: "am_michael", high: "am_eric" },
+    bf: { low: "bf_isabella", mid: "bf_alice", high: "bf_lily" },
+    bm: { low: "bm_fable", mid: "bm_george", high: "bm_lewis" },
+  };
+  const family = `${accentPrefix}${presentationPrefix}`;
+  return candidates[family]?.[identity.register || "mid"] || "af_heart";
+}
+
+function resolveCloudVoiceForIdentity(identity = {}) {
+  if (identity.presentation === "masculine") {
+    return identity.register === "low" ? "onyx" : identity.register === "high" ? "echo" : "ash";
+  }
+  if (identity.presentation === "feminine") {
+    return identity.register === "high" ? "shimmer" : identity.register === "low" ? "sage" : "nova";
+  }
+  return identity.register === "low" ? "onyx" : "alloy";
+}
+
+export function buildFallbackVoiceProfile(engine, voiceProfile, personality) {
+  const profile = { ...voiceProfile };
+  const identity = buildVoiceIdentityProfile(personality, voiceProfile);
+
+  if (engine === "kokoro") {
+    profile.kokoroVoice = profile.kokoroVoice || resolveKokoroVoiceForIdentity(identity);
+    profile.providerVoice = profile.providerVoice || identity.preferredVoice || profile.kokoroVoice;
+  }
+
+  if (engine === "cloud") {
+    profile.providerVoice = resolveCloudVoiceForIdentity(identity);
+  }
+
+  return profile;
+}
+
+export function classifySpeechContext({ text = "", speechHint = "", personality = {} } = {}) {
+  const rawText = String(text || "");
+  const hint = String(speechHint || "");
+  const joined = `${rawText}\n${hint}`.toLowerCase();
+  const creativeContext = String(personality?.creativeContext || "default").toLowerCase();
+
+  const precisionSignals = [
+    /```|`[^`]+`/,
+    /https?:\/\//,
+    /\b(api|json|sql|http|https|server|deploy|deployment|port|env|config|nginx|pm2|npm|function|class|return|undefined|null|true|false|endpoint|header|payload|schema)\b/,
+    /\b(step\s+\d+|line\s+\d+|error\s*:\s|warning\s*:\s)\b/,
+  ].some((pattern) => pattern.test(joined));
+
+  const denseDigits = (rawText.match(/\d/g) || []).length >= 4;
+  const performanceSignals = [
+    /\b(perform|performance|verse|chorus|bridge|outro|intro|monologue|dramatic|cinematic|roleplay|narration)\b/,
+    /\b(stage|crowd|scene|spotlight)\b/,
+  ].some((pattern) => pattern.test(joined));
+
+  if ((precisionSignals || denseDigits) && !performanceSignals) {
+    return {
+      category: "precision",
+      styleMode: "precision",
+      preserveLiteralContent: true,
+    };
+  }
+
+  if (performanceSignals || creativeContext !== "default") {
+    return {
+      category: "performance",
+      styleMode: "performance",
+      preserveLiteralContent: false,
+    };
+  }
+
+  return {
+    category: "general",
+    styleMode: "performance",
+    preserveLiteralContent: false,
+  };
+}
+
 function resolveEngine(voiceProfile) {
   const requested = String(voiceProfile?.engine || process.env.TTS_ENGINE || "auto").trim().toLowerCase();
 
@@ -304,12 +495,13 @@ function resolveMood(personality = {}) {
 
 export function prepareSpeechSynthesis({ personality, text, voiceProfile, speechHint }) {
   const mood = resolveMood(personality);
+  const speechContext = classifySpeechContext({ text, speechHint, personality });
 
   // stylizeSpeech may prepend [BURP] markers for Rick-style personas.
   // We strip them here — before TTS sees the text — and return them as sfx
   // metadata so the performance controller can emit sfx events to the frontend.
   const sfx = [];
-  let directedText = stylizeSpeech(text, personality, mood) || String(text || "").trim();
+  let directedText = stylizeSpeech(text, personality, mood, { styleMode: speechContext.styleMode }) || String(text || "").trim();
   directedText = directedText.replace(/\[BURP\]\s*/g, () => { sfx.push("burp"); return ""; }).trim();
 
   const adjustedVoiceProfile = {
@@ -323,6 +515,7 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
     voiceProfile: adjustedVoiceProfile,
     directedText,
     speechHint,
+    speechContext,
   });
 
   adjustedVoiceProfile.rate = Number(prosodyEnvelope.targetRate || adjustedVoiceProfile.rate || 1);
@@ -332,13 +525,24 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
     directedText,
     adjustedVoiceProfile,
     prosodyEnvelope,
+    speechContext,
     sfx,
   };
 }
 
 function prepareEngineInput({ engine, text, voiceProfile, prosodyEnvelope }) {
+  const capabilities = getEngineCapabilities(engine) || {};
   const profile = { ...voiceProfile };
   let synthesisText = text;
+
+  if (capabilities.textShaping && ["cloud", "cartesia", "piper"].includes(engine)) {
+    const providerEnvelope = prosodyEnvelope?.provider?.[engine] || {};
+    synthesisText = applyGenericProsodyText(text, prosodyEnvelope, {
+      phrasing: String(providerEnvelope.phrasing || prosodyEnvelope?.phrasing || "balanced"),
+      pauseSeconds: Number(providerEnvelope.pauseSeconds ?? prosodyEnvelope?.avgPauseSeconds ?? 0.28),
+      emphasisMode: String(providerEnvelope.emphasisMode || "commas"),
+    });
+  }
 
   if (engine === "elevenlabs") {
     const provider = prosodyEnvelope?.provider?.elevenlabs || {};
@@ -352,6 +556,25 @@ function prepareEngineInput({ engine, text, voiceProfile, prosodyEnvelope }) {
   if (engine === "kokoro") {
     synthesisText = applyProsodyToKokoroText(text, prosodyEnvelope);
     profile.rate = Number(prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+  }
+
+  if (engine === "cloud") {
+    const provider = prosodyEnvelope?.provider?.cloud || {};
+    profile.rate = Number(provider.speed ?? prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+    profile.cloudInstructions = String(provider.instructions || "").trim();
+  }
+
+  if (engine === "cartesia") {
+    const provider = prosodyEnvelope?.provider?.cartesia || {};
+    profile.rate = Number(provider.targetRate ?? prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+  }
+
+  if (engine === "piper") {
+    const provider = prosodyEnvelope?.provider?.piper || {};
+    profile.rate = Number(prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+    profile.lengthScale = Number(provider.lengthScale ?? profile.lengthScale ?? 1);
+    profile.noiseScale = Number(provider.noiseScale ?? profile.noiseScale ?? 0.5);
+    profile.noiseW = Number(provider.noiseW ?? profile.noiseW ?? 0.6);
   }
 
   return {
@@ -404,6 +627,7 @@ async function generateCloudSpeechAudio({ personality, text, voiceProfile, speec
       instructions: [
         `Speak as ${personality.name}.`,
         personality.speechStyle || "Maintain the saved character tone.",
+        voiceProfile.cloudInstructions || "",
         speechHint || "",
         personality.researchSummary || "",
       ]
@@ -479,16 +703,25 @@ async function generatePiperSpeechAudio({ text, voiceProfile }) {
   }
 
   const rate = Math.min(1.6, Math.max(0.6, Number(voiceProfile?.rate) || 1));
-  const lengthScale = Math.min(1.6, Math.max(0.55, Number((1 / rate).toFixed(3))));
+  const lengthScale = Math.min(
+    1.6,
+    Math.max(0.55, Number(voiceProfile?.lengthScale ?? (1 / rate).toFixed(3))),
+  );
   args.push("--length_scale", String(lengthScale));
 
   // noise_scale: phoneme energy/expressiveness variance (0–1).
   // noise_w: duration/cadence rhythm variation (0–1).
   // Both are driven from mood arousal so high-energy states sound more alive.
   const arousal = Number(voiceProfile?.moodArousal);
-  if (Number.isFinite(arousal)) {
-    const noiseScale = Math.min(1.0, Math.max(0.2, 0.5 + arousal * 0.4));
-    const noiseW = Math.min(1.0, Math.max(0.3, 0.6 + arousal * 0.3));
+  if (Number.isFinite(arousal) || Number.isFinite(Number(voiceProfile?.noiseScale)) || Number.isFinite(Number(voiceProfile?.noiseW))) {
+    const noiseScale = Math.min(
+      1.0,
+      Math.max(0.2, Number(voiceProfile?.noiseScale ?? (0.5 + (Number.isFinite(arousal) ? arousal * 0.4 : 0)))),
+    );
+    const noiseW = Math.min(
+      1.0,
+      Math.max(0.3, Number(voiceProfile?.noiseW ?? (0.6 + (Number.isFinite(arousal) ? arousal * 0.3 : 0)))),
+    );
     args.push("--noise_scale", noiseScale.toFixed(3));
     args.push("--noise_w", noiseW.toFixed(3));
   }
@@ -743,18 +976,20 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
-  const { directedText, adjustedVoiceProfile, prosodyEnvelope, sfx } = prepareSpeechSynthesis({
+  const { directedText, adjustedVoiceProfile, prosodyEnvelope, speechContext, sfx } = prepareSpeechSynthesis({
     personality,
     text,
     voiceProfile,
     speechHint,
   });
+  const attemptedEngines = [];
 
-  async function runEngine(eng) {
+  async function runEngine(eng, profileOverride = adjustedVoiceProfile) {
+    attemptedEngines.push(eng);
     const { synthesisText, effectiveVoiceProfile } = prepareEngineInput({
       engine: eng,
       text: directedText,
-      voiceProfile: adjustedVoiceProfile,
+      voiceProfile: profileOverride,
       prosodyEnvelope,
     });
 
@@ -779,7 +1014,20 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
   try {
     const audio = await runEngine(engine);
-    return { ...audio, directedText, adjustedVoiceProfile, prosodyEnvelope, sfx };
+    return {
+      ...audio,
+      directedText,
+      adjustedVoiceProfile,
+      prosodyEnvelope,
+      speechContext,
+      telemetry: {
+        requested,
+        chosenEngine: audio.engine || engine,
+        attemptedEngines,
+        fallbackUsed: false,
+      },
+      sfx,
+    };
   } catch (primaryError) {
     // If the engine was explicitly requested, don't silently fall back.
     if (requested !== "auto") throw primaryError;
@@ -789,8 +1037,24 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
     for (const fallbackEngine of fallbackOrder) {
       try {
-        const audio = await runEngine(fallbackEngine);
-        return { ...audio, directedText, adjustedVoiceProfile, prosodyEnvelope, sfx };
+        const fallbackVoiceProfile = buildFallbackVoiceProfile(fallbackEngine, adjustedVoiceProfile, personality);
+        const audio = await runEngine(fallbackEngine, fallbackVoiceProfile);
+        return {
+          ...audio,
+          directedText,
+          adjustedVoiceProfile: fallbackVoiceProfile,
+          prosodyEnvelope,
+          speechContext,
+          telemetry: {
+            requested,
+            chosenEngine: audio.engine || fallbackEngine,
+            attemptedEngines,
+            fallbackUsed: true,
+            fallbackFrom: engine,
+            fallbackReason: primaryError.message || "Primary engine failed.",
+          },
+          sfx,
+        };
       } catch {
         // Continue to next fallback.
       }
@@ -856,11 +1120,28 @@ export function listProviderStatus() {
       installed: isKokoroPackageInstalled(),
       loaded: Boolean(_kokoroTts),
       requiresSetup: false,
+      capabilities: getEngineCapabilities("kokoro"),
     },
-    elevenlabs: { available: isElevenLabsConfigured(), requiresEnv: "ELEVENLABS_API_KEY or Settings -> TTS" },
-    cartesia: { available: isCartesiaConfigured(), requiresEnv: "CARTESIA_API_KEY or Settings -> TTS" },
-    piper: { available: isPiperConfigured(), requiresEnv: "PIPER_MODEL_PATH" },
-    cloud: { available: isCloudConfigured(), requiresEnv: "TTS_API_KEY or LLM_API_KEY" },
+    elevenlabs: {
+      available: isElevenLabsConfigured(),
+      requiresEnv: "ELEVENLABS_API_KEY or Settings -> TTS",
+      capabilities: getEngineCapabilities("elevenlabs"),
+    },
+    cartesia: {
+      available: isCartesiaConfigured(),
+      requiresEnv: "CARTESIA_API_KEY or Settings -> TTS",
+      capabilities: getEngineCapabilities("cartesia"),
+    },
+    piper: {
+      available: isPiperConfigured(),
+      requiresEnv: "PIPER_MODEL_PATH",
+      capabilities: getEngineCapabilities("piper"),
+    },
+    cloud: {
+      available: isCloudConfigured(),
+      requiresEnv: "TTS_API_KEY or LLM_API_KEY",
+      capabilities: getEngineCapabilities("cloud"),
+    },
   };
 }
 

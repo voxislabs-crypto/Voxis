@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyGenericProsodyText,
   compileProsodyEnvelope,
   applyProsodyToElevenLabsText,
   applyProsodyToKokoroText,
@@ -28,6 +29,9 @@ describe("prosodyCompiler", () => {
     expect(envelope.provider.elevenlabs.stability).toBeLessThan(0.6);
     expect(envelope.confidence).toBeGreaterThan(0.4);
     expect(envelope.emphasis.count).toBeGreaterThan(0);
+    expect(envelope.provider.cloud.speed).toBeGreaterThan(1);
+    expect(envelope.provider.piper.lengthScale).toBeLessThan(1);
+    expect(envelope.provider.cartesia.phrasing).toBe(envelope.phrasing);
   });
 
   it("applies emphasis shaping to ElevenLabs text without empty output", () => {
@@ -50,5 +54,15 @@ describe("prosodyCompiler", () => {
     expect(result.length).toBeGreaterThan(0);
     expect(result.includes("..." )).toBe(true);
     expect(result).toContain("CAREFULLY");
+  });
+
+  it("keeps generic engine text literal in precision contexts", () => {
+    const result = applyGenericProsodyText("Maybe keep the JSON payload unchanged.", {
+      phrasing: "bursty",
+      emphasis: { words: [{ term: "payload", strength: 0.8 }] },
+      source: { styleMode: "precision" },
+    });
+
+    expect(result).toBe("Maybe keep the JSON payload unchanged.");
   });
 });

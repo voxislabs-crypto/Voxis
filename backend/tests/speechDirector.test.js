@@ -57,4 +57,19 @@ describe("speechDirector stylizeSpeech", () => {
 
     expect(result).toBe("I understand what you mean...");
   });
+
+  it("preserves literal hedging and technical phrasing in precision mode", () => {
+    const result = stylizeSpeech(
+      "Maybe set PORT=3101 and keep the JSON payload unchanged.",
+      {
+        traits: ["commanding", "sarcastic"],
+        moodState: { arousal: 0.8, dominance: 0.7 },
+        expressionStyle: { energy: "very_high", sentenceStyle: "sharp", rules: ["dry wit"] },
+      },
+      null,
+      { styleMode: "precision" },
+    );
+
+    expect(result).toBe("Maybe set PORT=3101 and keep the JSON payload unchanged.");
+  });
 });

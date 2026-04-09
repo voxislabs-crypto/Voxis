@@ -159,6 +159,9 @@ What this demonstrates in minutes:
 - Villain, anti-hero, and morally complex characters get dedicated prompt framing with dual-layer internal/external voice and context-specific reconditioning.
 - The runtime prompt package now includes dedicated sections for Big Five register, optional moral compass overlay, and expression style while preserving memory, mood, and active intent orchestration.
 - TTS now includes a Speech Director layer that reshapes outgoing text cadence using personality and live VAD mood before synthesis, so cadence/rhythm cues propagate into every engine path.
+- TTS engine capability mapping now advertises which providers can honor native rate/style controls versus text-shaping-only degradation paths, so cross-engine behavior stays predictable.
+- Auto TTS fallback now preserves voice family hints across engines, carrying the closest matching register/presentation into Kokoro or cloud fallback instead of dropping to a generic default voice.
+- Precision-aware TTS guardrails now preserve technical/factual wording, hedging, and literal phrasing on deployment/config/debug style turns while leaving expressive stylization active for performance and roleplay contexts.
 - Server-side voice output supports OpenAI-compatible cloud TTS plus Piper, Kokoro, ElevenLabs (BYOK), and Cartesia (BYOK) with per-character voice settings.
 - Existing SFX markers (for example `[BURP]`) are extracted before synthesis and emitted as metadata, so voice engine changes do not break the current sound-effects chain.
 - Neural Core now reflects alignment overlays in real time with moral tint bias and a visible alignment status badge.
@@ -828,10 +831,18 @@ Initial engine-first adapter rollout now prioritizes your primary targets:
 
 - `elevenlabs`: envelope maps into runtime `style`, `stability`, and target speaking rate
 - `elevenlabs`: word-level emphasis cues are now compiled and applied as provider-aware text shaping before synthesis
+- `cloud`: envelope now maps into runtime speed plus instruction shaping, with literal-content preservation in precision contexts
+- `cartesia`: envelope now applies pacing-aware text shaping so prosody degrades gracefully even without provider-native controls exposed in the current path
+- `piper`: envelope now maps into `length_scale`, `noise_scale`, and `noise_w`
 - `kokoro`: envelope maps into text timing/phrasing shaping before synthesis
 - `kokoro`: word-level emphasis cues are also applied in the pre-synthesis text shaping pass
 
 Voice Lab sample previews now include this compiled prosody telemetry (`phrasing`, `intensity`, `confidence`, `emphasis`) so you can inspect how the persona speech intent is being compiled per request.
+
+Stylization guardrails:
+
+- Precision/factual turns (for example config, deploy, API, code, or error-copy text) stay close to literal wording so TTS does not delete hedges or over-dramatize technical instructions.
+- Performance and roleplay contexts keep the more expressive punctuation, phrasing, and emphasis shaping.
 
 Engine resolution:
 
@@ -840,7 +851,9 @@ Engine resolution:
 - `engine: "kokoro"` -> local Kokoro synthesis via `kokoro-js`
 - `engine: "elevenlabs"` -> ElevenLabs API synthesis
 - `engine: "cartesia"` -> Cartesia API synthesis
-- `engine: "auto"` -> cloud -> piper -> kokoro fallback chain
+- `engine: "auto"` -> elevenlabs -> cartesia -> cloud -> piper -> kokoro fallback chain
+
+When auto fallback is triggered, Voxis now attempts to preserve voice identity by carrying normalized voice-family hints (for example register/presentation/sample label) into the next engine instead of resetting to a generic default.
 
 `voiceProfile` supports `engine`, `providerModel`, `providerVoice`, `pitch`, `rate`, Piper-specific `piperModelPath`/`piperSpeaker`, Kokoro `kokoroVoice`, ElevenLabs settings (`elevenLabsVoiceId`, `elevenLabsModel`, `stability`, `similarityBoost`, `style`), and Cartesia settings (`cartesiaVoiceId`, `cartesiaModel`). The audio buffer is streamed back to the frontend and played automatically if `voiceAutoplay` is enabled.
 
@@ -859,7 +872,7 @@ Kokoro warm cache behavior:
 Health and diagnostics:
 
 - `GET /health` confirms the backend process is alive.
-- `GET /health/tts` reports TTS engine status so you can see which engines are installed, configured, and loaded.
+- `GET /health/tts` reports TTS engine status so you can see which engines are installed, configured, loaded, and what capability set each engine currently exposes.
 - The frontend `Connectivity Diagnostics` panel calls these health endpoints plus `/me` and `/personalities` to separate auth failures from upstream/process failures.
 
 In Voice Lab, `Sample Transmission Text` now displays the directed preview line returned by the backend after Speech Director + mood voice modulation are applied, making it easier to validate how the saved character will actually perform before using live chat playback.
