@@ -264,7 +264,7 @@ function getContentType(format) {
   }
 }
 
-async function generateCloudSpeechAudio({ personality, text, voiceProfile }) {
+async function generateCloudSpeechAudio({ personality, text, voiceProfile, speechHint }) {
   const config = getCloudConfig();
 
   if (!isCloudConfigured()) {
@@ -290,6 +290,7 @@ async function generateCloudSpeechAudio({ personality, text, voiceProfile }) {
       instructions: [
         `Speak as ${personality.name}.`,
         personality.speechStyle || "Maintain the saved character tone.",
+        speechHint || "",
         personality.researchSummary || "",
       ]
         .filter(Boolean)
@@ -385,7 +386,7 @@ async function generatePiperSpeechAudio({ text, voiceProfile }) {
   }
 }
 
-export async function generateSpeechAudio({ personality, text, voiceProfile }) {
+export async function generateSpeechAudio({ personality, text, voiceProfile, speechHint }) {
   if (!isTtsConfigured(voiceProfile)) {
     const error = new Error(
       "No TTS engine is configured. Configure Cloud TTS (TTS_API_KEY/TTS_BASE_URL) or Piper (PIPER_MODEL_PATH).",
@@ -418,6 +419,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile }) {
       if (isCloudConfigured()) {
         const audio = await generateCloudSpeechAudio({
           personality,
+          speechHint,
           text: directedText,
           voiceProfile: adjustedVoiceProfile,
         });
@@ -434,6 +436,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile }) {
 
   const audio = await generateCloudSpeechAudio({
     personality,
+    speechHint,
     text: directedText,
     voiceProfile: adjustedVoiceProfile,
   });

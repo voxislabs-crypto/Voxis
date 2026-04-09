@@ -134,7 +134,12 @@ export async function performanceHandler(req, res, next) {
         totalLines++;
 
         try {
-          const audio = await generateSpeechAudio({ personality, text: line, voiceProfile });
+          const audio = await generateSpeechAudio({
+            personality,
+            text: line,
+            voiceProfile,
+            speechHint: segment.audioDirection || null,
+          });
           send({
             type: "audio",
             segmentId: segment.id,

@@ -196,6 +196,16 @@ export function stylizeSpeech(rawText, personality = {}, moodOverride = null) {
     output = `*burp* ${output}`;
   }
 
+  // Strip markdown formatting — bold, italic, action-notation, code spans,
+  // ATX headings — so TTS engines don't verbalize *, _, `, or # as symbols.
+  output = output
+    .replace(/\*\*([^*]+)\*\*/g, "$1")   // **bold** → bold
+    .replace(/\*([^*\n]+)\*/g, "$1")      // *italic* or *action* → word only
+    .replace(/__([^_\n]+)__/g, "$1")      // __bold__ → bold
+    .replace(/_([^_\n]+)_/g, "$1")        // _italic_ → italic
+    .replace(/`[^`\n]+`/g, (m) => m.slice(1, -1)) // `code` → code
+    .replace(/^#{1,6}\s+/gm, "");         // ## Heading → Heading
+
   output = output
     .replace(/\s+([,.!?])/g, "$1")
     .replace(/\.{4,}/g, "...")
