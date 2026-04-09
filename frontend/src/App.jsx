@@ -11,6 +11,7 @@ import MemoryJournal from "./components/MemoryJournal.jsx";
 import PersonaEditor from "./components/PersonaEditor.jsx";
 import HarnessReport from "./components/HarnessReport.jsx";
 import LlmSettingsPanel from "./components/LlmSettingsPanel.jsx";
+import ApiDiagnosticsPanel from "./components/ApiDiagnosticsPanel.jsx";
 import { PersonaStateProvider } from "./state/PersonaStateContext.jsx";
 
 const appStyles = `
@@ -2259,6 +2260,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  <ApiDiagnosticsPanel onStatus={setStatus} />
                   <LlmSettingsPanel onStatus={setStatus} />
                 </>
               ) : (
