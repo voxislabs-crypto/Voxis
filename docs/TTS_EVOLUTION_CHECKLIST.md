@@ -26,29 +26,29 @@ Move from "styled text + TTS" to "personality speech rendering" where cadence, r
 
 ## Sprint B - Prosody Compiler (Core Unlock)
 
-- [ ] Introduce compile step between speech stylization and engine synthesis.
-- [ ] Compiler input should include:
-  - [ ] personality
-  - [ ] mood state
-  - [ ] speech hint / segment direction
-  - [ ] prosody template
-  - [ ] voice sample analysis
-- [ ] Compiler output envelope should include:
-  - [ ] target rate
-  - [ ] pause profile
-  - [ ] phrasing style
+- [x] Introduce compile step between speech stylization and engine synthesis.
+- [x] Compiler input should include:
+  - [x] personality
+  - [x] mood state
+  - [x] speech hint / segment direction
+  - [x] prosody template
+  - [x] voice sample analysis
+- [x] Compiler output envelope should include:
+  - [x] target rate
+  - [x] pause profile
+  - [x] phrasing style
   - [ ] emphasis profile
-  - [ ] intensity
-  - [ ] confidence score
-- [ ] Add safe fallback envelope when prosody data is missing.
+  - [x] intensity
+  - [x] confidence score
+- [x] Add safe fallback envelope when prosody data is missing.
 
 ## Sprint C - Engine Adapters
 
-- [ ] ElevenLabs adapter: map envelope to speed/stability/style.
+- [x] ElevenLabs adapter: map envelope to speed/stability/style.
 - [ ] Cartesia adapter: map envelope to pacing/timbre controls.
 - [ ] Cloud adapter: map envelope to speed + instruction shaping.
 - [ ] Piper adapter: map envelope to length_scale/noise/noise_w.
-- [ ] Kokoro adapter: map envelope to voice/timing strategy.
+- [x] Kokoro adapter: map envelope to voice/timing strategy.
 - [ ] Add capability map so unsupported controls degrade gracefully.
 
 ## Sprint D - Semantic Safety for Stylization

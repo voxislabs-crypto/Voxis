@@ -820,6 +820,17 @@ Current runtime flow:
 
 `LLM reply -> speechDirector.stylizeSpeech -> moodVoice.applyMoodToVoice -> selected TTS engine -> audio response`
 
+Prosody compiler flow (new):
+
+`stylized text + mood + prosodyTemplate + voiceSampleAnalysis + speechHint -> prosody envelope -> engine adapter -> synthesis`
+
+Initial engine-first adapter rollout now prioritizes your primary targets:
+
+- `elevenlabs`: envelope maps into runtime `style`, `stability`, and target speaking rate
+- `kokoro`: envelope maps into text timing/phrasing shaping before synthesis
+
+Voice Lab sample previews now include this compiled prosody telemetry (`phrasing`, `intensity`, `confidence`) so you can inspect how the persona speech intent is being compiled per request.
+
 Engine resolution:
 
 - `engine: "cloud"` -> OpenAI-compatible `/audio/speech`

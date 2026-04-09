@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
+import { compileProsodyEnvelope, applyProsodyToKokoroText } from "./prosodyCompiler.js";
 import { getTtsCredential } from "../models/settingsModel.js";
 
 const require = createRequire(import.meta.url);
@@ -301,7 +302,7 @@ function resolveMood(personality = {}) {
   return {};
 }
 
-export function prepareSpeechSynthesis({ personality, text, voiceProfile }) {
+export function prepareSpeechSynthesis({ personality, text, voiceProfile, speechHint }) {
   const mood = resolveMood(personality);
 
   // stylizeSpeech may prepend [BURP] markers for Rick-style personas.
@@ -316,11 +317,45 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile }) {
     moodArousal: Number.isFinite(Number(mood?.arousal)) ? Number(mood.arousal) : undefined,
   };
 
+  const prosodyEnvelope = compileProsodyEnvelope({
+    personality,
+    mood,
+    voiceProfile: adjustedVoiceProfile,
+    directedText,
+    speechHint,
+  });
+
+  adjustedVoiceProfile.rate = Number(prosodyEnvelope.targetRate || adjustedVoiceProfile.rate || 1);
+
   return {
     mood,
     directedText,
     adjustedVoiceProfile,
+    prosodyEnvelope,
     sfx,
+  };
+}
+
+function prepareEngineInput({ engine, text, voiceProfile, prosodyEnvelope }) {
+  const profile = { ...voiceProfile };
+  let synthesisText = text;
+
+  if (engine === "elevenlabs") {
+    const provider = prosodyEnvelope?.provider?.elevenlabs || {};
+    profile.stability = Number(provider.stability ?? profile.stability ?? 0.5);
+    profile.style = Number(provider.style ?? profile.style ?? 0.5);
+    profile.similarityBoost = Number(provider.similarityBoost ?? profile.similarityBoost ?? 0.75);
+    profile.rate = Number(prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+  }
+
+  if (engine === "kokoro") {
+    synthesisText = applyProsodyToKokoroText(text, prosodyEnvelope);
+    profile.rate = Number(prosodyEnvelope?.targetRate ?? profile.rate ?? 1);
+  }
+
+  return {
+    synthesisText,
+    effectiveVoiceProfile: profile,
   };
 }
 
@@ -707,35 +742,43 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
   const requested = String(voiceProfile?.engine || "auto").trim().toLowerCase();
   const engine = resolveEngine(voiceProfile);
-  const { directedText, adjustedVoiceProfile, sfx } = prepareSpeechSynthesis({
+  const { directedText, adjustedVoiceProfile, prosodyEnvelope, sfx } = prepareSpeechSynthesis({
     personality,
     text,
     voiceProfile,
+    speechHint,
   });
 
   async function runEngine(eng) {
+    const { synthesisText, effectiveVoiceProfile } = prepareEngineInput({
+      engine: eng,
+      text: directedText,
+      voiceProfile: adjustedVoiceProfile,
+      prosodyEnvelope,
+    });
+
     switch (eng) {
       case "kokoro":
-        return generateKokoroSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+        return generateKokoroSpeechAudio({ text: synthesisText, voiceProfile: effectiveVoiceProfile });
       case "elevenlabs":
-        return generateElevenLabsSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+        return generateElevenLabsSpeechAudio({ text: synthesisText, voiceProfile: effectiveVoiceProfile });
       case "cartesia":
-        return generateCartesiaSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+        return generateCartesiaSpeechAudio({ text: synthesisText, voiceProfile: effectiveVoiceProfile });
       case "piper":
-        return generatePiperSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+        return generatePiperSpeechAudio({ text: synthesisText, voiceProfile: effectiveVoiceProfile });
       default:
         return generateCloudSpeechAudio({
           personality,
           speechHint,
-          text: directedText,
-          voiceProfile: adjustedVoiceProfile,
+          text: synthesisText,
+          voiceProfile: effectiveVoiceProfile,
         });
     }
   }
 
   try {
     const audio = await runEngine(engine);
-    return { ...audio, directedText, adjustedVoiceProfile, sfx };
+    return { ...audio, directedText, adjustedVoiceProfile, prosodyEnvelope, sfx };
   } catch (primaryError) {
     // If the engine was explicitly requested, don't silently fall back.
     if (requested !== "auto") throw primaryError;
@@ -746,7 +789,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     for (const fallbackEngine of fallbackOrder) {
       try {
         const audio = await runEngine(fallbackEngine);
-        return { ...audio, directedText, adjustedVoiceProfile, sfx };
+        return { ...audio, directedText, adjustedVoiceProfile, prosodyEnvelope, sfx };
       } catch {
         // Continue to next fallback.
       }

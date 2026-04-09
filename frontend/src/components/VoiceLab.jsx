@@ -1247,7 +1247,9 @@ export default function VoiceLab({
       const directedHeader = response.headers.get("X-Voxis-Directed-Text");
       const engineHeader = response.headers.get("X-Voxis-Tts-Engine");
       const adjustedVoiceHeader = response.headers.get("X-Voxis-Adjusted-Voice");
+      const prosodyHeader = response.headers.get("X-Voxis-Prosody");
       let adjustedVoice = null;
+      let prosodyEnvelope = null;
 
       if (adjustedVoiceHeader) {
         try {
@@ -1257,10 +1259,19 @@ export default function VoiceLab({
         }
       }
 
+      if (prosodyHeader) {
+        try {
+          prosodyEnvelope = JSON.parse(decodeURIComponent(prosodyHeader));
+        } catch {
+          prosodyEnvelope = null;
+        }
+      }
+
       setDirectedPreview(directedHeader ? decodeURIComponent(directedHeader) : text);
       setPreviewTelemetry({
         engine: engineHeader || voiceProfile.engine || "auto",
         adjustedVoice,
+        prosodyEnvelope,
       });
 
       const blob = await response.blob();
@@ -1920,6 +1931,14 @@ export default function VoiceLab({
                       | Engine: {String(previewTelemetry.engine || "auto").toUpperCase()} | Rate:
                       {` ${Number(previewTelemetry.adjustedVoice.rate ?? voiceProfile.rate).toFixed(2)}x`} | Pitch:
                       {` ${Number(previewTelemetry.adjustedVoice.pitch ?? voiceProfile.pitch).toFixed(2)}x`}
+                    </>
+                  ) : null}
+                  {previewTelemetry?.prosodyEnvelope ? (
+                    <>
+                      {" "}
+                      | Phrasing: {String(previewTelemetry.prosodyEnvelope.phrasing || "balanced")} | Intensity:
+                      {` ${Number(previewTelemetry.prosodyEnvelope.intensity ?? 0.5).toFixed(2)}`} | Confidence:
+                      {` ${Number(previewTelemetry.prosodyEnvelope.confidence ?? 0).toFixed(2)}`}
                     </>
                   ) : null}
                 </div>

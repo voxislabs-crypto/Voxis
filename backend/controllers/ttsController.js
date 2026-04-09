@@ -81,6 +81,10 @@ export async function generateSpeechHandler(req, res, next) {
       "X-Voxis-Adjusted-Voice",
       encodeURIComponent(JSON.stringify(audio.adjustedVoiceProfile || voiceProfile)),
     );
+    res.setHeader(
+      "X-Voxis-Prosody",
+      encodeURIComponent(JSON.stringify(audio.prosodyEnvelope || {})),
+    );
     return res.send(audio.buffer);
   } catch (error) {
     return next(error);

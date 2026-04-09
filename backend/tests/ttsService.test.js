@@ -58,11 +58,19 @@ describe("ttsService Piper voice discovery", () => {
       },
       text: "Yeah, genius, that is exactly what I said.",
       voiceProfile: { rate: 1, pitch: 1 },
+      speechHint: "rapid and sharp delivery",
     });
 
     expect(result.directedText).toContain("GENIUS");
     expect(result.directedText.endsWith("!")).toBe(true);
     expect(result.adjustedVoiceProfile.rate).toBeGreaterThan(1);
     expect(result.adjustedVoiceProfile.pitch).toBeLessThan(1);
+    expect(result.prosodyEnvelope).toEqual(
+      expect.objectContaining({
+        phrasing: expect.any(String),
+        intensity: expect.any(Number),
+        confidence: expect.any(Number),
+      }),
+    );
   });
 });
