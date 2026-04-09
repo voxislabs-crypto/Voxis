@@ -1,5 +1,11 @@
 import { getPersonalityById } from "../models/personalityModel.js";
-import { generateSpeechAudio, isTtsConfigured, listPiperVoiceOptions } from "../services/ttsService.js";
+import {
+  generateSpeechAudio,
+  isTtsConfigured,
+  listPiperVoiceOptions,
+  listKokoroVoices,
+  listProviderStatus,
+} from "../services/ttsService.js";
 
 function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   const source = input && typeof input === "object" ? input : fallbackProfile;
@@ -8,7 +14,7 @@ function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   return {
     enabled: source.enabled !== false,
     autoplay: Boolean(source.autoplay),
-    engine: ["auto", "cloud", "openai", "piper"].includes(engine)
+    engine: ["auto", "cloud", "openai", "piper", "kokoro", "elevenlabs", "cartesia"].includes(engine)
       ? engine === "openai"
         ? "cloud"
         : engine
@@ -20,6 +26,17 @@ function sanitizeVoiceProfile(input, fallbackProfile = {}) {
     providerModel: String(source.providerModel || "gpt-4o-mini-tts").trim(),
     piperModelPath: String(source.piperModelPath || "").trim(),
     piperSpeaker: Number.isFinite(piperSpeaker) && piperSpeaker >= 0 ? Math.floor(piperSpeaker) : null,
+    // Kokoro
+    kokoroVoice: String(source.kokoroVoice || fallbackProfile.kokoroVoice || "af_heart").trim(),
+    // ElevenLabs
+    elevenLabsVoiceId: String(source.elevenLabsVoiceId || fallbackProfile.elevenLabsVoiceId || "").trim(),
+    elevenLabsModel: String(source.elevenLabsModel || fallbackProfile.elevenLabsModel || "eleven_multilingual_v2").trim(),
+    stability: Math.min(1, Math.max(0, Number(source.stability ?? fallbackProfile.stability ?? 0.5))),
+    similarityBoost: Math.min(1, Math.max(0, Number(source.similarityBoost ?? fallbackProfile.similarityBoost ?? 0.75))),
+    style: Math.min(1, Math.max(0, Number(source.style ?? fallbackProfile.style ?? 0.5))),
+    // Cartesia
+    cartesiaVoiceId: String(source.cartesiaVoiceId || fallbackProfile.cartesiaVoiceId || "").trim(),
+    cartesiaModel: String(source.cartesiaModel || fallbackProfile.cartesiaModel || "sonic-2").trim(),
   };
 }
 
@@ -30,6 +47,14 @@ export async function listPiperVoicesHandler(req, res, next) {
   } catch (error) {
     return next(error);
   }
+}
+
+export function listKokoroVoicesHandler(req, res) {
+  return res.json(listKokoroVoices());
+}
+
+export function listProviderStatusHandler(req, res) {
+  return res.json(listProviderStatus());
 }
 
 export async function generateSpeechHandler(req, res, next) {

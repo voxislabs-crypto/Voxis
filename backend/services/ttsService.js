@@ -5,6 +5,11 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { stylizeSpeech } from "./speechDirector.js";
 import { applyMoodToVoice } from "./moodVoice.js";
+import { KokoroTTS } from "kokoro-js";
+
+// Kokoro — lazy-loaded singleton. Model (~171 MB for q8) downloads from HuggingFace on first use.
+let _kokoroTts = null;
+let _kokoroInitPromise = null;
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
@@ -205,23 +210,26 @@ function isPiperConfigured(voiceProfile = null) {
 function resolveEngine(voiceProfile) {
   const requested = String(voiceProfile?.engine || process.env.TTS_ENGINE || "auto").trim().toLowerCase();
 
-  if (requested === "piper") {
-    return "piper";
-  }
+  if (requested === "kokoro") return "kokoro";
+  if (requested === "elevenlabs") return "elevenlabs";
+  if (requested === "cartesia") return "cartesia";
+  if (requested === "piper") return "piper";
+  if (requested === "cloud" || requested === "openai") return "cloud";
 
-  if (requested === "cloud" || requested === "openai") {
-    return "cloud";
-  }
-
-  if (isPiperConfigured(voiceProfile)) {
-    return "piper";
-  }
-
-  return "cloud";
+  // Auto: preserve backward-compat order (cloud → piper), then Kokoro as built-in fallback.
+  if (isCloudConfigured()) return "cloud";
+  if (isPiperConfigured(voiceProfile)) return "piper";
+  return "kokoro";
 }
 
 export function isTtsConfigured(voiceProfile = null) {
-  return isCloudConfigured() || isPiperConfigured(voiceProfile);
+  return (
+    isCloudConfigured() ||
+    isPiperConfigured(voiceProfile) ||
+    isElevenLabsConfigured() ||
+    isCartesiaConfigured() ||
+    isKokoroAvailable()
+  );
 }
 
 function resolveMood(personality = {}) {
@@ -246,10 +254,15 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile }) {
   let directedText = stylizeSpeech(text, personality, mood) || String(text || "").trim();
   directedText = directedText.replace(/\[BURP\]\s*/g, () => { sfx.push("burp"); return ""; }).trim();
 
+  const adjustedVoiceProfile = {
+    ...applyMoodToVoice(voiceProfile, mood),
+    moodArousal: Number.isFinite(Number(mood?.arousal)) ? Number(mood.arousal) : undefined,
+  };
+
   return {
     mood,
     directedText,
-    adjustedVoiceProfile: applyMoodToVoice(voiceProfile, mood),
+    adjustedVoiceProfile,
     sfx,
   };
 }
@@ -376,6 +389,17 @@ async function generatePiperSpeechAudio({ text, voiceProfile }) {
   const lengthScale = Math.min(1.6, Math.max(0.55, Number((1 / rate).toFixed(3))));
   args.push("--length_scale", String(lengthScale));
 
+  // noise_scale: phoneme energy/expressiveness variance (0–1).
+  // noise_w: duration/cadence rhythm variation (0–1).
+  // Both are driven from mood arousal so high-energy states sound more alive.
+  const arousal = Number(voiceProfile?.moodArousal);
+  if (Number.isFinite(arousal)) {
+    const noiseScale = Math.min(1.0, Math.max(0.2, 0.5 + arousal * 0.4));
+    const noiseW = Math.min(1.0, Math.max(0.3, 0.6 + arousal * 0.3));
+    args.push("--noise_scale", noiseScale.toFixed(3));
+    args.push("--noise_w", noiseW.toFixed(3));
+  }
+
   try {
     await runPiper({ command: config.command, args, text });
     const buffer = await fs.readFile(tmpFile);
@@ -394,10 +418,171 @@ async function generatePiperSpeechAudio({ text, voiceProfile }) {
   }
 }
 
+// === KOKORO TTS ===
+
+function getKokoroConfig() {
+  return {
+    voice: process.env.KOKORO_DEFAULT_VOICE || "af_heart",
+    dtype: process.env.KOKORO_DTYPE || "q8",
+  };
+}
+
+function isKokoroAvailable() {
+  return true;
+}
+
+async function loadKokoroTts() {
+  if (_kokoroTts) return _kokoroTts;
+  if (_kokoroInitPromise) return _kokoroInitPromise;
+  _kokoroInitPromise = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0", {
+    dtype: getKokoroConfig().dtype,
+  }).then((tts) => {
+    _kokoroTts = tts;
+    _kokoroInitPromise = null;
+    return tts;
+  });
+  return _kokoroInitPromise;
+}
+
+async function generateKokoroSpeechAudio({ text, voiceProfile }) {
+  const config = getKokoroConfig();
+  const voice = String(voiceProfile?.kokoroVoice || voiceProfile?.providerVoice || config.voice).trim();
+  const tmpFile = path.join(os.tmpdir(), `voxis-kokoro-${randomUUID()}.wav`);
+  try {
+    const tts = await loadKokoroTts();
+    const audio = await tts.generate(text, { voice });
+    await audio.save(tmpFile);
+    const buffer = await fs.readFile(tmpFile);
+    return { buffer, contentType: "audio/wav", engine: "kokoro" };
+  } catch (error) {
+    const wrapped = new Error(`Kokoro TTS failed: ${error.message || error}`);
+    wrapped.statusCode = 502;
+    throw wrapped;
+  } finally {
+    await fs.unlink(tmpFile).catch(() => {});
+  }
+}
+
+// === ELEVENLABS TTS ===
+
+function getElevenLabsConfig() {
+  return {
+    apiKey: process.env.ELEVENLABS_API_KEY || "",
+    // Default: "Rachel" — browse voices at https://elevenlabs.io/voice-library
+    voiceId: process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
+    model: process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
+  };
+}
+
+function isElevenLabsConfigured() {
+  return Boolean(getElevenLabsConfig().apiKey);
+}
+
+async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
+  const config = getElevenLabsConfig();
+  const voiceId = String(voiceProfile?.elevenLabsVoiceId || config.voiceId).trim();
+  const model = String(voiceProfile?.elevenLabsModel || config.model).trim();
+
+  if (!config.apiKey) {
+    const error = new Error("ElevenLabs TTS requires ELEVENLABS_API_KEY to be set.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const stability = Math.min(1, Math.max(0, Number(voiceProfile?.stability ?? 0.5)));
+  const similarityBoost = Math.min(1, Math.max(0, Number(voiceProfile?.similarityBoost ?? 0.75)));
+  const style = Math.min(1, Math.max(0, Number(voiceProfile?.style ?? 0.5)));
+
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": config.apiKey,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: model,
+        voice_settings: {
+          stability,
+          similarity_boost: similarityBoost,
+          style,
+          use_speaker_boost: true,
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => response.statusText);
+    const error = new Error(`ElevenLabs TTS failed with ${response.status}: ${errText}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType: "audio/mpeg", engine: "elevenlabs" };
+}
+
+// === CARTESIA TTS ===
+// Pricing: ~$0.65/million chars (Sonic-2). Free tier + API key at https://cartesia.ai
+
+function getCartesiaConfig() {
+  return {
+    apiKey: process.env.CARTESIA_API_KEY || "",
+    // Pick a voice ID from https://play.cartesia.ai/voices
+    voiceId: process.env.CARTESIA_VOICE_ID || "a0e99841-438c-4a64-b679-ae501e7d6091",
+    model: process.env.CARTESIA_MODEL || "sonic-2",
+  };
+}
+
+function isCartesiaConfigured() {
+  return Boolean(getCartesiaConfig().apiKey);
+}
+
+async function generateCartesiaSpeechAudio({ text, voiceProfile }) {
+  const config = getCartesiaConfig();
+  const voiceId = String(voiceProfile?.cartesiaVoiceId || config.voiceId).trim();
+  const model = String(voiceProfile?.cartesiaModel || config.model).trim();
+
+  if (!config.apiKey) {
+    const error = new Error("Cartesia TTS requires CARTESIA_API_KEY to be set.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const response = await fetch("https://api.cartesia.ai/tts/bytes", {
+    method: "POST",
+    headers: {
+      "X-API-Key": config.apiKey,
+      "Cartesia-Version": "2024-06-10",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      transcript: text,
+      model_id: model,
+      voice: { mode: "id", id: voiceId },
+      output_format: { container: "mp3", bit_rate: 128000, sample_rate: 44100 },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => response.statusText);
+    const error = new Error(`Cartesia TTS failed with ${response.status}: ${errText}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType: "audio/mpeg", engine: "cartesia" };
+}
+
 export async function generateSpeechAudio({ personality, text, voiceProfile, speechHint }) {
   if (!isTtsConfigured(voiceProfile)) {
     const error = new Error(
-      "No TTS engine is configured. Configure Cloud TTS (TTS_API_KEY/TTS_BASE_URL) or Piper (PIPER_MODEL_PATH).",
+      "No TTS engine is configured. Set TTS_API_KEY (cloud), PIPER_MODEL_PATH (piper), ELEVENLABS_API_KEY, or CARTESIA_API_KEY. Kokoro is always available as a built-in fallback.",
     );
     error.statusCode = 500;
     throw error;
@@ -411,49 +596,109 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     voiceProfile,
   });
 
-  if (engine === "piper") {
-    try {
-      const audio = await generatePiperSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
-      return {
-        ...audio,
-        directedText,
-        adjustedVoiceProfile,
-        sfx,
-      };
-    } catch (error) {
-      if (requested === "piper") {
-        throw error;
-      }
-
-      if (isCloudConfigured()) {
-        const audio = await generateCloudSpeechAudio({
+  async function runEngine(eng) {
+    switch (eng) {
+      case "kokoro":
+        return generateKokoroSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+      case "elevenlabs":
+        return generateElevenLabsSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+      case "cartesia":
+        return generateCartesiaSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+      case "piper":
+        return generatePiperSpeechAudio({ text: directedText, voiceProfile: adjustedVoiceProfile });
+      default:
+        return generateCloudSpeechAudio({
           personality,
           speechHint,
           text: directedText,
           voiceProfile: adjustedVoiceProfile,
         });
-        return {
-          ...audio,
-          directedText,
-          adjustedVoiceProfile,
-          sfx,
-        };
-      }
-
-      throw error;
     }
   }
 
-  const audio = await generateCloudSpeechAudio({
-    personality,
-    speechHint,
-    text: directedText,
-    voiceProfile: adjustedVoiceProfile,
-  });
+  try {
+    const audio = await runEngine(engine);
+    return { ...audio, directedText, adjustedVoiceProfile, sfx };
+  } catch (primaryError) {
+    // If the engine was explicitly requested, don't silently fall back.
+    if (requested !== "auto") throw primaryError;
+
+    // Auto fallback chain: try remaining engines in priority order.
+    const fallbackOrder = ["cloud", "piper", "kokoro"].filter((e) => {
+      if (e === engine) return false;
+      if (e === "cloud") return isCloudConfigured();
+      if (e === "piper") return isPiperConfigured(voiceProfile);
+      return isKokoroAvailable();
+    });
+
+    for (const fallbackEngine of fallbackOrder) {
+      try {
+        const audio = await runEngine(fallbackEngine);
+        return { ...audio, directedText, adjustedVoiceProfile, sfx };
+      } catch {
+        // Continue to next fallback.
+      }
+    }
+
+    throw primaryError;
+  }
+}
+
+// ── Voice catalogue helpers ──────────────────────────────────────────────────
+
+export const KOKORO_VOICES = {
+  american_female: [
+    { id: "af_heart", label: "Heart" },
+    { id: "af_alloy", label: "Alloy" },
+    { id: "af_aoede", label: "Aoede" },
+    { id: "af_bella", label: "Bella" },
+    { id: "af_jessica", label: "Jessica" },
+    { id: "af_kore", label: "Kore" },
+    { id: "af_nicole", label: "Nicole" },
+    { id: "af_nova", label: "Nova" },
+    { id: "af_river", label: "River" },
+    { id: "af_sarah", label: "Sarah" },
+    { id: "af_sky", label: "Sky" },
+  ],
+  american_male: [
+    { id: "am_adam", label: "Adam" },
+    { id: "am_echo", label: "Echo" },
+    { id: "am_eric", label: "Eric" },
+    { id: "am_fenrir", label: "Fenrir" },
+    { id: "am_liam", label: "Liam" },
+    { id: "am_michael", label: "Michael" },
+    { id: "am_onyx", label: "Onyx" },
+    { id: "am_orion", label: "Orion" },
+    { id: "am_puck", label: "Puck" },
+  ],
+  british_female: [
+    { id: "bf_alice", label: "Alice" },
+    { id: "bf_emma", label: "Emma" },
+    { id: "bf_isabella", label: "Isabella" },
+    { id: "bf_lily", label: "Lily" },
+  ],
+  british_male: [
+    { id: "bm_daniel", label: "Daniel" },
+    { id: "bm_fable", label: "Fable" },
+    { id: "bm_george", label: "George" },
+    { id: "bm_lewis", label: "Lewis" },
+  ],
+};
+
+export function listKokoroVoices() {
   return {
-    ...audio,
-    directedText,
-    adjustedVoiceProfile,
-    sfx,
+    available: isKokoroAvailable(),
+    defaultVoice: getKokoroConfig().voice,
+    voices: KOKORO_VOICES,
+  };
+}
+
+export function listProviderStatus() {
+  return {
+    kokoro: { available: isKokoroAvailable(), requiresSetup: false },
+    elevenlabs: { available: isElevenLabsConfigured(), requiresEnv: "ELEVENLABS_API_KEY" },
+    cartesia: { available: isCartesiaConfigured(), requiresEnv: "CARTESIA_API_KEY" },
+    piper: { available: isPiperConfigured(), requiresEnv: "PIPER_MODEL_PATH" },
+    cloud: { available: isCloudConfigured(), requiresEnv: "TTS_API_KEY or LLM_API_KEY" },
   };
 }
