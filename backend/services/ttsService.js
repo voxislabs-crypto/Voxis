@@ -772,6 +772,188 @@ export function listProviderStatus() {
   };
 }
 
+function normalizeOptionName(value, fallback = "") {
+  const text = String(value || fallback || "").trim();
+  return text;
+}
+
+function sortByLabel(left, right) {
+  return String(left.label || left.id || "").localeCompare(String(right.label || right.id || ""));
+}
+
+async function fetchElevenLabsOptions() {
+  const config = getElevenLabsConfig();
+  if (!config.apiKey) {
+    return {
+      provider: "elevenlabs",
+      connected: false,
+      voices: [],
+      models: [],
+      error: "No ElevenLabs API key is configured.",
+    };
+  }
+
+  const headers = {
+    "xi-api-key": config.apiKey,
+    "Content-Type": "application/json",
+  };
+
+  let voices = [];
+  let models = [];
+  let error = "";
+
+  try {
+    const voicesResponse = await fetch("https://api.elevenlabs.io/v1/voices", { headers });
+    if (!voicesResponse.ok) {
+      throw new Error(`voices request failed (${voicesResponse.status})`);
+    }
+    const payload = await voicesResponse.json();
+    voices = (Array.isArray(payload?.voices) ? payload.voices : [])
+      .map((voice) => ({
+        id: String(voice?.voice_id || "").trim(),
+        label: normalizeOptionName(voice?.name, voice?.voice_id),
+      }))
+      .filter((voice) => voice.id)
+      .sort(sortByLabel);
+  } catch (fetchError) {
+    error = `Unable to fetch ElevenLabs voices: ${fetchError.message || fetchError}`;
+  }
+
+  try {
+    const modelsResponse = await fetch("https://api.elevenlabs.io/v1/models", { headers });
+    if (!modelsResponse.ok) {
+      throw new Error(`models request failed (${modelsResponse.status})`);
+    }
+    const payload = await modelsResponse.json();
+    models = (Array.isArray(payload) ? payload : [])
+      .filter((model) => model?.can_do_text_to_speech !== false)
+      .map((model) => ({
+        id: String(model?.model_id || model?.id || "").trim(),
+        label: normalizeOptionName(model?.name, model?.model_id || model?.id),
+      }))
+      .filter((model) => model.id)
+      .sort(sortByLabel);
+  } catch (fetchError) {
+    if (!error) {
+      error = `Unable to fetch ElevenLabs models: ${fetchError.message || fetchError}`;
+    }
+  }
+
+  return {
+    provider: "elevenlabs",
+    connected: true,
+    voices,
+    models,
+    defaults: {
+      voiceId: config.voiceId,
+      model: config.model,
+    },
+    error,
+  };
+}
+
+async function fetchCartesiaOptions() {
+  const config = getCartesiaConfig();
+  if (!config.apiKey) {
+    return {
+      provider: "cartesia",
+      connected: false,
+      voices: [],
+      models: [],
+      error: "No Cartesia API key is configured.",
+    };
+  }
+
+  const headers = {
+    "X-API-Key": config.apiKey,
+    "Cartesia-Version": "2024-06-10",
+    "Content-Type": "application/json",
+  };
+
+  let voices = [];
+  let models = [];
+  let error = "";
+
+  try {
+    const voicesResponse = await fetch("https://api.cartesia.ai/voices", { headers });
+    if (!voicesResponse.ok) {
+      throw new Error(`voices request failed (${voicesResponse.status})`);
+    }
+    const payload = await voicesResponse.json();
+    const list = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.voices)
+        ? payload.voices
+        : [];
+
+    voices = list
+      .map((voice) => ({
+        id: String(voice?.id || voice?.voice_id || "").trim(),
+        label: normalizeOptionName(voice?.name, voice?.id || voice?.voice_id),
+      }))
+      .filter((voice) => voice.id)
+      .sort(sortByLabel);
+  } catch (fetchError) {
+    error = `Unable to fetch Cartesia voices: ${fetchError.message || fetchError}`;
+  }
+
+  try {
+    const modelsResponse = await fetch("https://api.cartesia.ai/models", { headers });
+    if (!modelsResponse.ok) {
+      throw new Error(`models request failed (${modelsResponse.status})`);
+    }
+    const payload = await modelsResponse.json();
+    const list = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.models)
+        ? payload.models
+        : [];
+
+    models = list
+      .map((model) => ({
+        id: String(model?.id || model?.model_id || "").trim(),
+        label: normalizeOptionName(model?.name, model?.id || model?.model_id),
+      }))
+      .filter((model) => model.id)
+      .sort(sortByLabel);
+  } catch (fetchError) {
+    if (!error) {
+      error = `Unable to fetch Cartesia models: ${fetchError.message || fetchError}`;
+    }
+  }
+
+  return {
+    provider: "cartesia",
+    connected: true,
+    voices,
+    models,
+    defaults: {
+      voiceId: config.voiceId,
+      model: config.model,
+    },
+    error,
+  };
+}
+
+export async function listProviderOptions(provider) {
+  const id = String(provider || "").trim().toLowerCase();
+  if (id === "elevenlabs") {
+    return fetchElevenLabsOptions();
+  }
+
+  if (id === "cartesia") {
+    return fetchCartesiaOptions();
+  }
+
+  return {
+    provider: id,
+    connected: false,
+    voices: [],
+    models: [],
+    error: "Provider does not expose dynamic options.",
+  };
+}
+
 export async function getTtsHealthStatus() {
   const providerStatus = listProviderStatus();
 

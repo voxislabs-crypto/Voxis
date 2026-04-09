@@ -133,7 +133,7 @@ What this demonstrates in minutes:
 - Voice Lab now supports `auto`, `cloud`, `piper`, `kokoro`, `elevenlabs`, and `cartesia` engines.
 - When `Piper` is selected in Voice Lab, Voxis scans local `.onnx` models and surfaces detected voices in a dropdown for quick selection.
 - When `Kokoro` is selected, Voice Lab loads bundled free voice presets and the backend can warm-download/cache the model on server startup.
-- For `ElevenLabs` and `Cartesia`, Voice Lab includes starter voice-id presets plus custom voice-id input so you can test quickly and then refine.
+- For `ElevenLabs` and `Cartesia`, Voice Lab now auto-loads voice and model dropdown options from the provider APIs using your saved BYOK credentials, with custom ID input fallback when needed.
 - Runtime `BYOK` is available in the `LLM Settings` tab (`Runtime TTS BYOK Settings`) so you can save TTS provider keys from the browser without editing `.env`.
 - Tune Big Five trait sliders, optional alignment overlay, and explicit expression style rules for personality-consistent output.
 - Enable hybrid auto-tuning (`autoTuneHybrid`) to derive VAD baseline, sensitivity, creative context, and expression defaults from Big Five + alignment.

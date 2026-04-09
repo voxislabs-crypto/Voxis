@@ -12,7 +12,13 @@ import {
 import { runHarnessHandler } from "../controllers/harnessController.js";
 import { researchProfileHandler } from "../controllers/researchController.js";
 import { chatHistoryHandler } from "../controllers/chatController.js";
-import { generateSpeechHandler, listPiperVoicesHandler, listKokoroVoicesHandler, listProviderStatusHandler } from "../controllers/ttsController.js";
+import {
+  generateSpeechHandler,
+  listPiperVoicesHandler,
+  listKokoroVoicesHandler,
+  listProviderStatusHandler,
+  listProviderOptionsHandler,
+} from "../controllers/ttsController.js";
 import { extractProsodyTemplateHandler } from "../controllers/prosodyController.js";
 import {
   extractVoiceSamplesHandler,
@@ -50,6 +56,7 @@ router.delete("/memory/:memoryId", requireAuth, deleteMemoryHandler);
 router.get("/tts/piper-voices", requireAuth, listPiperVoicesHandler);
 router.get("/tts/kokoro-voices", requireAuth, listKokoroVoicesHandler);
 router.get("/tts/providers", requireAuth, listProviderStatusHandler);
+router.get("/tts/provider-options", requireAuth, listProviderOptionsHandler);
 router.post("/personality/:id/tts", requireAuth, generateSpeechHandler);
 router.post("/personality/:id/prosody-template", requireAuth, extractProsodyTemplateHandler);
 router.post("/personality/:id/voice-samples", requireAuth, extractVoiceSamplesHandler);

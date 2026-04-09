@@ -613,6 +613,18 @@ const CARTESIA_VOICE_PRESETS = [
   { id: "2ee87190-8f84-4925-97da-e52547f9462c", label: "Balanced Voice" },
 ];
 
+const ELEVENLABS_MODEL_PRESETS = [
+  { id: "eleven_multilingual_v2", label: "eleven_multilingual_v2" },
+  { id: "eleven_turbo_v2_5", label: "eleven_turbo_v2_5" },
+  { id: "eleven_flash_v2_5", label: "eleven_flash_v2_5" },
+];
+
+const CARTESIA_MODEL_PRESETS = [
+  { id: "sonic-2", label: "sonic-2" },
+];
+
+const CUSTOM_OPTION = "__custom__";
+
 export default function VoiceLab({
   personality,
   messages,
@@ -659,6 +671,19 @@ export default function VoiceLab({
   const [kokoroVoices, setKokoroVoices] = useState([]);
   const [isLoadingKokoroVoices, setIsLoadingKokoroVoices] = useState(false);
   const [kokoroVoiceError, setKokoroVoiceError] = useState("");
+  const [providerOptions, setProviderOptions] = useState({
+    elevenlabs: {
+      voices: ELEVENLABS_VOICE_PRESETS.filter((voice) => voice.id),
+      models: ELEVENLABS_MODEL_PRESETS,
+      error: "",
+    },
+    cartesia: {
+      voices: CARTESIA_VOICE_PRESETS.filter((voice) => voice.id),
+      models: CARTESIA_MODEL_PRESETS,
+      error: "",
+    },
+  });
+  const [isLoadingProviderOptions, setIsLoadingProviderOptions] = useState(false);
 
   // Refs
   const audioRef = useRef(null);
@@ -685,6 +710,34 @@ export default function VoiceLab({
       ) || null,
     [piperVoices, voiceProfile.piperModelPath, voiceProfile.preferredVoice, voiceProfile.providerVoice],
   );
+
+  const selectedProviderId = voiceProfile.engine === "elevenlabs" || voiceProfile.engine === "cartesia"
+    ? voiceProfile.engine
+    : "";
+
+  const activeProviderOptions = selectedProviderId
+    ? providerOptions[selectedProviderId] || { voices: [], models: [], error: "" }
+    : { voices: [], models: [], error: "" };
+
+  const activeVoiceValue = selectedProviderId === "elevenlabs"
+    ? voiceProfile.elevenLabsVoiceId || voiceProfile.providerVoice || ""
+    : selectedProviderId === "cartesia"
+      ? voiceProfile.cartesiaVoiceId || voiceProfile.providerVoice || ""
+      : "";
+
+  const activeModelValue = selectedProviderId === "elevenlabs"
+    ? voiceProfile.elevenLabsModel || ""
+    : selectedProviderId === "cartesia"
+      ? voiceProfile.cartesiaModel || ""
+      : voiceProfile.providerModel || "";
+
+  const selectedVoiceOption = activeProviderOptions.voices.some((voice) => voice.id === activeVoiceValue)
+    ? activeVoiceValue
+    : CUSTOM_OPTION;
+
+  const selectedModelOption = activeProviderOptions.models.some((model) => model.id === activeModelValue)
+    ? activeModelValue
+    : CUSTOM_OPTION;
 
   // ── Effects ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -804,6 +857,84 @@ export default function VoiceLab({
     void loadKokoroVoices();
     return () => { ignore = true; };
   }, [authFetch, personality?.id, voiceProfile.engine]);
+
+  useEffect(() => {
+    if (!personality || !selectedProviderId) return;
+
+    let ignore = false;
+
+    async function loadProviderOptions() {
+      setIsLoadingProviderOptions(true);
+      try {
+        const response = await authFetch(`/tts/provider-options?provider=${encodeURIComponent(selectedProviderId)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to load provider options.");
+        if (ignore) return;
+
+        const fallbackVoices = selectedProviderId === "elevenlabs"
+          ? ELEVENLABS_VOICE_PRESETS.filter((voice) => voice.id)
+          : CARTESIA_VOICE_PRESETS.filter((voice) => voice.id);
+        const fallbackModels = selectedProviderId === "elevenlabs"
+          ? ELEVENLABS_MODEL_PRESETS
+          : CARTESIA_MODEL_PRESETS;
+
+        const voices = Array.isArray(data.voices) && data.voices.length
+          ? data.voices
+          : fallbackVoices;
+        const models = Array.isArray(data.models) && data.models.length
+          ? data.models
+          : fallbackModels;
+
+        setProviderOptions((cur) => ({
+          ...cur,
+          [selectedProviderId]: {
+            voices,
+            models,
+            error: String(data.error || "").trim(),
+          },
+        }));
+
+        setVoiceProfile((cur) => {
+          if (selectedProviderId === "elevenlabs") {
+            const nextVoice = cur.elevenLabsVoiceId || cur.providerVoice || data.defaults?.voiceId || voices[0]?.id || "";
+            const nextModel = cur.elevenLabsModel || data.defaults?.model || models[0]?.id || "eleven_multilingual_v2";
+            return {
+              ...cur,
+              elevenLabsVoiceId: nextVoice,
+              elevenLabsModel: nextModel,
+              providerVoice: nextVoice || cur.providerVoice,
+              preferredVoice: nextVoice || cur.preferredVoice,
+            };
+          }
+
+          const nextVoice = cur.cartesiaVoiceId || cur.providerVoice || data.defaults?.voiceId || voices[0]?.id || "";
+          const nextModel = cur.cartesiaModel || data.defaults?.model || models[0]?.id || "sonic-2";
+          return {
+            ...cur,
+            cartesiaVoiceId: nextVoice,
+            cartesiaModel: nextModel,
+            providerVoice: nextVoice || cur.providerVoice,
+            preferredVoice: nextVoice || cur.preferredVoice,
+          };
+        });
+      } catch (error) {
+        if (ignore) return;
+
+        setProviderOptions((cur) => ({
+          ...cur,
+          [selectedProviderId]: {
+            ...(cur[selectedProviderId] || { voices: [], models: [] }),
+            error: error.message || "Failed to load provider options.",
+          },
+        }));
+      } finally {
+        if (!ignore) setIsLoadingProviderOptions(false);
+      }
+    }
+
+    void loadProviderOptions();
+    return () => { ignore = true; };
+  }, [authFetch, personality?.id, selectedProviderId]);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
@@ -1213,21 +1344,30 @@ export default function VoiceLab({
                   <>
                     <select
                       className="vlab-select"
-                      value={voiceProfile.elevenLabsVoiceId || ""}
+                      value={selectedVoiceOption}
                       onChange={(e) => {
-                        updateVoiceField("elevenLabsVoiceId", e.target.value);
-                        updateVoiceField("providerVoice", e.target.value);
-                        updateVoiceField("preferredVoice", e.target.value);
+                        const next = e.target.value;
+                        if (next === CUSTOM_OPTION) {
+                          updateVoiceField("elevenLabsVoiceId", "");
+                          return;
+                        }
+                        updateVoiceField("elevenLabsVoiceId", next);
+                        updateVoiceField("providerVoice", next);
+                        updateVoiceField("preferredVoice", next);
                       }}
                     >
-                      {ELEVENLABS_VOICE_PRESETS.map((voice) => (
-                        <option key={voice.id || "custom"} value={voice.id}>{voice.label}</option>
+                      <option value="" disabled>
+                        {isLoadingProviderOptions ? "LOADING PROVIDER VOICES..." : "Select an ElevenLabs voice"}
+                      </option>
+                      {activeProviderOptions.voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.label}</option>
                       ))}
+                      <option value={CUSTOM_OPTION}>Custom voice id</option>
                     </select>
-                    {!voiceProfile.elevenLabsVoiceId ? (
+                    {selectedVoiceOption === CUSTOM_OPTION ? (
                       <input
                         className="vlab-input"
-                        value={voiceProfile.providerVoice || ""}
+                        value={voiceProfile.elevenLabsVoiceId || voiceProfile.providerVoice || ""}
                         onChange={(e) => {
                           updateVoiceField("providerVoice", e.target.value);
                           updateVoiceField("preferredVoice", e.target.value);
@@ -1236,27 +1376,38 @@ export default function VoiceLab({
                         placeholder="Paste custom ElevenLabs voice id"
                       />
                     ) : null}
-                    <small className="vlab-small">BYOK key is saved in Settings -&gt; Runtime LLM + TTS.</small>
+                    <small className="vlab-small">
+                      {activeProviderOptions.error || "Auto-loaded from your configured ElevenLabs API key."}
+                    </small>
                   </>
                 ) : voiceProfile.engine === "cartesia" ? (
                   <>
                     <select
                       className="vlab-select"
-                      value={voiceProfile.cartesiaVoiceId || ""}
+                      value={selectedVoiceOption}
                       onChange={(e) => {
-                        updateVoiceField("cartesiaVoiceId", e.target.value);
-                        updateVoiceField("providerVoice", e.target.value);
-                        updateVoiceField("preferredVoice", e.target.value);
+                        const next = e.target.value;
+                        if (next === CUSTOM_OPTION) {
+                          updateVoiceField("cartesiaVoiceId", "");
+                          return;
+                        }
+                        updateVoiceField("cartesiaVoiceId", next);
+                        updateVoiceField("providerVoice", next);
+                        updateVoiceField("preferredVoice", next);
                       }}
                     >
-                      {CARTESIA_VOICE_PRESETS.map((voice) => (
-                        <option key={voice.id || "custom"} value={voice.id}>{voice.label}</option>
+                      <option value="" disabled>
+                        {isLoadingProviderOptions ? "LOADING PROVIDER VOICES..." : "Select a Cartesia voice"}
+                      </option>
+                      {activeProviderOptions.voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.label}</option>
                       ))}
+                      <option value={CUSTOM_OPTION}>Custom voice id</option>
                     </select>
-                    {!voiceProfile.cartesiaVoiceId ? (
+                    {selectedVoiceOption === CUSTOM_OPTION ? (
                       <input
                         className="vlab-input"
-                        value={voiceProfile.providerVoice || ""}
+                        value={voiceProfile.cartesiaVoiceId || voiceProfile.providerVoice || ""}
                         onChange={(e) => {
                           updateVoiceField("providerVoice", e.target.value);
                           updateVoiceField("preferredVoice", e.target.value);
@@ -1265,7 +1416,9 @@ export default function VoiceLab({
                         placeholder="Paste custom Cartesia voice id"
                       />
                     ) : null}
-                    <small className="vlab-small">BYOK key is saved in Settings -&gt; Runtime LLM + TTS.</small>
+                    <small className="vlab-small">
+                      {activeProviderOptions.error || "Auto-loaded from your configured Cartesia API key."}
+                    </small>
                   </>
                 ) : (
                   <input
@@ -1282,36 +1435,66 @@ export default function VoiceLab({
 
               <div className="vlab-field">
                 <label htmlFor="vlab-model">TTS Model</label>
-                <input
-                  id="vlab-model"
-                  className="vlab-input"
-                  value={
-                    voiceProfile.engine === "elevenlabs"
-                      ? voiceProfile.elevenLabsModel
-                      : voiceProfile.engine === "cartesia"
-                        ? voiceProfile.cartesiaModel
-                        : voiceProfile.providerModel
-                  }
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (voiceProfile.engine === "elevenlabs") {
-                      updateVoiceField("elevenLabsModel", value);
-                    } else if (voiceProfile.engine === "cartesia") {
-                      updateVoiceField("cartesiaModel", value);
-                    } else {
-                      updateVoiceField("providerModel", value);
+                {selectedProviderId ? (
+                  <>
+                    <select
+                      id="vlab-model"
+                      className="vlab-select"
+                      value={selectedModelOption}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (next === CUSTOM_OPTION) {
+                          if (selectedProviderId === "elevenlabs") {
+                            updateVoiceField("elevenLabsModel", "");
+                          } else {
+                            updateVoiceField("cartesiaModel", "");
+                          }
+                          return;
+                        }
+
+                        if (selectedProviderId === "elevenlabs") {
+                          updateVoiceField("elevenLabsModel", next);
+                        } else {
+                          updateVoiceField("cartesiaModel", next);
+                        }
+                      }}
+                    >
+                      <option value="" disabled>
+                        {isLoadingProviderOptions ? "LOADING PROVIDER MODELS..." : "Select a model"}
+                      </option>
+                      {activeProviderOptions.models.map((model) => (
+                        <option key={model.id} value={model.id}>{model.label}</option>
+                      ))}
+                      <option value={CUSTOM_OPTION}>Custom model id</option>
+                    </select>
+                    {selectedModelOption === CUSTOM_OPTION ? (
+                      <input
+                        className="vlab-input"
+                        value={activeModelValue}
+                        onChange={(e) => {
+                          if (selectedProviderId === "elevenlabs") {
+                            updateVoiceField("elevenLabsModel", e.target.value);
+                          } else {
+                            updateVoiceField("cartesiaModel", e.target.value);
+                          }
+                        }}
+                        placeholder={selectedProviderId === "elevenlabs" ? "eleven_multilingual_v2" : "sonic-2"}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <input
+                    id="vlab-model"
+                    className="vlab-input"
+                    value={voiceProfile.providerModel}
+                    onChange={(e) => updateVoiceField("providerModel", e.target.value)}
+                    placeholder={
+                      voiceProfile.engine === "piper"
+                        ? "cloud fallback model"
+                        : "gpt-4o-mini-tts"
                     }
-                  }}
-                  placeholder={
-                    voiceProfile.engine === "piper"
-                      ? "cloud fallback model"
-                      : voiceProfile.engine === "elevenlabs"
-                        ? "eleven_multilingual_v2"
-                        : voiceProfile.engine === "cartesia"
-                          ? "sonic-2"
-                          : "gpt-4o-mini-tts"
-                  }
-                />
+                  />
+                )}
               </div>
 
               {voiceProfile.engine === "piper" && (

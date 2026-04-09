@@ -5,6 +5,7 @@ import {
   listPiperVoiceOptions,
   listKokoroVoices,
   listProviderStatus,
+  listProviderOptions,
 } from "../services/ttsService.js";
 
 function sanitizeVoiceProfile(input, fallbackProfile = {}) {
@@ -55,6 +56,20 @@ export function listKokoroVoicesHandler(req, res) {
 
 export function listProviderStatusHandler(req, res) {
   return res.json(listProviderStatus());
+}
+
+export async function listProviderOptionsHandler(req, res, next) {
+  try {
+    const provider = String(req.query.provider || "").trim().toLowerCase();
+    if (!provider) {
+      return res.status(400).json({ error: "provider query param is required." });
+    }
+
+    const payload = await listProviderOptions(provider);
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function generateSpeechHandler(req, res, next) {
