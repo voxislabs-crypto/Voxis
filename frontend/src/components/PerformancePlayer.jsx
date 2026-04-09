@@ -293,7 +293,7 @@ class MoodLoopEngine {
       this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
 
-      const resp = await fetch("/loops/manifest.json");
+      const resp = await fetch("/api/loops/manifest");
       this.manifest = await resp.json();
       this.ready = true;
     } catch {

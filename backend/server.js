@@ -6,6 +6,7 @@ import personalityRoutes from "./routes/personalityRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import loopRoutes from "./routes/loopRoutes.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
 
 const app = express();
@@ -31,6 +32,7 @@ app.use(personalityRoutes);
 app.use(chatRoutes);
 app.use(settingsRoutes);
 app.use(userRoutes);
+app.use(loopRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
