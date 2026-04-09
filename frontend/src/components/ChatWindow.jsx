@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
+import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
@@ -1397,15 +1398,12 @@ export default function ChatWindow({
       });
 
       if (!response.ok) {
-        let errorMessage = "Failed to generate speech.";
-
-        try {
-          const errorPayload = await response.json();
-          errorMessage = errorPayload.error || errorMessage;
-        } catch {
-          errorMessage = await response.text();
-        }
-
+        const payload = await readApiResponsePayload(response);
+        const errorMessage = getApiErrorMessage(
+          response,
+          payload,
+          "Failed to generate speech.",
+        );
         throw new Error(errorMessage);
       }
 

@@ -1339,8 +1339,8 @@ export default function VoiceLab({
       });
 
       if (!response.ok) {
-        let msg = "Failed to generate speech.";
-        try { const p = await response.json(); msg = p.error || msg; } catch { msg = await response.text(); }
+        const payload = await readApiResponsePayload(response);
+        const msg = getApiErrorMessage(response, payload, "Failed to generate speech.");
         throw new Error(msg);
       }
 
