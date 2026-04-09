@@ -91,6 +91,8 @@ db.exec(`
 
 ensureColumn("chat_messages", "userId", "INTEGER");
 ensureColumn("chat_messages", "mode", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("chat_messages", "embedding", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("chat_messages", "embeddingModel", "TEXT NOT NULL DEFAULT ''");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_messages_personality_id

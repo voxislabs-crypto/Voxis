@@ -553,6 +553,11 @@ The `personality_memory` table stores facts the character learns about the user 
 
 When `EMBEDDING_MODEL` is configured, Voxis also generates an embedding for each stored memory and for each incoming user message. Retrieval then keeps all anchor memories (importance >= 9) plus the top relevant non-anchor facts ranked by a weighted blend of cosine similarity, lexical overlap, and importance. If embeddings are unavailable or fail, the system falls back automatically to lexical plus importance ranking instead of breaking chat.
 
+**Dual-Memory Architecture:** Voxis maintains two complementary memory layers:
+
+- **Layer 1 — Structured Memory (`personality_memory`):** Extracted facts, preferences, goals, and relationship events. Deduped, importance-ranked, and conflict-resolved. This is the "clean, factual brain".
+- **Layer 2 — Raw Conversation History (`chat_messages`):** Every turn is embedded asynchronously after it is stored. When a user asks a personal/recall/temporal query (e.g. "do you remember when...", "last time you said...", "when did I tell you...") the chat handler retrieves the top-3 most semantically relevant past turns from raw history and injects them as a `RECALLED PAST CONVERSATION MOMENTS` context section — distinct from Layer 1 facts so the LLM knows the difference between extracted truth and raw recall. Layer 2 is **not** queried on every turn — only when the smart trigger (`isPersonalQuery`) fires, keeping latency impact of typical turns at zero.
+
 Existing memories can be backfilled on demand in two ways:
 
 - API: `POST /personality/:id/memory/backfill` with optional body `{ "limit": 100 }`
@@ -678,12 +683,14 @@ For dark creative contexts, the synthesis layer is explicitly instructed not to 
     → if cadence hit: push buildPersonaAnchor() as system message
 11. moodToPromptFragment(newMood, baseline)
     → if non-null: push as late system message
-12. Push user message
-13. generateChatCompletion(messages)                   [LLM call]
-14. Persist user message + assistant reply to SQLite
-15. setImmediate: backfillMissingMemoryEmbeddings      [best-effort for legacy rows]
-16. setImmediate: extractMemoryFacts → upsertMemoryFactWithEmbedding → pruneMemory
-17. Return { reply, isAI: true, moodState, moodLabel, debug }
+12. [Layer 2] if isPersonalQuery(message): await searchRawChatHistory → inject as system message
+13. Push user message
+14. generateChatCompletion(messages)                   [LLM call]
+15. Persist user message + assistant reply to SQLite
+16. setImmediate: embedChatMessageAsync(userMsg), embedChatMessageAsync(assistantMsg)  [Layer 2]
+17. setImmediate: backfillMissingMemoryEmbeddings      [best-effort for legacy rows]
+18. setImmediate: extractMemoryFacts → upsertMemoryFactWithEmbedding → pruneMemory
+19. Return { reply, isAI: true, moodState, moodLabel, debug }
 ```
 
 Memory extraction (step 14) is deferred so the HTTP response returns without waiting for the secondary LLM call. If extraction fails it is silently dropped; it never blocks the user-facing turn.
@@ -833,7 +840,7 @@ Optional `Auto-detect` can infer provider from key behavior, but explicit provid
 **Tables:**
 
 - `personalities` — one row per character, all fields above
-- `chat_messages` — `(id, personalityId, role, content, createdAt)`
+- `chat_messages` — `(id, personalityId, role, content, userId, mode, embedding, embeddingModel, createdAt)` — `embedding`/`embeddingModel` populated asynchronously after each turn for Layer 2 recall
 - `personality_memory` — `(id, personalityId, memoryType, content, importance, embedding, embeddingModel, createdAt, updatedAt)`, indexed on `(personalityId, importance DESC, id DESC)`
 - `app_settings` — key/value JSON config storage for runtime system settings (currently `llm_config`)
 

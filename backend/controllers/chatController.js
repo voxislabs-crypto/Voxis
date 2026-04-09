@@ -5,6 +5,8 @@ import {
   getRecentChatMessages,
   getChatMessageCount,
   getLatestModeForUserPersonality,
+  embedChatMessageAsync,
+  searchRawChatHistory,
 } from "../models/chatModel.js";
 import {
   backfillMissingMemoryEmbeddings,
@@ -73,6 +75,31 @@ function getReconditionEvery(creativeContext) {
 // Maximum number of long-term memory facts to retain per personality.
 const MEMORY_MAX = 50;
 const MEMORY_RETRIEVAL_LIMIT = 5;
+
+// ---------------------------------------------------------------------------
+// Raw-history ("Layer 2") retrieval — only triggered for personal/recall queries.
+// Deliberately narrow: we don't want this on every turn; only when the user is
+// explicitly recalling past conversations or referencing shared history.
+// ---------------------------------------------------------------------------
+const PERSONAL_QUERY_PATTERNS = [
+  /\b(do you remember|remember when|you said|you told me|last time|didn't (i|we)|what did i|when did i|we (talked|spoke|discussed)|i told you)\b/i,
+  /\b(how long (ago|have i)|how many times|since when|the (day|time|moment) (i|we|you))\b/i,
+  /\b(still (think|feel|believe|remember)|always (been|felt|said|told)|used to|back (then|when))\b/i,
+];
+
+function isPersonalQuery(text) {
+  return PERSONAL_QUERY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function buildRawHistorySection(turns) {
+  if (!turns || turns.length === 0) return "";
+  const lines = turns.map((turn) => {
+    const date = turn.createdAt ? ` (${String(turn.createdAt).slice(0, 10)})` : "";
+    const reply = turn.assistantReply ? `\n  → ${String(turn.assistantReply).slice(0, 200)}` : "";
+    return `- "${String(turn.content).slice(0, 300)}"${date}${reply}`;
+  });
+  return `RECALLED PAST CONVERSATION MOMENTS (contextual reference only — treat as background, not current conversation):\n${lines.join("\n")}`;
+}
 
 function createChatStream(res, enabled) {
   let opened = false;
@@ -388,6 +415,11 @@ export async function chatHandler(req, res, next) {
     const userMemoryFacts = policy.userId
       ? await getRelevantUserMemory(policy.userId, message, 4)
       : [];
+
+    // Layer 2: raw conversation history retrieval — only for recall/personal queries.
+    const rawHistoryTurns = isPersonalQuery(message)
+      ? await searchRawChatHistory(personalityId, message, 3).catch(() => [])
+      : [];
     const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message);
     const systemPrompt = promptPackage.prompt;
     streamedDebugData.goal = promptPackage.activeGoal;
@@ -414,6 +446,12 @@ export async function chatHandler(req, res, next) {
       policy,
     );
     streamedDebugData.prompt = promptPackage.debug;
+    streamedDebugData.rawHistoryTriggered = rawHistoryTurns.length > 0;
+    streamedDebugData.rawHistoryRetrieved = rawHistoryTurns.map((t) => ({
+      content: t.content,
+      createdAt: t.createdAt,
+      hasReply: Boolean(t.assistantReply),
+    }));
     stream.write("debug", {
       phase: "memory",
       debug: streamedDebugData,
@@ -455,6 +493,12 @@ export async function chatHandler(req, res, next) {
     const moodFragment = moodToPromptFragment(newMood, moodBaseline);
     if (moodFragment) {
       messages.push({ role: "system", content: moodFragment });
+    }
+
+    // Layer 2 raw history: inject recalled past conversation moments when triggered.
+    const rawHistorySection = buildRawHistorySection(rawHistoryTurns);
+    if (rawHistorySection) {
+      messages.push({ role: "system", content: rawHistorySection });
     }
 
     streamedDebugData.flags = {
@@ -578,14 +622,14 @@ export async function chatHandler(req, res, next) {
       debug: streamedDebugData,
     });
 
-    createChatMessage({
+    const storedUserMsg = createChatMessage({
       personalityId,
       role: "user",
       content: message,
       userId: userScopedId,
       mode: policy.activeMode,
     });
-    createChatMessage({
+    const storedAssistantMsg = createChatMessage({
       personalityId,
       role: "assistant",
       content: reply,
@@ -593,6 +637,12 @@ export async function chatHandler(req, res, next) {
       mode: policy.activeMode,
     });
 
+    // Layer 2: embed both turns asynchronously so future personal/recall queries
+    // can retrieve them via searchRawChatHistory. Fire-and-forget; never blocks response.
+    setImmediate(() => {
+      embedChatMessageAsync(storedUserMsg.id, message).catch(() => {});
+      embedChatMessageAsync(storedAssistantMsg.id, reply).catch(() => {});
+    });
     const debugData = {
       goal: promptPackage.activeGoal,
       policy,
@@ -621,6 +671,12 @@ export async function chatHandler(req, res, next) {
         enabled: Number(memory.enabled ?? 1),
       })),
       memoryConflicts: detectMemoryConflicts(promptPackage.debug?.injectedMemories || [], policy),
+      rawHistoryTriggered: rawHistoryTurns.length > 0,
+      rawHistoryRetrieved: rawHistoryTurns.map((t) => ({
+        content: t.content,
+        createdAt: t.createdAt,
+        hasReply: Boolean(t.assistantReply),
+      })),
       scientist: scientistValidation
         ? {
             validation: scientistValidation,
