@@ -67,6 +67,10 @@ Run a focused production smoke pass on the newest commit: auth bootstrap, LLM se
 - Review and polish any remaining UI/UX details for the minimized Saved Personas entry state.
 - Update README and commit/push after major visual changes (per user workflow preference).
 
+### TTS Operational Guardrail (ElevenLabs)
+- Avoid stacking autoplay with repeated manual replay clicks in parallel, since ElevenLabs plan limits can trigger `concurrent_limit_exceeded`.
+- Add a future UI block/debounce so manual replay is temporarily disabled while autoplay synthesis is already in flight.
+
 ## Speech Director Evolution Roadmap (2026-04-08)
 
 Objective: evolve Voxis TTS from text playback into performance-driven delivery by progressively expanding Speech Director capabilities.
