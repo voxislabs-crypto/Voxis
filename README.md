@@ -403,6 +403,19 @@ cd /opt/voxis
 bash deploy/update-app.sh
 ```
 
+For a conservative branch deploy that stashes local changes first:
+
+```bash
+cd /opt/voxis
+bash ./deploy-safe.sh
+```
+
+Optional overrides:
+
+```bash
+APP_DIR=/opt/voxis BRANCH=NeuronMap PM2_APP_NAME=voxis-backend bash ./deploy-safe.sh
+```
+
 Database-safe deploy (backup first):
 
 ```bash
