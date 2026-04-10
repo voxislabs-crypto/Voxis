@@ -909,6 +909,75 @@ const chatStyles = `
     border-color: rgba(0, 234, 255, 0.26);
   }
 
+  .context-meter {
+    position: absolute;
+    right: 14px;
+    bottom: 96px;
+    z-index: 4;
+    width: min(280px, calc(100% - 28px));
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 234, 255, 0.22);
+    background: rgba(4, 12, 26, 0.9);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(4px);
+  }
+
+  .context-meter.warn {
+    border-color: rgba(255, 177, 77, 0.45);
+  }
+
+  .context-meter.danger {
+    border-color: rgba(255, 107, 120, 0.58);
+  }
+
+  .context-meter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .context-meter-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #87deff;
+    font-weight: 700;
+  }
+
+  .context-meter-value {
+    font-size: 0.78rem;
+    color: #d4f4ff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .context-meter-track {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(148, 220, 255, 0.14);
+    overflow: hidden;
+  }
+
+  .context-meter-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #16c9ff 0%, #55efc4 58%, #ffc76b 100%);
+    transition: width 160ms ease;
+  }
+
+  .context-meter-meta {
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.7rem;
+    color: #8fb3c8;
+    font-variant-numeric: tabular-nums;
+  }
+
   .avatar-panel-orb.thinking-tilt {
     animation: avatarTiltThink 1.6s ease-in-out infinite;
   }
@@ -931,6 +1000,13 @@ const chatStyles = `
       grid-column: 1;
       grid-row: auto;
       margin: 0 16px 16px;
+    }
+
+    .context-meter {
+      left: 14px;
+      right: 14px;
+      width: auto;
+      bottom: 92px;
     }
   }
 `;
@@ -979,6 +1055,7 @@ export default function ChatWindow({
   livePhase,
   liveSeq,
   liveReply,
+  liveUsage,
   activeMode,
   neuralProfile,
   isLoadingMessages,
@@ -1034,6 +1111,27 @@ export default function ChatWindow({
     () => [...messages].reverse().find((message) => message.role === "assistant" && message.debug)?.debug || null,
     [messages],
   );
+
+  const latestAssistantUsage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant" && message.usage)?.usage || null,
+    [messages],
+  );
+
+  const activeUsage = liveUsage || latestAssistantUsage;
+  const usagePercent = useMemo(() => {
+    const ratio = Number(activeUsage?.percentUsed);
+    if (Number.isFinite(ratio) && ratio >= 0) {
+      return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+    }
+
+    const total = Number(activeUsage?.totalTokens);
+    const max = Number(activeUsage?.maxTokens);
+    if (Number.isFinite(total) && Number.isFinite(max) && max > 0) {
+      return Math.min(100, Math.max(0, Math.round((total / max) * 100)));
+    }
+
+    return 0;
+  }, [activeUsage]);
 
   const displayDebug = liveDebug || latestAssistantDebug;
   const pendingAssistantMessage = useMemo(() => {
@@ -1839,6 +1937,25 @@ export default function ChatWindow({
               </div>
             )}
           </div>
+
+          {activeUsage ? (
+            <div
+              className={`context-meter${usagePercent >= 90 ? " danger" : usagePercent >= 75 ? " warn" : ""}`}
+              title="Estimated context window usage for this chat turn."
+            >
+              <div className="context-meter-header">
+                <span className="context-meter-label">Context Window</span>
+                <span className="context-meter-value">{usagePercent}%</span>
+              </div>
+              <div className="context-meter-track" aria-hidden="true">
+                <div className="context-meter-fill" style={{ width: `${usagePercent}%` }} />
+              </div>
+              <div className="context-meter-meta">
+                <span>{Number(activeUsage.totalTokens || 0).toLocaleString()} / {Number(activeUsage.maxTokens || 0).toLocaleString()} tokens</span>
+                <span>{String(activeUsage.source || "estimate")}</span>
+              </div>
+            </div>
+          ) : null}
 
           <form className="composer" onSubmit={handleSubmit}>
             <textarea

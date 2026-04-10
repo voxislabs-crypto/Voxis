@@ -16,10 +16,13 @@ import {
 } from "../models/memoryModel.js";
 import {
   generateChatCompletion,
-  generateChatCompletionStream,
+  generateChatCompletionWithMeta,
+  generateChatCompletionStreamWithMeta,
   buildCompactPersonaSystemPrompt,
   buildPersonaPromptPackage,
   buildPersonaAnchor,
+  estimateModelContextWindow,
+  estimateTokenCount,
   extractMemoryFacts,
 } from "../services/llmService.js";
 import {
@@ -75,6 +78,48 @@ function getReconditionEvery(creativeContext) {
 // Maximum number of long-term memory facts to retain per personality.
 const MEMORY_MAX = 50;
 const MEMORY_RETRIEVAL_LIMIT = 5;
+
+function estimateMessagesTokenCount(messages = []) {
+  return messages.reduce((total, item) => {
+    const content = String(item?.content || "");
+    return total + estimateTokenCount(content) + 4;
+  }, 0);
+}
+
+function buildUsageSnapshot({
+  model,
+  contextWindow,
+  inputEstimate,
+  reply,
+  providerUsage,
+  source,
+}) {
+  const promptTokens = Number(providerUsage?.prompt_tokens);
+  const completionTokens = Number(providerUsage?.completion_tokens);
+  const totalTokens = Number(providerUsage?.total_tokens);
+
+  const inputTokens = Number.isFinite(promptTokens) && promptTokens >= 0
+    ? Math.round(promptTokens)
+    : Math.max(0, Math.round(inputEstimate));
+  const outputTokens = Number.isFinite(completionTokens) && completionTokens >= 0
+    ? Math.round(completionTokens)
+    : Math.max(0, estimateTokenCount(reply));
+  const aggregateTokens = Number.isFinite(totalTokens) && totalTokens >= 0
+    ? Math.round(totalTokens)
+    : inputTokens + outputTokens;
+  const maxTokens = Math.max(1, Math.round(contextWindow || estimateModelContextWindow(model)));
+  const percentUsed = Math.min(1, aggregateTokens / maxTokens);
+
+  return {
+    source: source || (providerUsage ? "provider" : "estimate"),
+    model: String(model || "").trim() || null,
+    inputTokens,
+    outputTokens,
+    totalTokens: aggregateTokens,
+    maxTokens,
+    percentUsed,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Raw-history ("Layer 2") retrieval — only triggered for personal/recall queries.
@@ -181,27 +226,65 @@ async function generateReplyWithRecovery({
   policyPrompt,
   moodFragment,
   streamedDebugData,
+  inputTokenEstimate,
+  contextWindow,
 }) {
   try {
     if (stream.enabled) {
-      const reply = await generateChatCompletionStream(messages, async (delta, accumulated) => {
+      const generation = await generateChatCompletionStreamWithMeta(messages, async (delta, accumulated) => {
+        const liveUsage = buildUsageSnapshot({
+          model: null,
+          contextWindow,
+          inputEstimate: inputTokenEstimate,
+          reply: accumulated,
+          providerUsage: null,
+          source: "estimate",
+        });
+
         stream.write("token", {
           phase: "generation",
           delta,
           reply: accumulated,
           debug: streamedDebugData,
+          usage: liveUsage,
         });
       });
 
+      const usage = buildUsageSnapshot({
+        model: generation.model,
+        contextWindow,
+        inputEstimate: inputTokenEstimate,
+        reply: generation.reply,
+        providerUsage: generation.usage,
+      });
+
+      stream.write("usage", {
+        phase: "generation",
+        usage,
+      });
+
       return {
-        reply,
+        reply: generation.reply,
+        usage,
+        model: generation.model,
         rateLimit: null,
         usedFallbackReply: false,
       };
     }
 
+    const generation = await generateChatCompletionWithMeta(messages);
+    const usage = buildUsageSnapshot({
+      model: generation.model,
+      contextWindow,
+      inputEstimate: inputTokenEstimate,
+      reply: generation.reply,
+      providerUsage: generation.usage,
+    });
+
     return {
-      reply: await generateChatCompletion(messages),
+      reply: generation.reply,
+      usage,
+      model: generation.model,
       rateLimit: null,
       usedFallbackReply: false,
     };
@@ -244,7 +327,8 @@ async function generateReplyWithRecovery({
     rateLimit.retryMessageCount = retryMessages.length;
 
     try {
-      const retryReply = await generateChatCompletion(retryMessages);
+      const retryGeneration = await generateChatCompletionWithMeta(retryMessages);
+      const retryReply = retryGeneration.reply;
       rateLimit.retrySucceeded = true;
       streamedDebugData.rateLimit = rateLimit;
       stream.write("debug", {
@@ -252,8 +336,24 @@ async function generateReplyWithRecovery({
         debug: streamedDebugData,
       });
 
+      const responseWithNotice = `${buildRateLimitNotice({ sanitizedUserMessage, retrySucceeded: true })}${retryReply}`.trim();
+      const usage = buildUsageSnapshot({
+        model: retryGeneration.model,
+        contextWindow,
+        inputEstimate: estimateMessagesTokenCount(retryMessages),
+        reply: responseWithNotice,
+        providerUsage: retryGeneration.usage,
+      });
+
+      stream.write("usage", {
+        phase: "rate-limit-retry",
+        usage,
+      });
+
       return {
-        reply: `${buildRateLimitNotice({ sanitizedUserMessage, retrySucceeded: true })}${retryReply}`.trim(),
+        reply: responseWithNotice,
+        usage,
+        model: retryGeneration.model,
         rateLimit,
         usedFallbackReply: false,
       };
@@ -275,8 +375,24 @@ async function generateReplyWithRecovery({
         model: retryError.model || null,
       });
 
+      const usage = buildUsageSnapshot({
+        model: null,
+        contextWindow,
+        inputEstimate: inputTokenEstimate,
+        reply: buildRateLimitFallbackReply({ sanitizedUserMessage }),
+        providerUsage: null,
+        source: "estimate",
+      });
+
+      stream.write("usage", {
+        phase: "rate-limit-fallback",
+        usage,
+      });
+
       return {
         reply: buildRateLimitFallbackReply({ sanitizedUserMessage }),
+        usage,
+        model: null,
         rateLimit,
         usedFallbackReply: true,
       };
@@ -513,6 +629,8 @@ export async function chatHandler(req, res, next) {
     });
 
     messages.push({ role: "user", content: message });
+    const inputTokenEstimate = estimateMessagesTokenCount(messages);
+    const contextWindow = estimateModelContextWindow(process.env.LLM_MODEL || "");
 
     stream.write("debug", {
       phase: "generation",
@@ -529,8 +647,11 @@ export async function chatHandler(req, res, next) {
       policyPrompt: buildModePolicyPrompt(policy),
       moodFragment,
       streamedDebugData,
+      inputTokenEstimate,
+      contextWindow,
     });
     let reply = generation.reply;
+    let usage = generation.usage;
     const rateLimit = generation.rateLimit;
     const usedFallbackReply = generation.usedFallbackReply;
     let scientistValidation = null;
@@ -714,6 +835,7 @@ export async function chatHandler(req, res, next) {
       moodState: newMood,
       moodLabel,
       policy,
+      usage,
       debug: debugData,
     };
 

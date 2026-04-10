@@ -1667,6 +1667,7 @@ export default function App() {
         phase: "queued",
         debug: null,
         reply: "",
+        usage: null,
         finalReceived: false,
         seq: (current[personalityId]?.seq || 0) + 1,
       },
@@ -1745,6 +1746,16 @@ export default function App() {
                   phase: payload.phase || "generation",
                   debug: payload.debug || current[personalityId]?.debug || null,
                   reply: payload.reply || "",
+                  usage: payload.usage || current[personalityId]?.usage || null,
+                  seq: (current[personalityId]?.seq || 0) + 1,
+                },
+              }));
+            } else if (type === "usage") {
+              setLiveChatState((current) => ({
+                ...current,
+                [personalityId]: {
+                  ...(current[personalityId] || {}),
+                  usage: payload.usage || null,
                   seq: (current[personalityId]?.seq || 0) + 1,
                 },
               }));
@@ -1757,7 +1768,12 @@ export default function App() {
                   ...current,
                   [personalityId]: [
                     ...(current[personalityId] || []),
-                    { role: "assistant", content: payload.reply, debug: payload.debug || null },
+                    {
+                      role: "assistant",
+                      content: payload.reply,
+                      debug: payload.debug || null,
+                      usage: payload.usage || null,
+                    },
                   ],
                 }));
 
@@ -1782,6 +1798,7 @@ export default function App() {
                     phase: "reply-complete",
                     debug: payload.debug || current[personalityId]?.debug || null,
                     reply: "",
+                    usage: payload.usage || current[personalityId]?.usage || null,
                     finalReceived: true,
                     seq: (current[personalityId]?.seq || 0) + 1,
                   },
@@ -1818,7 +1835,12 @@ export default function App() {
           ...current,
           [personalityId]: [
             ...(current[personalityId] || []),
-            { role: "assistant", content: data.reply, debug: data.debug || null },
+            {
+              role: "assistant",
+              content: data.reply,
+              debug: data.debug || null,
+              usage: data.usage || null,
+            },
           ],
         }));
 
@@ -2318,6 +2340,7 @@ export default function App() {
                     livePhase={liveChatState[selectedId]?.phase || ""}
                     liveSeq={liveChatState[selectedId]?.seq || 0}
                     liveReply={liveChatState[selectedId]?.reply || ""}
+                    liveUsage={liveChatState[selectedId]?.usage || null}
                     activeMode={chatPolicy?.activeMode || selectedMode}
                     neuralProfile={selectedUserProfile || chatPolicy}
                     isLoadingMessages={isLoadingMessages}

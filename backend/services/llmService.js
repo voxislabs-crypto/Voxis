@@ -90,6 +90,65 @@ function buildLlmHeaders({ provider, baseUrl, apiKey }) {
   return headers;
 }
 
+function normalizeUsage(usage) {
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+
+  const promptTokens = Number(usage.prompt_tokens);
+  const completionTokens = Number(usage.completion_tokens);
+  const totalTokens = Number(usage.total_tokens);
+
+  const hasPrompt = Number.isFinite(promptTokens) && promptTokens >= 0;
+  const hasCompletion = Number.isFinite(completionTokens) && completionTokens >= 0;
+  const hasTotal = Number.isFinite(totalTokens) && totalTokens >= 0;
+
+  if (!hasPrompt && !hasCompletion && !hasTotal) {
+    return null;
+  }
+
+  return {
+    prompt_tokens: hasPrompt ? Math.round(promptTokens) : null,
+    completion_tokens: hasCompletion ? Math.round(completionTokens) : null,
+    total_tokens: hasTotal
+      ? Math.round(totalTokens)
+      : hasPrompt || hasCompletion
+      ? Math.round((hasPrompt ? promptTokens : 0) + (hasCompletion ? completionTokens : 0))
+      : null,
+  };
+}
+
+export function estimateModelContextWindow(modelName) {
+  const model = String(modelName || "").toLowerCase();
+  if (!model) {
+    return 32768;
+  }
+
+  if (model.includes("claude")) {
+    return 200000;
+  }
+
+  if (
+    model.includes("gpt-4o") ||
+    model.includes("gpt-4.1") ||
+    model.includes("o1") ||
+    model.includes("o3") ||
+    model.includes("llama-3") ||
+    model.includes("grok") ||
+    model.includes("mixtral") ||
+    model.includes("mistral") ||
+    model.includes("qwen")
+  ) {
+    return 128000;
+  }
+
+  if (model.includes("gpt-3.5")) {
+    return 16384;
+  }
+
+  return 32768;
+}
+
 async function createLlmRequestError(response, model) {
   const errorText = await response.text();
   let providerPayload = null;
@@ -232,7 +291,11 @@ async function requestChatCompletionOnce({ messages, temperature = 0.85, config 
     throw error;
   }
 
-  return content.trim();
+  return {
+    reply: content.trim(),
+    usage: normalizeUsage(data?.usage),
+    model: String(data?.model || model || "").trim() || model,
+  };
 }
 
 function parseStreamChunk(line) {
@@ -253,7 +316,7 @@ function parseStreamChunk(line) {
   }
 }
 
-async function requestChatCompletion({ messages, temperature = 0.85 }) {
+async function requestChatCompletion({ messages, temperature = 0.85, includeMeta = false }) {
   const config = getLlmConfig();
   const candidateModels = [config.model, ...getFallbackModels(config)].filter(
     (model, index, list) => model && list.indexOf(model) === index,
@@ -278,14 +341,22 @@ async function requestChatCompletion({ messages, temperature = 0.85 }) {
         models: activeModels,
       };
 
-      const reply = await requestChatCompletionOnce({
+      const result = await requestChatCompletionOnce({
         messages,
         temperature,
         config: attemptConfig,
       });
 
       persistWorkingModel(config, model, attemptConfig.models);
-      return reply;
+      if (includeMeta) {
+        return {
+          reply: result.reply,
+          usage: result.usage,
+          model: result.model || model,
+        };
+      }
+
+      return result.reply;
     } catch (error) {
       lastError = error;
       if (!error?.isRateLimit) {
@@ -350,6 +421,8 @@ async function requestChatCompletionStreamOnce({ messages, temperature = 0.85, o
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let usage = null;
+  let responseModel = String(model || "").trim() || model;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -367,7 +440,16 @@ async function requestChatCompletionStreamOnce({ messages, temperature = 0.85, o
         }
 
         if (parsed.done) {
-          return content.trim();
+          return {
+            reply: content.trim(),
+            usage,
+            model: responseModel,
+          };
+        }
+
+        usage = normalizeUsage(parsed.data?.usage) || usage;
+        if (parsed.data?.model) {
+          responseModel = String(parsed.data.model).trim() || responseModel;
         }
 
         const delta = parsed.data?.choices?.[0]?.delta?.content;
@@ -393,10 +475,14 @@ async function requestChatCompletionStreamOnce({ messages, temperature = 0.85, o
     throw error;
   }
 
-  return content.trim();
+  return {
+    reply: content.trim(),
+    usage,
+    model: responseModel,
+  };
 }
 
-async function requestChatCompletionStream({ messages, temperature = 0.85, onToken }) {
+async function requestChatCompletionStream({ messages, temperature = 0.85, onToken, includeMeta = false }) {
   const config = getLlmConfig();
   const candidateModels = [config.model, ...getFallbackModels(config)].filter(
     (model, index, list) => model && list.indexOf(model) === index,
@@ -421,7 +507,7 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
         models: activeModels,
       };
 
-      const reply = await requestChatCompletionStreamOnce({
+      const result = await requestChatCompletionStreamOnce({
         messages,
         temperature,
         onToken,
@@ -429,7 +515,15 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
       });
 
       persistWorkingModel(config, model, attemptConfig.models);
-      return reply;
+      if (includeMeta) {
+        return {
+          reply: result.reply,
+          usage: result.usage,
+          model: result.model || model,
+        };
+      }
+
+      return result.reply;
     } catch (error) {
       lastError = error;
       if (!error?.isRateLimit) {
@@ -661,8 +755,21 @@ export async function generateChatCompletion(messages) {
   return requestChatCompletion({ messages, temperature: 0.85 });
 }
 
+export async function generateChatCompletionWithMeta(messages) {
+  return requestChatCompletion({ messages, temperature: 0.85, includeMeta: true });
+}
+
 export async function generateChatCompletionStream(messages, onToken) {
   return requestChatCompletionStream({ messages, temperature: 0.85, onToken });
+}
+
+export async function generateChatCompletionStreamWithMeta(messages, onToken) {
+  return requestChatCompletionStream({
+    messages,
+    temperature: 0.85,
+    onToken,
+    includeMeta: true,
+  });
 }
 
 export async function adjudicateMoodShift({
