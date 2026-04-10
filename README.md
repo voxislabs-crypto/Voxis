@@ -190,6 +190,7 @@ What this demonstrates in minutes:
 - Ambient avatar zone labels now animate on zone transitions and include an inline emotional-drift sparkline so short-horizon mood movement is visible without opening debug.
 - TTS telemetry now carries the interpreted emotion frame, and Voice Lab sample preview displays the same emotion label/zone/intensity used by avatar readouts for cross-surface consistency.
 - Frontend TTS error parsing now uses a single-pass safe response reader so upstream provider failures no longer throw body-read stream errors and surface clearer failure messages.
+- Voice Lab prosody extraction now opens a dedicated progress popup, then presents detected representative voices with quick 5-second preview playback and explicit voice selection/confirmation in one place.
 - App shell now layers a cinematic cyberpunk video backdrop with a mood-reactive shader canvas that adapts to live chat phase signals and respects reduced-motion preferences.
 - Saved Personas rail now starts minimized by default and expands on demand to reduce visual load while keeping quick persona access one click away.
 - Persona editing now uses a centralized `PersonaState` context so the Neural Core graph, leaf popups, and Persona Editor tree read/write the same source of truth in real time.

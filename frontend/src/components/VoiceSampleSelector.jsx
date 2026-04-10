@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const voiceSampleStyles = `
@@ -112,11 +112,34 @@ const voiceSampleStyles = `
   }
 
   .voice-sample-audio {
-    width: 100%;
     margin-top: 8px;
-    max-height: 24px;
-    border-radius: 6px;
-    accent-color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .voice-sample-preview-btn {
+    border: 1px solid rgba(0, 180, 255, 0.25);
+    border-radius: 8px;
+    background: rgba(0, 180, 255, 0.08);
+    color: var(--accent);
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .voice-sample-preview-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .voice-sample-preview-note {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-family: "JetBrains Mono", "Courier New", monospace;
   }
 
   .voice-sample-actions {
@@ -208,12 +231,35 @@ export default function VoiceSampleSelector({
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+  const previewAudioRef = useRef(null);
+  const stopPreviewTimerRef = useRef(null);
+  const [previewingIndex, setPreviewingIndex] = useState(null);
 
   if (!voiceSamples || !voiceSamples.representatives || voiceSamples.representatives.length === 0) {
     return null;
   }
 
   const representatives = voiceSamples.representatives;
+
+  function stopPreview() {
+    if (stopPreviewTimerRef.current) {
+      clearTimeout(stopPreviewTimerRef.current);
+      stopPreviewTimerRef.current = null;
+    }
+
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+
+    setPreviewingIndex(null);
+  }
+
+  useEffect(() => {
+    return () => {
+      stopPreview();
+    };
+  }, []);
 
   const getVoiceLabel = (sample) => {
     const centerSpectral = sample.spectralCentroid;
@@ -256,17 +302,50 @@ export default function VoiceSampleSelector({
         onSampleSelected(data.personality);
       }
       if (onStatus) {
-        onStatus("Voice sample confirmed and saved", "success");
+        onStatus({ type: "success", message: "Voice sample confirmed and saved." });
       }
     } catch (error) {
       setStatusMessage({ type: "error", text: error.message });
       if (onStatus) {
-        onStatus(`Error: ${error.message}`, "error");
+        onStatus({ type: "error", message: `Error: ${error.message}` });
       }
     } finally {
       setIsConfirming(false);
     }
   };
+
+  async function handlePreview(sample, index, event) {
+    event.stopPropagation();
+
+    if (!sample?.audioUrl) {
+      return;
+    }
+
+    if (previewingIndex === index) {
+      stopPreview();
+      return;
+    }
+
+    stopPreview();
+
+    if (!previewAudioRef.current) {
+      previewAudioRef.current = new Audio();
+    }
+
+    const audio = previewAudioRef.current;
+    audio.src = sample.audioUrl;
+    audio.currentTime = 0;
+
+    try {
+      await audio.play();
+      setPreviewingIndex(index);
+      stopPreviewTimerRef.current = setTimeout(() => {
+        stopPreview();
+      }, 5000);
+    } catch {
+      setPreviewingIndex(null);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -314,7 +393,17 @@ export default function VoiceSampleSelector({
                   <span className="voice-sample-badge">{(sample.confidence * 100).toFixed(0)}% conf</span>
                 </div>
                 {sample.audioUrl ? (
-                  <audio className="voice-sample-audio" controls src={sample.audioUrl} />
+                  <div className="voice-sample-audio">
+                    <button
+                      type="button"
+                      className="voice-sample-preview-btn"
+                      onClick={(event) => void handlePreview(sample, index, event)}
+                      disabled={isConfirming}
+                    >
+                      {previewingIndex === index ? "Stop" : "Play 5s"}
+                    </button>
+                    <span className="voice-sample-preview-note">5 second preview</span>
+                  </div>
                 ) : null}
               </div>
             </div>

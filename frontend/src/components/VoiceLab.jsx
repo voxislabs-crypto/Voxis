@@ -604,6 +604,111 @@ const voiceLabStyles = `
     letter-spacing: 0.04em;
   }
 
+  .vlab-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 16, 0.72);
+    backdrop-filter: blur(6px);
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .vlab-modal {
+    width: min(880px, 100%);
+    max-height: 86vh;
+    overflow: auto;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 180, 255, 0.24);
+    background: rgba(4, 10, 24, 0.98);
+    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.55);
+    padding: 18px;
+    display: grid;
+    gap: 14px;
+  }
+
+  .vlab-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .vlab-modal-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: var(--text);
+  }
+
+  .vlab-modal-copy {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.55;
+  }
+
+  .vlab-modal-close {
+    border: 1px solid rgba(0, 180, 255, 0.22);
+    border-radius: 8px;
+    background: rgba(0, 180, 255, 0.08);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  .vlab-progress-panel {
+    border: 1px solid rgba(0, 180, 255, 0.18);
+    border-radius: 12px;
+    background: rgba(0, 180, 255, 0.05);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .vlab-progress-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+  }
+
+  .vlab-progress-step.active {
+    color: #9fe7ff;
+    font-weight: 700;
+  }
+
+  .vlab-progress-step.done {
+    color: #7fe7b1;
+  }
+
+  .vlab-progress-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 180, 255, 0.40);
+    background: transparent;
+  }
+
+  .vlab-progress-step.active .vlab-progress-dot {
+    background: var(--accent);
+    box-shadow: 0 0 10px rgba(0, 200, 255, 0.65);
+  }
+
+  .vlab-progress-step.done .vlab-progress-dot {
+    background: #4ade80;
+    border-color: #4ade80;
+  }
+
   /* ── Responsive ───────────────────────────────────────────── */
   @media (max-width: 720px) {
     .vlab-grid {
@@ -743,6 +848,12 @@ const CLOUD_MODEL_PRESETS = [
 ];
 
 const CUSTOM_OPTION = "__custom__";
+const PROSODY_PROGRESS_STEPS = [
+  "Scraping source audio",
+  "Analyzing cadence and rhythm",
+  "Detecting representative voices",
+  "Preparing voice previews",
+];
 
 export default function VoiceLab({
   personality,
@@ -778,7 +889,9 @@ export default function VoiceLab({
   const [prosodyUrl, setProsodyUrl] = useState("");
   const [isExtractingProsody, setIsExtractingProsody] = useState(false);
   const [voiceSamples, setVoiceSamples] = useState(null);
-  const [isExtractingVoiceSamples, setIsExtractingVoiceSamples] = useState(false);
+  const [isProsodyModalOpen, setIsProsodyModalOpen] = useState(false);
+  const [prosodyProgressIndex, setProsodyProgressIndex] = useState(0);
+  const [prosodyModalError, setProsodyModalError] = useState("");
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
@@ -1568,7 +1681,13 @@ export default function VoiceLab({
       return;
     }
 
+    setIsProsodyModalOpen(true);
+    setProsodyModalError("");
+    setProsodyProgressIndex(0);
     setIsExtractingProsody(true);
+    const progressTimer = setInterval(() => {
+      setProsodyProgressIndex((current) => Math.min(current + 1, PROSODY_PROGRESS_STEPS.length - 1));
+    }, 1600);
 
     try {
       const response = await authFetch(`/personality/${personality.id}/prosody-template`, {
@@ -1585,13 +1704,16 @@ export default function VoiceLab({
 
       onPersonalityUpdated?.(payload.personality);
       setVoiceSamples(payload.voiceSamples || payload.personality?.voiceSampleAnalysis || null);
+      setProsodyProgressIndex(PROSODY_PROGRESS_STEPS.length - 1);
       onStatus?.({
         type: "success",
         message: `Prosody template extracted for ${payload.personality?.name || personality.name}.`,
       });
     } catch (error) {
+      setProsodyModalError(error.message || "Failed to extract prosody template.");
       onStatus?.({ type: "error", message: error.message || "Failed to extract prosody template." });
     } finally {
+      clearInterval(progressTimer);
       setIsExtractingProsody(false);
     }
   }
@@ -2304,6 +2426,18 @@ export default function VoiceLab({
                 >
                   {isExtractingProsody ? "EXTRACTING…" : "EXTRACT PROSODY"}
                 </button>
+                {Array.isArray(voiceSamples?.representatives) && voiceSamples.representatives.length > 0 ? (
+                  <button
+                    type="button"
+                    className="vlab-btn sec"
+                    onClick={() => {
+                      setProsodyModalError("");
+                      setIsProsodyModalOpen(true);
+                    }}
+                  >
+                    REVIEW VOICES
+                  </button>
+                ) : null}
               </div>
               <div className="vlab-small">
                 Downloads source audio, extracts cadence/rhythm template, attaches it to this persona, and removes temp audio.
@@ -2355,18 +2489,74 @@ export default function VoiceLab({
           </div>
 
           {/* ── Voice Sample Selection ── */}
-          {voiceSamples && (
-            <VoiceSampleSelector
-              personality={personality}
-              voiceSamples={voiceSamples}
-              isLoading={isExtractingVoiceSamples}
-              onSampleSelected={(updatedPersonality) => {
-                onPersonalityUpdated?.(updatedPersonality);
-                setVoiceSamples(null); // Clear after selection
+          {isProsodyModalOpen ? (
+            <div
+              className="vlab-modal-overlay"
+              onClick={() => {
+                if (!isExtractingProsody) {
+                  setIsProsodyModalOpen(false);
+                }
               }}
-              onStatus={onStatus}
-            />
-          )}
+            >
+              <div className="vlab-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="vlab-modal-header">
+                  <div>
+                    <h4 className="vlab-modal-title">Prosody Extraction</h4>
+                    <p className="vlab-modal-copy">
+                      Track extraction progress, preview isolated voices, and choose the voice that best matches this persona.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="vlab-modal-close"
+                    onClick={() => setIsProsodyModalOpen(false)}
+                    disabled={isExtractingProsody}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {(isExtractingProsody || prosodyModalError) ? (
+                  <div className="vlab-progress-panel">
+                    {PROSODY_PROGRESS_STEPS.map((step, index) => {
+                      const stateClass = index < prosodyProgressIndex
+                        ? "done"
+                        : index === prosodyProgressIndex
+                          ? "active"
+                          : "";
+                      return (
+                        <div key={step} className={`vlab-progress-step ${stateClass}`.trim()}>
+                          <span className="vlab-progress-dot" />
+                          {step}
+                        </div>
+                      );
+                    })}
+                    {prosodyModalError ? (
+                      <div className="vlab-small" style={{ color: "#ff8d8d" }}>
+                        {prosodyModalError}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {voiceSamples ? (
+                  <VoiceSampleSelector
+                    personality={personality}
+                    voiceSamples={voiceSamples}
+                    isLoading={isExtractingProsody}
+                    onSampleSelected={(updatedPersonality) => {
+                      onPersonalityUpdated?.(updatedPersonality);
+                      setVoiceSamples(updatedPersonality?.voiceSampleAnalysis || voiceSamples);
+                      setIsProsodyModalOpen(false);
+                    }}
+                    onStatus={onStatus}
+                  />
+                ) : !isExtractingProsody && !prosodyModalError ? (
+                  <div className="vlab-small">No representative voices were detected from the source.</div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {/* ── Waveform Monitor ── */}
           <div className="vlab-section">
