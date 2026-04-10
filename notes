@@ -1,3 +1,23 @@
+NEURONMAP SWITCH COMMANDS
+
+# DO server
+cd /opt/voxis
+git fetch origin
+git checkout NeuronMap || git checkout -b NeuronMap origin/NeuronMap
+git pull origin NeuronMap
+npm install
+npm run build
+pm2 restart voxis-backend
+sudo systemctl reload nginx
+
+# Local workspace
+cd /workspaces/Voxis
+git fetch origin
+git checkout NeuronMap
+git pull origin NeuronMap
+
+---
+
 cd /opt/voxis
 git checkout package-lock.json
 git pull origin pivot/new-approach-20260407
@@ -25,7 +45,53 @@ sudo systemctl reload nginx
 
 bash deploy/update-app.sh && sudo systemctl reload nginx
 
+---
 
+You should now be able to deploy anytime by just typing DEPLOY from anywhere on the server.
+
+cat > /opt/voxis/deploy-safe.sh << 'EOF'
+#!/bin/bash
+set -e  # Exit immediately if any command fails
+
+echo "=== Safe Voxis Deploy Started ==="
+
+cd /opt/voxis
+
+echo "→ Fetching latest changes..."
+git fetch origin
+
+echo "→ Stashing any local changes (including untracked files)..."
+git stash push -u -m "Pre-deploy auto-stash $(date +%Y-%m-%d_%H-%M-%S)"
+
+echo "→ Checking out NeuronMap branch..."
+git checkout NeuronMap 2>/dev/null || git checkout -b NeuronMap origin/NeuronMap
+
+echo "→ Pulling latest code..."
+git pull origin NeuronMap --ff-only || git pull origin NeuronMap --rebase
+
+echo "→ Installing dependencies..."
+npm install
+
+echo "→ Building frontend..."
+npm run build
+
+echo "→ Restarting backend..."
+pm2 restart voxis-backend
+
+echo "→ Reloading nginx..."
+sudo systemctl reload nginx
+
+echo "→ Cleaning up stash..."
+git stash drop || true
+
+echo "=== Safe Voxis Deploy Completed Successfully ==="
+EOF
+
+--
+or use: 
+sudo chown voxis:voxis /opt/voxis/deploy-safe.sh
+chmod +x /opt/voxis/deploy-safe.sh
+deploy
 
 ---
 rm -f package-lock.json && BRANCH=feature/cyberpunk-ui-redesign bash deploy/update-app.sh
@@ -35,6 +101,21 @@ sudo nginx -t && sudo systemctl reload ngin
 
 ---
 
+Freesound - cache dirs - run from backend
+
+cd /workspaces/Voxis/backend && node --input-type=module <<'EOF'
+import { config } from 'dotenv';
+config({ path: '.env' });
+import { initSfxCache } from './services/sfxCacheService.js';
+import { refreshAllMoods } from './services/loopCacheService.js';
+console.log('=== SFX cache ===');
+await initSfxCache();
+console.log('\n=== Loop cache ===');
+await refreshAllMoods();
+console.log('\nDone.');
+EOF
+
+---
 7-DAY INDIE BETA CHECKLIST
 
 Day 1: Lock Scope + Recruit

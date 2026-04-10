@@ -139,6 +139,7 @@ const settingsStyles = `
 function fallbackProviders() {
   return [
     { id: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1" },
+    { id: "grok", name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1" },
     { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },
     { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
     { id: "together", name: "Together", baseUrl: "https://api.together.xyz/v1" },

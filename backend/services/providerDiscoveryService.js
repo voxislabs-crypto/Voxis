@@ -7,6 +7,13 @@ const PROVIDERS = [
     modelsPath: "/models",
   },
   {
+    id: "grok",
+    name: "Grok (xAI)",
+    baseUrl: "https://api.x.ai/v1",
+    auth: "bearer",
+    modelsPath: "/models",
+  },
+  {
     id: "groq",
     name: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
@@ -257,6 +264,8 @@ export async function detectProviderByApiKey(apiKey) {
     priorityProviders.sort((a, b) => (a.id === "anthropic" ? -1 : b.id === "anthropic" ? 1 : 0));
   } else if (trimmedKey.startsWith("sk-or-v1-")) {
     priorityProviders.sort((a, b) => (a.id === "openrouter" ? -1 : b.id === "openrouter" ? 1 : 0));
+  } else if (trimmedKey.startsWith("xai-") || trimmedKey.startsWith("xai_")) {
+    priorityProviders.sort((a, b) => (a.id === "grok" ? -1 : b.id === "grok" ? 1 : 0));
   } else if (trimmedKey.startsWith("gsk_")) {
     priorityProviders.sort((a, b) => (a.id === "groq" ? -1 : b.id === "groq" ? 1 : 0));
   }
@@ -273,7 +282,7 @@ export async function detectProviderByApiKey(apiKey) {
   }
 
   const error = new Error(
-    "Unable to identify a supported provider for this API key. Try a key from OpenAI, Groq, OpenRouter, Together, Mistral, or Anthropic.",
+    "Unable to identify a supported provider for this API key. Try a key from OpenAI, Grok (xAI), Groq, OpenRouter, Together, Mistral, or Anthropic.",
   );
   error.statusCode = 400;
   throw error;

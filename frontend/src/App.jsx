@@ -2006,13 +2006,6 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`tab ${activeView === "voice" ? "active" : ""}`}
-                onClick={() => setActiveView("voice")}
-              >
-                Voice Lab
-              </button>
-              <button
-                type="button"
                 className={`tab ${activeView === "journal" ? "active" : ""}`}
                 onClick={() => setActiveView("journal")}
               >
@@ -2027,10 +2020,10 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`tab ${activeView === "eval" ? "active" : ""}`}
-                onClick={() => setActiveView("eval")}
+                className={`tab ${activeView === "voice" ? "active" : ""}`}
+                onClick={() => setActiveView("voice")}
               >
-                Adversarial Eval
+                Voice Lab
               </button>
               <button
                 type="button"
@@ -2038,6 +2031,13 @@ export default function App() {
                 onClick={() => setActiveView("settings")}
               >
                 LLM Settings
+              </button>
+              <button
+                type="button"
+                className={`tab ${activeView === "eval" ? "active" : ""}`}
+                onClick={() => setActiveView("eval")}
+              >
+                Adversarial Eval
               </button>
             </div>
 
