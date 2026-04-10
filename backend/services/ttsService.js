@@ -907,8 +907,29 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);
+    let errPayload = null;
+    try {
+      errPayload = JSON.parse(errText);
+    } catch {
+      errPayload = null;
+    }
+
+    const providerStatus = String(
+      errPayload?.detail?.status || errPayload?.detail?.code || errPayload?.status || "",
+    ).trim().toLowerCase();
+
     const error = new Error(`ElevenLabs TTS failed with ${response.status}: ${errText}`);
-    error.statusCode = 502;
+    error.providerStatus = response.status;
+    error.ttsProvider = "elevenlabs";
+    error.ttsProviderStatus = providerStatus;
+    error.ttsProviderPayload = errPayload;
+    if (response.status === 429 || providerStatus === "too_many_concurrent_requests") {
+      error.statusCode = 429;
+    } else if (providerStatus === "quota_exceeded") {
+      error.statusCode = 402;
+    } else {
+      error.statusCode = 502;
+    }
     throw error;
   }
 
@@ -991,6 +1012,25 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
   const emotionFrame = interpretEmotionSpectrum(resolveMood(personality));
   const attemptedEngines = [];
 
+  function shouldFallbackFromExplicitRequest(error) {
+    const provider = String(error?.ttsProvider || "").toLowerCase();
+    const providerStatus = String(error?.ttsProviderStatus || "").toLowerCase();
+    const statusCode = Number(error?.statusCode || 0);
+    const upstreamStatus = Number(error?.providerStatus || 0);
+
+    if (provider !== "elevenlabs") {
+      return false;
+    }
+
+    return (
+      statusCode === 429 ||
+      upstreamStatus === 429 ||
+      providerStatus === "too_many_concurrent_requests" ||
+      providerStatus === "concurrent_limit_exceeded" ||
+      providerStatus === "quota_exceeded"
+    );
+  }
+
   async function runEngine(eng, profileOverride = adjustedVoiceProfile) {
     attemptedEngines.push(eng);
     const { synthesisText, effectiveVoiceProfile } = prepareEngineInput({
@@ -1037,8 +1077,12 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       sfx,
     };
   } catch (primaryError) {
-    // If the engine was explicitly requested, don't silently fall back.
-    if (requested !== "auto") throw primaryError;
+    // For explicit engine requests, we normally avoid silent fallback.
+    // Exception: provider-level limits (quota/concurrency) on ElevenLabs can
+    // degrade to another configured engine so voice playback still works.
+    if (requested !== "auto" && !shouldFallbackFromExplicitRequest(primaryError)) {
+      throw primaryError;
+    }
 
     // Auto fallback chain: try remaining engines in priority order.
     const fallbackOrder = getAutoEngineOrder(voiceProfile).filter((candidate) => candidate !== engine);

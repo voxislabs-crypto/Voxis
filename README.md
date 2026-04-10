@@ -173,6 +173,7 @@ What this demonstrates in minutes:
 - TTS now includes a Speech Director layer that reshapes outgoing text cadence using personality and live VAD mood before synthesis, so cadence/rhythm cues propagate into every engine path.
 - TTS engine capability mapping now advertises which providers can honor native rate/style controls versus text-shaping-only degradation paths, so cross-engine behavior stays predictable.
 - Auto TTS fallback now preserves voice family hints across engines, carrying the closest matching register/presentation into Kokoro or cloud fallback instead of dropping to a generic default voice.
+- If ElevenLabs returns provider-limit errors (for example concurrent request cap or quota exceeded), Voxis now classifies those explicitly and degrades to the next available engine instead of hard-failing playback.
 - Precision-aware TTS guardrails now preserve technical/factual wording, hedging, and literal phrasing on deployment/config/debug style turns while leaving expressive stylization active for performance and roleplay contexts.
 - Server-side voice output supports OpenAI-compatible cloud TTS plus Piper, Kokoro, ElevenLabs (BYOK), and Cartesia (BYOK) with per-character voice settings.
 - Existing SFX markers (for example `[BURP]`) are extracted before synthesis and emitted as metadata, so voice engine changes do not break the current sound-effects chain.
