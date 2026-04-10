@@ -158,7 +158,7 @@ What this demonstrates in minutes:
 - System prompts are generated dynamically at runtime — not stored as static strings — so every conversation turn reflects the full current state of the character, its memory, and its live mood.
 - Persist chat history in SQLite and inject the last 10 messages into every LLM request for session continuity.
 - Configure LLM providers at runtime from the UI with a provider-first flow (provider -> API key -> models -> active model), with optional auto-detect as a helper. Built-ins include OpenAI, Grok (xAI), Groq, OpenRouter, Together, Mistral, Anthropic, plus a Custom OpenAI-compatible endpoint.
-- Chat now includes a bottom-right context-window meter that tracks used vs max tokens per turn, using provider-reported usage when available and a live fallback estimate while streaming.
+- Chat now includes a bottom-right context-window meter that tracks used vs max tokens per turn, using provider-reported usage when available and a live fallback estimate while streaming; hover or focus the meter for input/output token breakdown and active model details.
 - Select a user profile and chat mode (`kids`, `normal`, or `scientist`) at runtime; age-band policy enforces safe mode fallback automatically when requested mode is not allowed.
 - Chat policy now fails closed: if `userId` is missing or invalid, requests default to strict kids policy.
 - Mode is session-locked per `(userId, personalityId)` conversation thread to prevent policy bleed from mid-thread mode switches.

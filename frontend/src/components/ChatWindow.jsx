@@ -939,6 +939,12 @@ const chatStyles = `
     margin-bottom: 8px;
   }
 
+  .context-meter-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .context-meter-label {
     font-size: 0.68rem;
     letter-spacing: 0.08em;
@@ -976,6 +982,75 @@ const chatStyles = `
     font-size: 0.7rem;
     color: #8fb3c8;
     font-variant-numeric: tabular-nums;
+  }
+
+  .context-meter-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid rgba(135, 222, 255, 0.28);
+    border-radius: 999px;
+    background: rgba(10, 26, 44, 0.92);
+    color: #8fe8ff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    cursor: help;
+  }
+
+  .context-meter-info:focus-visible {
+    outline: 2px solid rgba(120, 224, 255, 0.8);
+    outline-offset: 2px;
+  }
+
+  .context-meter-details {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: min(260px, calc(100vw - 44px));
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 234, 255, 0.2);
+    background: rgba(3, 10, 22, 0.96);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+
+  .context-meter:hover .context-meter-details,
+  .context-meter:focus-within .context-meter-details {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .context-meter-details-title {
+    margin-bottom: 8px;
+    color: #d8f6ff;
+    font-size: 0.73rem;
+    font-weight: 700;
+  }
+
+  .context-meter-details-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 10px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .context-meter-details-grid dt {
+    color: #81bad1;
+  }
+
+  .context-meter-details-grid dd {
+    margin: 0;
+    color: #eefbff;
+    text-align: right;
+    word-break: break-word;
   }
 
   .avatar-panel-orb.thinking-tilt {
@@ -1131,6 +1206,13 @@ export default function ChatWindow({
     }
 
     return 0;
+  }, [activeUsage]);
+  const usageModelLabel = useMemo(() => {
+    const model = String(activeUsage?.model || "").trim();
+    return model || "Unknown";
+  }, [activeUsage]);
+  const usageSourceLabel = useMemo(() => {
+    return activeUsage?.source === "provider" ? "Provider-reported" : "Live estimate";
   }, [activeUsage]);
 
   const displayDebug = liveDebug || latestAssistantDebug;
@@ -1945,7 +2027,16 @@ export default function ChatWindow({
             >
               <div className="context-meter-header">
                 <span className="context-meter-label">Context Window</span>
-                <span className="context-meter-value">{usagePercent}%</span>
+                <span className="context-meter-actions">
+                  <span className="context-meter-value">{usagePercent}%</span>
+                  <button
+                    type="button"
+                    className="context-meter-info"
+                    aria-label="Show context usage details"
+                  >
+                    i
+                  </button>
+                </span>
               </div>
               <div className="context-meter-track" aria-hidden="true">
                 <div className="context-meter-fill" style={{ width: `${usagePercent}%` }} />
@@ -1953,6 +2044,21 @@ export default function ChatWindow({
               <div className="context-meter-meta">
                 <span>{Number(activeUsage.totalTokens || 0).toLocaleString()} / {Number(activeUsage.maxTokens || 0).toLocaleString()} tokens</span>
                 <span>{String(activeUsage.source || "estimate")}</span>
+              </div>
+              <div className="context-meter-details" role="tooltip">
+                <div className="context-meter-details-title">Turn Usage Breakdown</div>
+                <dl className="context-meter-details-grid">
+                  <dt>Model</dt>
+                  <dd>{usageModelLabel}</dd>
+                  <dt>Input</dt>
+                  <dd>{Number(activeUsage.inputTokens || 0).toLocaleString()} tokens</dd>
+                  <dt>Output</dt>
+                  <dd>{Number(activeUsage.outputTokens || 0).toLocaleString()} tokens</dd>
+                  <dt>Total</dt>
+                  <dd>{Number(activeUsage.totalTokens || 0).toLocaleString()} tokens</dd>
+                  <dt>Source</dt>
+                  <dd>{usageSourceLabel}</dd>
+                </dl>
               </div>
             </div>
           ) : null}
