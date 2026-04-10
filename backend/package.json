@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "backfill-memory-embeddings": "node scripts/backfillMemoryEmbeddings.js",
-    "adversarial-harness": "node scripts/adversarialTranscriptHarness.js"
+    "adversarial-harness": "node scripts/adversarialTranscriptHarness.js",
+    "tts-diagnostics": "node scripts/testTtsDiagnostics.js"
   },
   "dependencies": {
     "@clerk/express": "^2.0.8",

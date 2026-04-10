@@ -104,9 +104,23 @@ async function fetchWithTimeoutRetry(url, options = {}, { timeoutMs = DEFAULT_FE
 }
 
 function getCloudConfig() {
+  const ttsBaseUrl = (process.env.TTS_BASE_URL || "").replace(/\/$/, "");
+  const llmBaseUrl = (process.env.LLM_BASE_URL || "").replace(/\/$/, "");
+  const defaultBaseUrl = DEFAULT_TTS_BASE_URL;
+
+  // Use TTS_BASE_URL if set, otherwise fall back to LLM_BASE_URL, then the default.
+  const baseUrl = (ttsBaseUrl || llmBaseUrl || defaultBaseUrl);
+
+  // Only use LLM_API_KEY as a TTS key fallback when the TTS and LLM base URLs are
+  // from the same provider (or when TTS_BASE_URL isn't explicitly set to a different
+  // provider). This prevents an OpenRouter LLM key being sent to api.openai.com, which
+  // always results in a 401 because OpenRouter keys are not valid OpenAI credentials.
+  const sameProvider = !ttsBaseUrl || !llmBaseUrl || ttsBaseUrl === llmBaseUrl;
+  const apiKey = process.env.TTS_API_KEY || (sameProvider ? process.env.LLM_API_KEY : "") || "";
+
   return {
-    baseUrl: (process.env.TTS_BASE_URL || process.env.LLM_BASE_URL || DEFAULT_TTS_BASE_URL).replace(/\/$/, ""),
-    apiKey: process.env.TTS_API_KEY || process.env.LLM_API_KEY || "",
+    baseUrl,
+    apiKey,
     model: process.env.TTS_MODEL || DEFAULT_TTS_MODEL,
     voice: process.env.TTS_DEFAULT_VOICE || DEFAULT_TTS_VOICE,
     format: process.env.TTS_RESPONSE_FORMAT || DEFAULT_TTS_FORMAT,

@@ -25,9 +25,11 @@ const FREESOUND_BASE = "https://freesound.org/apiv2";
 // Each entry defines the Freesound search parameters for that effect.
 const SFX_CATALOG = {
   burp: {
-    query: "burp single short",
+    // Broader queries return more CC-licensed results; "burp single short" filtered
+    // almost everything out. We try "belch" first (more hits) then fall back to "burp".
+    query: "belch burp",
     durationMin: 0.3,
-    durationMax: 3.0,
+    durationMax: 4.0,
   },
 };
 

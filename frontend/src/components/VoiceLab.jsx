@@ -293,6 +293,20 @@ const voiceLabStyles = `
     gap: 12px;
   }
 
+  /* Amber warning variant */
+  .vlab-callout.warn {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .vlab-callout.warn .vlab-callout-title { color: #fcd34d; }
+
+  /* Green info variant */
+  .vlab-callout.ok {
+    border-color: rgba(74, 222, 128, 0.30);
+    background: rgba(74, 222, 128, 0.05);
+  }
+  .vlab-callout.ok .vlab-callout-title { color: #86efac; }
+
   .vlab-callout-head {
     display: flex;
     align-items: flex-start;
@@ -806,6 +820,9 @@ export default function VoiceLab({
   const [cloudModelError, setCloudModelError] = useState("");
   const [cloudModelsReloadToken, setCloudModelsReloadToken] = useState(0);
   const [cloudLastUpdatedAt, setCloudLastUpdatedAt] = useState(0);
+  // Provider ID of the currently-connected LLM (e.g. "openrouter", "openai").  
+  // Used to warn the user when their LLM provider can't handle TTS audio requests.
+  const [llmProvider, setLlmProvider] = useState("");
 
   // Refs
   const audioRef = useRef(null);
@@ -1140,6 +1157,7 @@ export default function VoiceLab({
         const nextModels = models.length ? models : CLOUD_MODEL_PRESETS;
         setCloudModels(nextModels);
         setCloudLastUpdatedAt(Date.now());
+        setLlmProvider(String(data.provider || "").toLowerCase());
         setVoiceProfile((cur) => {
           if (nextModels.some((model) => model.id === cur.providerModel) || cur.providerModel) {
             return cur;
@@ -1648,6 +1666,59 @@ export default function VoiceLab({
                   <option value="cartesia">cartesia (BYOK)</option>
                 </select>
               </div>
+
+              {/* ── Warning: LLM provider doesn't support audio ── */}
+              {(voiceProfile.engine === "auto" || voiceProfile.engine === "cloud") &&
+               llmProvider && llmProvider !== "openai" ? (
+                <div className="vlab-callout warn">
+                  <div className="vlab-callout-head">
+                    <div>
+                      <p className="vlab-callout-title">⚠ TTS action required — {llmProvider} doesn&apos;t handle audio</p>
+                      <p className="vlab-callout-copy">
+                        Your LLM is connected via <strong>{llmProvider}</strong>, which routes text completions only — it has no audio/speech endpoint.
+                        The <strong>cloud</strong> TTS path needs a direct <strong>OpenAI API key</strong>
+                        {" "}(separate from your LLM key) to synthesise voice. Your options:
+                      </p>
+                      <ul style={{ margin: "8px 0 0 0", paddingLeft: 18, fontSize: "0.78rem", lineHeight: 1.65, color: "var(--muted)" }}>
+                        <li><strong style={{ color: "#fcd34d" }}>Kokoro (recommended):</strong> Switch the engine to <em>kokoro</em> above — free, runs locally, no key needed.</li>
+                        <li><strong style={{ color: "#fcd34d" }}>ElevenLabs / Cartesia:</strong> Switch to one of those engines and paste your API key below.</li>
+                        <li><strong style={{ color: "#fcd34d" }}>OpenAI TTS key:</strong> Add <code style={{ background: "rgba(255,255,255,0.07)", padding: "1px 4px", borderRadius: 4 }}>TTS_API_KEY=sk-…</code> to <em>backend/.env</em> (requires server restart).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ── Info: dedicated TTS providers are independent of LLM ── */}
+              {(voiceProfile.engine === "elevenlabs" || voiceProfile.engine === "cartesia") ? (
+                <div className="vlab-callout ok">
+                  <div className="vlab-callout-head">
+                    <div>
+                      <p className="vlab-callout-title">✓ Fully independent of your LLM provider</p>
+                      <p className="vlab-callout-copy">
+                        <strong>{voiceProfile.engine === "elevenlabs" ? "ElevenLabs" : "Cartesia"}</strong> uses its own API key and speaks directly to the provider&apos;s audio endpoint.
+                        Your LLM provider ({llmProvider || "current LLM"}) is never contacted for voice — the two services operate in separate lanes.
+                        Paste your {voiceProfile.engine === "elevenlabs" ? "ElevenLabs" : "Cartesia"} key in the <em>Runtime BYOK</em> section below.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ── Info: Kokoro — free local, no key needed ── */}
+              {voiceProfile.engine === "kokoro" ? (
+                <div className="vlab-callout ok">
+                  <div className="vlab-callout-head">
+                    <div>
+                      <p className="vlab-callout-title">✓ Free local engine — no API key required</p>
+                      <p className="vlab-callout-copy">
+                        Kokoro runs the 82 M ONNX model on your server. No external calls, no API key, works regardless of which LLM provider you use.
+                        The model (~171 MB) downloads from HuggingFace on the <strong>first request</strong> and is cached for all future requests.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="vlab-callout">
                 <div className="vlab-callout-head">
