@@ -30,7 +30,9 @@ sudo apt-get install -y \
   git \
   gnupg \
   build-essential \
-  nginx
+  nginx \
+  ffmpeg \
+  yt-dlp
 
 echo "[2/9] Installing Node.js 20 if needed"
 if ! need_cmd node || [[ "$(node -v | sed 's/v//' | cut -d. -f1)" -lt 20 ]]; then

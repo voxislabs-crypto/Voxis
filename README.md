@@ -362,6 +362,13 @@ npm run dev --workspace frontend
 
 Voxis includes scripts to set up a fresh Ubuntu server and keep deploys clean.
 
+Prosody extraction depends on `yt-dlp`, `ffmpeg`, and `ffprobe`. The Ubuntu bootstrap and update scripts now install these automatically, but if you need to repair a host manually:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y yt-dlp ffmpeg
+```
+
 First-time setup on your server:
 
 ```bash
@@ -958,6 +965,7 @@ Kokoro warm cache behavior:
 - Backend startup triggers a background Kokoro preload.
 - On first server boot, this can download the model (about 171 MB) and cache it for later requests.
 - `npm run build` does not perform this download; backend start/restart does.
+- If the host cannot reach Hugging Face or the model download is denied, Kokoro is now marked as requiring setup instead of being reported as ready.
 - If `kokoro-js` is not installed, Voxis now skips Kokoro preload cleanly instead of crashing the backend.
 
 Health and diagnostics:

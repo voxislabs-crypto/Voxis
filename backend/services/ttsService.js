@@ -22,6 +22,7 @@ let _kokoroTts = null;
 let _kokoroInitPromise = null;
 let _kokoroModule = null;
 let _kokoroImportError = null;
+let _kokoroLoadError = null;
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
@@ -783,7 +784,7 @@ function isKokoroPackageInstalled() {
 }
 
 function isKokoroAvailable() {
-  return isKokoroPackageInstalled();
+  return isKokoroPackageInstalled() && !_kokoroLoadError;
 }
 
 async function loadKokoroModule() {
@@ -818,10 +819,12 @@ async function loadKokoroTts() {
     }))
     .then((tts) => {
       _kokoroTts = tts;
+      _kokoroLoadError = null;
       _kokoroInitPromise = null;
       return tts;
     })
     .catch((error) => {
+      _kokoroLoadError = error;
       _kokoroInitPromise = null;
       throw error;
     });
@@ -856,7 +859,11 @@ async function generateKokoroSpeechAudio({ text, voiceProfile }) {
     const buffer = await fs.readFile(tmpFile);
     return { buffer, contentType: "audio/wav", engine: "kokoro" };
   } catch (error) {
-    const wrapped = new Error(`Kokoro TTS failed: ${error.message || error}`);
+    const message = String(error?.message || error || "Kokoro initialization failed.");
+    const hint = /Unauthorized access to file:/i.test(message)
+      ? " Kokoro could not download its model from Hugging Face. Pre-cache the model on the server or configure another TTS engine."
+      : "";
+    const wrapped = new Error(`Kokoro TTS failed: ${message}${hint}`);
     wrapped.statusCode = 502;
     throw wrapped;
   } finally {
@@ -1186,7 +1193,8 @@ export function listProviderStatus() {
       available: isKokoroAvailable(),
       installed: isKokoroPackageInstalled(),
       loaded: Boolean(_kokoroTts),
-      requiresSetup: false,
+      requiresSetup: Boolean(_kokoroLoadError),
+      loadError: _kokoroLoadError ? String(_kokoroLoadError.message || _kokoroLoadError) : "",
       capabilities: getEngineCapabilities("kokoro"),
     },
     elevenlabs: {
@@ -1422,6 +1430,7 @@ export async function getTtsHealthStatus() {
       kokoro: {
         ...providerStatus.kokoro,
         importError: _kokoroImportError ? String(_kokoroImportError.message || _kokoroImportError) : "",
+        loadError: _kokoroLoadError ? String(_kokoroLoadError.message || _kokoroLoadError) : "",
       },
     },
   };

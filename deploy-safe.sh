@@ -30,6 +30,12 @@ git pull origin "${BRANCH}" --ff-only || git pull origin "${BRANCH}" --rebase
 echo "→ Installing dependencies..."
 npm install
 
+echo "→ Ensuring prosody tools are installed..."
+if ! command -v yt-dlp >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+	sudo apt-get update -y
+	sudo apt-get install -y yt-dlp ffmpeg
+fi
+
 echo "→ Building frontend..."
 npm run build
 

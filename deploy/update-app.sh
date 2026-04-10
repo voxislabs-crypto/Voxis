@@ -61,6 +61,12 @@ fi
 echo "[4/6] Installing dependencies"
 npm --prefix "$APP_DIR" install
 
+echo "[4b/6] Ensuring prosody tools are installed"
+if ! command -v yt-dlp >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+  sudo apt-get update -y
+  sudo apt-get install -y yt-dlp ffmpeg
+fi
+
 if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$APP_DIR/frontend/.env" 2>/dev/null; then
   echo
   echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set in $APP_DIR/frontend/.env"

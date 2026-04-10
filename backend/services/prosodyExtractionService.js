@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), "prosody-templates");
@@ -23,11 +23,21 @@ function validateUrl(input) {
 
 function createMissingToolError(command, error) {
   const wrapped = new Error(
-    `Required prosody extraction tool '${command}' is not installed or not on PATH. Install it and retry.`,
+    `Required prosody extraction tool '${command}' is not installed or not on PATH. Install it and retry. On Ubuntu: sudo apt-get update && sudo apt-get install -y yt-dlp ffmpeg.`,
   );
   wrapped.statusCode = 500;
   wrapped.code = error?.code || "ENOENT";
   return wrapped;
+}
+
+function getProsodyYtDlpCommand() {
+  const configured = String(process.env.PROSODY_YTDLP_COMMAND || "").trim();
+  if (configured) {
+    return configured;
+  }
+
+  const localBinary = path.join(os.homedir(), ".local", "bin", "yt-dlp");
+  return existsSync(localBinary) ? localBinary : "yt-dlp";
 }
 
 function runCommand(command, args, options = {}) {
@@ -84,7 +94,7 @@ async function findDownloadedAudio(workspaceDir) {
 }
 
 async function defaultDownloadAudio({ url, workspaceDir }) {
-  const command = process.env.PROSODY_YTDLP_COMMAND || "yt-dlp";
+  const command = getProsodyYtDlpCommand();
   const outputPattern = path.join(workspaceDir, "source.%(ext)s");
 
   await runCommand(command, [
