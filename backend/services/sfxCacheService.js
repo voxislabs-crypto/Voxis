@@ -54,6 +54,11 @@ const SFX_CATALOG = {
     query: "snort laugh funny",
     durationMin: 0.3,
     durationMax: 2.0,
+    fallbackQueries: [
+      "snort",
+      "nose snort",
+      "laugh snort",
+    ],
   },
   hiccup: {
     query: "hiccup",
@@ -64,11 +69,21 @@ const SFX_CATALOG = {
     query: "fart toot comedic",
     durationMin: 0.2,
     durationMax: 3.0,
+    fallbackQueries: [
+      "fart",
+      "toot",
+      "comedic fart",
+    ],
   },
   evil_chuckle: {
     query: "evil chuckle villain laugh",
     durationMin: 0.4,
     durationMax: 4.0,
+    fallbackQueries: [
+      "evil laugh",
+      "villain laugh",
+      "sinister chuckle",
+    ],
   },
   maniacal_laugh: {
     query: "maniacal laugh villain",
@@ -79,6 +94,11 @@ const SFX_CATALOG = {
     query: "witch cackle laugh",
     durationMin: 0.4,
     durationMax: 3.5,
+    fallbackQueries: [
+      "cackle",
+      "witch laugh",
+      "evil cackle",
+    ],
   },
   gasp: {
     query: "gasp surprise",
@@ -244,24 +264,13 @@ async function downloadAudio(sound, destPath) {
   await pipeline(Readable.fromWeb(resp.body), createWriteStream(destPath));
 }
 
-/**
- * fetchAndCacheSfx(name)
- * Searches Freesound for the given SFX name, downloads the best CC-licensed
- * result, and saves it to sfx-cache/<name>.mp3.
- */
-export async function fetchAndCacheSfx(name) {
-  const config = SFX_CATALOG[name];
-  if (!config) throw new Error(`Unknown SFX: ${name}`);
-
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error("FREESOUND_API_KEY is not configured.");
-
+async function searchFreesound({ apiKey, query, durationMin, durationMax }) {
   const params = new URLSearchParams({
     token: apiKey,
-    query: config.query,
+    query,
     filter: [
       "type:(wav OR mp3)",
-      `duration:[${config.durationMin} TO ${config.durationMax}]`,
+      `duration:[${durationMin} TO ${durationMax}]`,
       "is_explicit:0",
     ].join(" "),
     sort: "rating_desc",
@@ -273,7 +282,7 @@ export async function fetchAndCacheSfx(name) {
   const resp = await fetchWithDiagnostics(`${FREESOUND_BASE}/search/text/?${params}`, {
     headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
     signal: AbortSignal.timeout(15000),
-  }, `search sfx=${name}`);
+  }, `search query=${query}`);
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
@@ -289,9 +298,66 @@ export async function fetchAndCacheSfx(name) {
       return scoreB - scoreA;
     });
 
-  if (!valid.length) throw new Error(`No CC-licensed results found for SFX: ${name}`);
+  return {
+    valid,
+    totalResults: Number(data.count || 0),
+  };
+}
 
-  const sound = valid[0];
+/**
+ * fetchAndCacheSfx(name)
+ * Searches Freesound for the given SFX name, downloads the best CC-licensed
+ * result, and saves it to sfx-cache/<name>.mp3.
+ */
+export async function fetchAndCacheSfx(name) {
+  const config = SFX_CATALOG[name];
+  if (!config) throw new Error(`Unknown SFX: ${name}`);
+
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("FREESOUND_API_KEY is not configured.");
+
+  const attempts = [
+    {
+      query: config.query,
+      durationMin: config.durationMin,
+      durationMax: config.durationMax,
+    },
+    ...((Array.isArray(config.fallbackQueries) ? config.fallbackQueries : []).map((query) => ({
+      query,
+      durationMin: config.durationMin,
+      durationMax: config.durationMax,
+    }))),
+    {
+      query: config.query,
+      durationMin: Math.max(0.1, Number(config.durationMin) || 0.1),
+      durationMax: Math.max(6.0, Number(config.durationMax) || 6.0),
+    },
+  ];
+
+  let selectedSound = null;
+  const summaries = [];
+
+  for (const attempt of attempts) {
+    const { valid, totalResults } = await searchFreesound({
+      apiKey,
+      query: attempt.query,
+      durationMin: attempt.durationMin,
+      durationMax: attempt.durationMax,
+    });
+
+    summaries.push(`${attempt.query}(${attempt.durationMin}-${attempt.durationMax}s):cc=${valid.length},total=${totalResults}`);
+
+    if (valid.length > 0) {
+      selectedSound = valid[0];
+      break;
+    }
+  }
+
+  if (!selectedSound) {
+    throw new Error(`No CC-licensed results found for SFX: ${name}. Attempts: ${summaries.join(" | ")}`);
+  }
+
+  const sound = selectedSound;
   const destPath = path.join(CACHE_DIR, `${name}.mp3`);
   await downloadAudio(sound, destPath);
 
