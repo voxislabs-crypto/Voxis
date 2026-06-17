@@ -160,12 +160,30 @@ const SFX_ALIASES = Object.freeze({
   shriek: "scream",
 });
 
+const SFX_FALLBACKS = Object.freeze({
+  snort: ["chuckle", "giggle", "grunt"],
+  fart: ["burp", "grunt"],
+  evil_chuckle: ["maniacal_laugh", "cackle", "chuckle"],
+  cackle: ["maniacal_laugh", "evil_chuckle", "chuckle"],
+});
+
 function normalizeTagToken(tag) {
   return String(tag || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function getFallbackCandidates(tag) {
+  const normalized = normalizeSfxTag(tag);
+  if (!normalized) return [];
+
+  return Array.from(new Set(
+    (SFX_FALLBACKS[normalized] || [])
+      .map((candidate) => normalizeSfxTag(candidate))
+      .filter((candidate) => candidate && candidate !== normalized),
+  ));
 }
 
 export function normalizeSfxTag(tag) {
@@ -354,7 +372,14 @@ export async function fetchAndCacheSfx(name) {
   }
 
   if (!selectedSound) {
-    throw new Error(`No CC-licensed results found for SFX: ${name}. Attempts: ${summaries.join(" | ")}`);
+    const fallbackCandidates = getFallbackCandidates(name);
+    throw new Error(
+      `No CC-licensed results found for SFX: ${name}. ` +
+        `Attempts: ${summaries.join(" | ")}. ` +
+        (fallbackCandidates.length
+          ? `Fallback candidates: ${fallbackCandidates.join(", ")}`
+          : "Fallback candidates: none"),
+    );
   }
 
   const sound = selectedSound;
@@ -377,6 +402,16 @@ export async function getCachedSfxPath(name) {
     await fs.access(p);
     return p;
   } catch {
+    const fallbackCandidates = getFallbackCandidates(name);
+    for (const candidate of fallbackCandidates) {
+      const fallbackPath = path.join(CACHE_DIR, `${candidate}.mp3`);
+      try {
+        await fs.access(fallbackPath);
+        return fallbackPath;
+      } catch {
+        // try next fallback candidate
+      }
+    }
     return null;
   }
 }
@@ -397,6 +432,12 @@ export async function initSfxCache() {
       try {
         await fetchAndCacheSfx(name);
       } catch (err) {
+        const fallbackPath = await getCachedSfxPath(name);
+        if (fallbackPath) {
+          console.warn(`[SFX Cache] Falling back for "${name}" to cached file: ${path.basename(fallbackPath)}`);
+          continue;
+        }
+
         console.warn(`[SFX Cache] Failed to cache "${name}": ${err.message}`);
         if (err?.stack) {
           const firstLine = String(err.stack).split("\n").slice(0, 2).join(" | ");
