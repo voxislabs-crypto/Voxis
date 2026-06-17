@@ -24,6 +24,7 @@ const VOICE_CAPTURE_SILENCE_TIMEOUT_MS = Math.max(
 );
 const CUSTOM_CARTESIA_VOICE_OPTION = "__custom_cartesia_voice__";
 const CUSTOM_ELEVENLABS_VOICE_OPTION = "__custom_elevenlabs_voice__";
+const CUSTOM_ELEVENLABS_MODEL_OPTION = "__custom_elevenlabs_model__";
 const CARTESIA_QUICK_VOICE_OPTIONS = [
   { id: "a0e99841-438c-4a64-b679-ae501e7d6091", label: "Sonic default" },
   { id: "694f9389-aac1-45b6-b726-9d9369183238", label: "Warm Narrator" },
@@ -35,6 +36,9 @@ const ELEVENLABS_QUICK_VOICE_OPTIONS = [
   { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh" },
   { id: "VR6AewLTigWG4xSOukaG", label: "Arnold" },
   { id: "ErXwobaYiN019PkySvjV", label: "Antoni" },
+];
+const ELEVENLABS_QUICK_MODEL_OPTIONS = [
+  { id: "eleven_multilingual_v2", label: "Multilingual v2 (default)" },
 ];
 
 function normalizeVoiceEngineForDebug(engine) {
@@ -2065,6 +2069,8 @@ export default function ChatWindow({
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [speechPlaybackRate, setSpeechPlaybackRate] = useState(1);
   const [cartesiaVoiceOptions, setCartesiaVoiceOptions] = useState(CARTESIA_QUICK_VOICE_OPTIONS);
+  const [elevenLabsVoiceOptions, setElevenLabsVoiceOptions] = useState(ELEVENLABS_QUICK_VOICE_OPTIONS);
+  const [elevenLabsModelOptions, setElevenLabsModelOptions] = useState(ELEVENLABS_QUICK_MODEL_OPTIONS);
   const [speechEnergy, setSpeechEnergy] = useState(0);
   const [voiceTelemetry, setVoiceTelemetry] = useState(null);
   const [activePersonalityEvents, setActivePersonalityEvents] = useState([]);
@@ -2208,12 +2214,22 @@ export default function ChatWindow({
   const selectedElevenLabsVoiceOption = useMemo(() => {
     const currentVoiceId = String(voiceProfile.elevenLabsVoiceId || "").trim();
     if (!currentVoiceId) {
-      return ELEVENLABS_QUICK_VOICE_OPTIONS[0]?.id || CUSTOM_ELEVENLABS_VOICE_OPTION;
+      return elevenLabsVoiceOptions[0]?.id || CUSTOM_ELEVENLABS_VOICE_OPTION;
     }
 
-    const knownVoice = ELEVENLABS_QUICK_VOICE_OPTIONS.some((voice) => voice.id === currentVoiceId);
+    const knownVoice = elevenLabsVoiceOptions.some((voice) => voice.id === currentVoiceId);
     return knownVoice ? currentVoiceId : currentVoiceId;
-  }, [voiceProfile.elevenLabsVoiceId]);
+  }, [voiceProfile.elevenLabsVoiceId, elevenLabsVoiceOptions]);
+
+  const selectedElevenLabsModelOption = useMemo(() => {
+    const currentModel = String(voiceProfile.elevenLabsModel || "").trim();
+    if (!currentModel) {
+      return elevenLabsModelOptions[0]?.id || CUSTOM_ELEVENLABS_MODEL_OPTION;
+    }
+
+    const knownModel = elevenLabsModelOptions.some((model) => model.id === currentModel);
+    return knownModel ? currentModel : currentModel;
+  }, [voiceProfile.elevenLabsModel, elevenLabsModelOptions]);
 
   const displayDebug = liveDebug || latestAssistantDebug;
 
@@ -2266,6 +2282,48 @@ export default function ChatWindow({
 
     return () => { cancelled = true; };
   }, [authFetch, authLoaded, isSignedIn, voiceProfile.engine]);
+
+  // Fetch ElevenLabs voice catalog when ElevenLabs is selected in quick voice.
+  // Falls back to ELEVENLABS_QUICK_VOICE_OPTIONS when API key is missing or the call fails.
+  useEffect(() => {
+    if (!authLoaded || !isSignedIn) {
+      return;
+    }
+
+    if (voiceProfile.engine !== "elevenlabs") {
+      return;
+    }
+
+    let cancelled = false;
+
+    authFetch("/tts/provider-options?provider=elevenlabs")
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(String(data?.error || "Failed to load ElevenLabs voices."));
+        }
+        return data;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const voices = Array.isArray(data?.voices) && data.voices.length
+          ? data.voices.map((v) => ({ id: String(v.id || ""), label: String(v.label || v.id || "") }))
+          : ELEVENLABS_QUICK_VOICE_OPTIONS;
+        const models = Array.isArray(data?.models) && data.models.length
+          ? data.models.map((m) => ({ id: String(m.id || ""), label: String(m.label || m.id || "") }))
+          : ELEVENLABS_QUICK_MODEL_OPTIONS;
+        setElevenLabsVoiceOptions(voices);
+        setElevenLabsModelOptions(models);
+      })
+      .catch((error) => {
+        console.warn("[ChatWindow] ElevenLabs voice catalog fallback:", error?.message || error);
+        if (!cancelled) setElevenLabsVoiceOptions(ELEVENLABS_QUICK_VOICE_OPTIONS);
+        if (!cancelled) setElevenLabsModelOptions(ELEVENLABS_QUICK_MODEL_OPTIONS);
+      });
+
+    return () => { cancelled = true; };
+  }, [authFetch, authLoaded, isSignedIn, voiceProfile.engine]);
+
   const pendingAssistantMessage = useMemo(() => {
     if (!isSending && !liveReply) {
       return null;
@@ -4145,11 +4203,11 @@ export default function ChatWindow({
                       updateVoiceField("elevenLabsVoiceId", nextValue);
                     }}
                   >
-                    {ELEVENLABS_QUICK_VOICE_OPTIONS.map((voice) => (
+                    {elevenLabsVoiceOptions.map((voice) => (
                       <option key={voice.id} value={voice.id}>{voice.label}</option>
                     ))}
                     {voiceProfile.elevenLabsVoiceId &&
-                      !ELEVENLABS_QUICK_VOICE_OPTIONS.some((v) => v.id === voiceProfile.elevenLabsVoiceId) ? (
+                      !elevenLabsVoiceOptions.some((v) => v.id === voiceProfile.elevenLabsVoiceId) ? (
                       <option value={voiceProfile.elevenLabsVoiceId}>
                         {voiceProfile.elevenLabsVoiceId} (saved)
                       </option>
@@ -4162,6 +4220,41 @@ export default function ChatWindow({
                       placeholder="ElevenLabs voice ID"
                       value={voiceProfile.elevenLabsVoiceId || ""}
                       onChange={(event) => updateVoiceField("elevenLabsVoiceId", event.target.value)}
+                      style={{ marginTop: 8, fontFamily: "monospace", fontSize: "0.78rem", padding: "4px 8px", borderRadius: "6px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,234,255,0.2)", color: "#88ecff", width: "100%", boxSizing: "border-box" }}
+                    />
+                  ) : null}
+                  <label htmlFor="elevenlabs-model-select" style={{ display: "block", marginTop: 8 }}>Model:</label>
+                  <select
+                    id="elevenlabs-model-select"
+                    value={selectedElevenLabsModelOption}
+                    onChange={(event) => {
+                      const nextValue = String(event.target.value || "");
+                      if (nextValue === CUSTOM_ELEVENLABS_MODEL_OPTION) {
+                        if (!String(voiceProfile.elevenLabsModel || "").trim()) {
+                          updateVoiceField("elevenLabsModel", "");
+                        }
+                        return;
+                      }
+                      updateVoiceField("elevenLabsModel", nextValue);
+                    }}
+                  >
+                    {elevenLabsModelOptions.map((model) => (
+                      <option key={model.id} value={model.id}>{model.label}</option>
+                    ))}
+                    {voiceProfile.elevenLabsModel &&
+                      !elevenLabsModelOptions.some((m) => m.id === voiceProfile.elevenLabsModel) ? (
+                      <option value={voiceProfile.elevenLabsModel}>
+                        {voiceProfile.elevenLabsModel} (saved)
+                      </option>
+                    ) : null}
+                    <option value={CUSTOM_ELEVENLABS_MODEL_OPTION}>Custom model...</option>
+                  </select>
+                  {selectedElevenLabsModelOption === CUSTOM_ELEVENLABS_MODEL_OPTION ? (
+                    <input
+                      type="text"
+                      placeholder="ElevenLabs model ID"
+                      value={voiceProfile.elevenLabsModel || ""}
+                      onChange={(event) => updateVoiceField("elevenLabsModel", event.target.value)}
                       style={{ marginTop: 8, fontFamily: "monospace", fontSize: "0.78rem", padding: "4px 8px", borderRadius: "6px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,234,255,0.2)", color: "#88ecff", width: "100%", boxSizing: "border-box" }}
                     />
                   ) : null}
