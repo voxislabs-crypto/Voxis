@@ -2260,7 +2260,7 @@ export default function ChatWindow({
 
     let cancelled = false;
 
-    authFetch("/tts/provider-options?provider=cartesia")
+    authFetch("/api/tts/provider-options?provider=cartesia")
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) {
@@ -2296,7 +2296,7 @@ export default function ChatWindow({
 
     let cancelled = false;
 
-    authFetch("/tts/provider-options?provider=elevenlabs")
+    authFetch("/api/tts/provider-options?provider=elevenlabs")
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) {

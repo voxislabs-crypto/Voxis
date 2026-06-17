@@ -559,7 +559,7 @@ export default function LlmSettingsPanel({ onStatus }) {
     async function loadTtsProviderOptions() {
       setIsLoadingTtsProviderOptions(true);
       try {
-        const response = await authFetch(`/tts/provider-options?provider=${encodeURIComponent(ttsProvider)}`);
+        const response = await authFetch(`/api/tts/provider-options?provider=${encodeURIComponent(ttsProvider)}`);
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error || "Failed to load provider options.");
