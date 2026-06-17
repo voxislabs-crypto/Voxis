@@ -23,10 +23,18 @@ const VOICE_CAPTURE_SILENCE_TIMEOUT_MS = Math.max(
   ),
 );
 const CUSTOM_CARTESIA_VOICE_OPTION = "__custom_cartesia_voice__";
+const CUSTOM_ELEVENLABS_VOICE_OPTION = "__custom_elevenlabs_voice__";
 const CARTESIA_QUICK_VOICE_OPTIONS = [
   { id: "a0e99841-438c-4a64-b679-ae501e7d6091", label: "Sonic default" },
   { id: "694f9389-aac1-45b6-b726-9d9369183238", label: "Warm Narrator" },
   { id: "2ee87190-8f84-4925-97da-e52547f9462c", label: "Balanced Voice" },
+];
+const ELEVENLABS_QUICK_VOICE_OPTIONS = [
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel (default)" },
+  { id: "EXAVITQu4vr4xnSDxMaL", label: "Bella" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh" },
+  { id: "VR6AewLTigWG4xSOukaG", label: "Arnold" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni" },
 ];
 
 function normalizeVoiceEngineForDebug(engine) {
@@ -2042,6 +2050,8 @@ export default function ChatWindow({
     preferredVoice: "alloy",
     providerVoice: "alloy",
     kokoroVoice: "af_heart",
+    elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+    elevenLabsModel: "eleven_multilingual_v2",
     providerModel: "gpt-4o-mini-tts",
     cartesiaVoiceId: "",
     cartesiaModel: "sonic-3",
@@ -2194,6 +2204,16 @@ export default function ChatWindow({
     // so the injected "(saved)" option renders as selected instead of "Custom voice ID..."
     return knownVoice ? currentVoiceId : currentVoiceId;
   }, [voiceProfile.cartesiaVoiceId, cartesiaVoiceOptions]);
+
+  const selectedElevenLabsVoiceOption = useMemo(() => {
+    const currentVoiceId = String(voiceProfile.elevenLabsVoiceId || "").trim();
+    if (!currentVoiceId) {
+      return ELEVENLABS_QUICK_VOICE_OPTIONS[0]?.id || CUSTOM_ELEVENLABS_VOICE_OPTION;
+    }
+
+    const knownVoice = ELEVENLABS_QUICK_VOICE_OPTIONS.some((voice) => voice.id === currentVoiceId);
+    return knownVoice ? currentVoiceId : currentVoiceId;
+  }, [voiceProfile.elevenLabsVoiceId]);
 
   const displayDebug = liveDebug || latestAssistantDebug;
 
@@ -2421,6 +2441,8 @@ export default function ChatWindow({
       providerVoice:
         personality.voiceProfile?.providerVoice || personality.voiceProfile?.preferredVoice || "alloy",
       kokoroVoice: personality.voiceProfile?.kokoroVoice || "af_heart",
+      elevenLabsVoiceId: personality.voiceProfile?.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM",
+      elevenLabsModel: personality.voiceProfile?.elevenLabsModel || "eleven_multilingual_v2",
       providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
       cartesiaVoiceId: personality.voiceProfile?.cartesiaVoiceId || "",
       cartesiaModel: personality.voiceProfile?.cartesiaModel || "sonic-3",
@@ -3301,6 +3323,8 @@ export default function ChatWindow({
         preferredVoice: voiceProfile.preferredVoice,
         providerVoice: voiceProfile.providerVoice || voiceProfile.preferredVoice,
         kokoroVoice: voiceProfile.kokoroVoice || "af_heart",
+        elevenLabsVoiceId: voiceProfile.elevenLabsVoiceId || "",
+        elevenLabsModel: voiceProfile.elevenLabsModel || "eleven_multilingual_v2",
         providerModel: voiceProfile.providerModel,
         cartesiaVoiceId: voiceProfile.cartesiaVoiceId || "",
         cartesiaModel: voiceProfile.cartesiaModel || "sonic-3",
@@ -4101,6 +4125,43 @@ export default function ChatWindow({
                       placeholder="Cartesia voice ID (UUID)"
                       value={voiceProfile.cartesiaVoiceId || ""}
                       onChange={(event) => updateVoiceField("cartesiaVoiceId", event.target.value)}
+                      style={{ marginTop: 8, fontFamily: "monospace", fontSize: "0.78rem", padding: "4px 8px", borderRadius: "6px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,234,255,0.2)", color: "#88ecff", width: "100%", boxSizing: "border-box" }}
+                    />
+                  ) : null}
+                </>
+              ) : voiceProfile.engine === "elevenlabs" ? (
+                <>
+                  <select
+                    id="voice-quick-select"
+                    value={selectedElevenLabsVoiceOption}
+                    onChange={(event) => {
+                      const nextValue = String(event.target.value || "");
+                      if (nextValue === CUSTOM_ELEVENLABS_VOICE_OPTION) {
+                        if (!String(voiceProfile.elevenLabsVoiceId || "").trim()) {
+                          updateVoiceField("elevenLabsVoiceId", "");
+                        }
+                        return;
+                      }
+                      updateVoiceField("elevenLabsVoiceId", nextValue);
+                    }}
+                  >
+                    {ELEVENLABS_QUICK_VOICE_OPTIONS.map((voice) => (
+                      <option key={voice.id} value={voice.id}>{voice.label}</option>
+                    ))}
+                    {voiceProfile.elevenLabsVoiceId &&
+                      !ELEVENLABS_QUICK_VOICE_OPTIONS.some((v) => v.id === voiceProfile.elevenLabsVoiceId) ? (
+                      <option value={voiceProfile.elevenLabsVoiceId}>
+                        {voiceProfile.elevenLabsVoiceId} (saved)
+                      </option>
+                    ) : null}
+                    <option value={CUSTOM_ELEVENLABS_VOICE_OPTION}>Custom voice ID...</option>
+                  </select>
+                  {selectedElevenLabsVoiceOption === CUSTOM_ELEVENLABS_VOICE_OPTION ? (
+                    <input
+                      type="text"
+                      placeholder="ElevenLabs voice ID"
+                      value={voiceProfile.elevenLabsVoiceId || ""}
+                      onChange={(event) => updateVoiceField("elevenLabsVoiceId", event.target.value)}
                       style={{ marginTop: 8, fontFamily: "monospace", fontSize: "0.78rem", padding: "4px 8px", borderRadius: "6px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,234,255,0.2)", color: "#88ecff", width: "100%", boxSizing: "border-box" }}
                     />
                   ) : null}
