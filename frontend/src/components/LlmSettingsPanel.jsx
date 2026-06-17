@@ -3,7 +3,6 @@ import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
 const CUSTOM_OPTION = "__custom__";
-const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 const LLM_MODEL_FAVORITES_STORAGE_KEY = "voxis.llmModelFavorites.v1";
 
 const ELEVENLABS_VOICE_PRESETS = [
@@ -39,6 +38,32 @@ const settingsStyles = `
   .llm-settings {
     display: grid;
     gap: 18px;
+  }
+
+  .settings-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 4px;
+    border: 1px solid rgba(0, 180, 255, 0.12);
+    border-radius: 16px;
+    background: rgba(6, 14, 28, 0.66);
+  }
+
+  .settings-nav button {
+    border: 1px solid rgba(0, 180, 255, 0.2);
+    border-radius: 999px;
+    padding: 8px 14px;
+    background: rgba(0, 180, 255, 0.06);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 0.82rem;
+  }
+
+  .settings-nav button.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #ffffff;
+    border-color: transparent;
   }
 
   .settings-section {
@@ -326,7 +351,8 @@ export default function LlmSettingsPanel({ onStatus }) {
   const modelFavoritesImportRef = useRef(null);
   const [modelFavoritesByProvider, setModelFavoritesByProvider] = useState(() => loadModelFavorites());
   const [ttsProviders, setTtsProviders] = useState([]);
-  const [ttsProvider, setTtsProvider] = useState(TTS_DEBUG_PROVIDER_LOCK ? "cartesia" : "elevenlabs");
+  const [ttsProvider, setTtsProvider] = useState("elevenlabs");
+  const [ttsDebugLockEnabled, setTtsDebugLockEnabled] = useState(false);
   const [ttsApiKey, setTtsApiKey] = useState("");
   const [ttsVoiceId, setTtsVoiceId] = useState("");
   const [ttsModel, setTtsModel] = useState("");
@@ -395,6 +421,7 @@ export default function LlmSettingsPanel({ onStatus }) {
   const [isSavingStt, setIsSavingStt] = useState(false);
   const [isSavingSearch, setIsSavingSearch] = useState(false);
   const [isSavingStateRuntime, setIsSavingStateRuntime] = useState(false);
+  const [activeSettingsView, setActiveSettingsView] = useState("llm");
 
   const selectedProvider = useMemo(
     () => providers.find((candidate) => candidate.id === provider) || null,
@@ -675,10 +702,8 @@ export default function LlmSettingsPanel({ onStatus }) {
         envLocked: Boolean(settingsData.envLocked),
       });
 
-      const rawTtsProviderList = Array.isArray(ttsData.providers) ? ttsData.providers : [];
-      const ttsProviderList = TTS_DEBUG_PROVIDER_LOCK
-        ? rawTtsProviderList.filter((entry) => entry.provider === "cartesia")
-        : rawTtsProviderList;
+      const ttsProviderList = Array.isArray(ttsData.providers) ? ttsData.providers : [];
+      setTtsDebugLockEnabled(Boolean(ttsData?.debugLockEnabled));
       setTtsProviders(ttsProviderList);
       setDefaultVoiceSource(ttsData?.voiceDefaults?.source === "llm" ? "llm" : "tts");
       const connectedProvider = ttsProviderList.find((entry) => entry.connected) || ttsProviderList[0] || null;
@@ -1327,6 +1352,37 @@ export default function LlmSettingsPanel({ onStatus }) {
   return (
     <div className="llm-settings">
       <style>{settingsStyles}</style>
+      <div className="settings-nav" role="tablist" aria-label="Settings sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSettingsView === "llm"}
+          className={activeSettingsView === "llm" ? "active" : ""}
+          onClick={() => setActiveSettingsView("llm")}
+        >
+          LLM
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSettingsView === "voice"}
+          className={activeSettingsView === "voice" ? "active" : ""}
+          onClick={() => setActiveSettingsView("voice")}
+        >
+          Voice
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSettingsView === "runtime"}
+          className={activeSettingsView === "runtime" ? "active" : ""}
+          onClick={() => setActiveSettingsView("runtime")}
+        >
+          Runtime
+        </button>
+      </div>
+
+      {activeSettingsView === "llm" ? (
       <section className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-tag">Runtime LLM</span>
@@ -1559,7 +1615,9 @@ export default function LlmSettingsPanel({ onStatus }) {
           </div>
         ) : null}
       </section>
+      ) : null}
 
+      {activeSettingsView === "runtime" ? (
       <section className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-tag">Speech To Text</span>
@@ -1786,7 +1844,9 @@ export default function LlmSettingsPanel({ onStatus }) {
           </button>
         </div>
       </section>
+      ) : null}
 
+      {activeSettingsView === "voice" ? (
       <section className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-tag">Global Voice</span>
@@ -1818,7 +1878,7 @@ export default function LlmSettingsPanel({ onStatus }) {
           <span className="settings-section-tag">Voice Providers</span>
           <h3>Voice Provider Credentials</h3>
           <p className="settings-section-copy">
-            {TTS_DEBUG_PROVIDER_LOCK
+            {ttsDebugLockEnabled
               ? "Debug lock is active: only Cartesia credentials are enabled here."
               : "Save ElevenLabs or Cartesia credentials once and reuse them across Voice Lab and chat playback."}
           </p>
@@ -2052,6 +2112,7 @@ export default function LlmSettingsPanel({ onStatus }) {
         </div>
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
