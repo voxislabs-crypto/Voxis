@@ -21,6 +21,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = path.join(__dirname, "..", "sfx-cache");
 const FREESOUND_BASE = "https://freesound.org/apiv2";
 
+const DEFAULT_FETCH_TIMEOUT_MS = 15000;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30000;
+const DEFAULT_FETCH_MAX_RETRIES = 2;
+const DEFAULT_FETCH_RETRY_BASE_DELAY_MS = 750;
+
+const TRANSIENT_FETCH_ERROR_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_CONNECT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EAI_AGAIN",
+]);
+
 // ── SFX catalog ──────────────────────────────────────────────────────────────
 // Each entry defines the Freesound search parameters for that effect.
 const SFX_CATALOG = {
@@ -248,12 +264,68 @@ function summarizeFetchError(error) {
   return parts.join(" | ");
 }
 
-async function fetchWithDiagnostics(url, options, contextLabel) {
-  try {
-    return await fetch(url, options);
-  } catch (error) {
-    const details = summarizeFetchError(error);
-    throw new Error(`[${contextLabel}] ${details}`);
+function parsePositiveIntEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getFetchErrorCode(error) {
+  return String(error?.cause?.code || error?.code || "").trim();
+}
+
+function isRetryableFetchError(error) {
+  const code = getFetchErrorCode(error);
+  if (TRANSIENT_FETCH_ERROR_CODES.has(code)) return true;
+
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("fetch failed") || message.includes("network") || message.includes("timeout");
+}
+
+function makeFetchConfig() {
+  return {
+    searchTimeoutMs: parsePositiveIntEnv("SFX_FETCH_TIMEOUT_MS", DEFAULT_FETCH_TIMEOUT_MS),
+    downloadTimeoutMs: parsePositiveIntEnv("SFX_DOWNLOAD_TIMEOUT_MS", DEFAULT_DOWNLOAD_TIMEOUT_MS),
+    maxRetries: Math.max(0, parsePositiveIntEnv("SFX_FETCH_MAX_RETRIES", DEFAULT_FETCH_MAX_RETRIES)),
+    retryBaseDelayMs: parsePositiveIntEnv("SFX_FETCH_RETRY_BASE_DELAY_MS", DEFAULT_FETCH_RETRY_BASE_DELAY_MS),
+  };
+}
+
+async function fetchWithDiagnostics(url, options, contextLabel, retryConfig = {}) {
+  const optionsFactory = typeof options === "function" ? options : () => options;
+  const maxRetries = Number.isInteger(retryConfig.maxRetries)
+    ? Math.max(0, retryConfig.maxRetries)
+    : DEFAULT_FETCH_MAX_RETRIES;
+  const retryBaseDelayMs = Number.isFinite(retryConfig.retryBaseDelayMs)
+    ? Math.max(0, retryConfig.retryBaseDelayMs)
+    : DEFAULT_FETCH_RETRY_BASE_DELAY_MS;
+
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      return await fetch(url, optionsFactory());
+    } catch (error) {
+      const retryable = isRetryableFetchError(error);
+      if (retryable && attempt < maxRetries) {
+        attempt += 1;
+        const jitterMs = Math.floor(Math.random() * 250);
+        const delayMs = retryBaseDelayMs * attempt + jitterMs;
+        console.warn(
+          `[SFX Cache] transient fetch failure for ${contextLabel}; retry ${attempt}/${maxRetries} in ${delayMs}ms (${summarizeFetchError(error)})`,
+        );
+        await wait(delayMs);
+        continue;
+      }
+
+      const details = summarizeFetchError(error);
+      const attemptsText = `attempts=${attempt + 1}/${maxRetries + 1}`;
+      throw new Error(`[${contextLabel}] ${details} | ${attemptsText}`);
+    }
   }
 }
 
@@ -267,14 +339,20 @@ async function ensureCacheDir() {
 
 async function downloadAudio(sound, destPath) {
   const apiKey = getApiKey();
+  const fetchConfig = makeFetchConfig();
   const previewUrl = sound.previews?.["preview-hq-mp3"] || sound.previews?.["preview-lq-mp3"];
   if (!previewUrl) throw new Error(`No preview URL for Freesound sound ${sound.id}`);
 
   const url = `${previewUrl}?token=${apiKey}`;
-  const resp = await fetchWithDiagnostics(url, {
-    headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
-    signal: AbortSignal.timeout(30000),
-  }, `download sound=${sound.id}`);
+  const resp = await fetchWithDiagnostics(
+    url,
+    () => ({
+      headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
+      signal: AbortSignal.timeout(fetchConfig.downloadTimeoutMs),
+    }),
+    `download sound=${sound.id}`,
+    fetchConfig,
+  );
 
   if (!resp.ok) throw new Error(`Download failed ${resp.status} for sound ${sound.id}`);
 
@@ -283,6 +361,7 @@ async function downloadAudio(sound, destPath) {
 }
 
 async function searchFreesound({ apiKey, query, durationMin, durationMax }) {
+  const fetchConfig = makeFetchConfig();
   const params = new URLSearchParams({
     token: apiKey,
     query,
@@ -297,10 +376,15 @@ async function searchFreesound({ apiKey, query, durationMin, durationMax }) {
     format: "json",
   });
 
-  const resp = await fetchWithDiagnostics(`${FREESOUND_BASE}/search/text/?${params}`, {
-    headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
-    signal: AbortSignal.timeout(15000),
-  }, `search query=${query}`);
+  const resp = await fetchWithDiagnostics(
+    `${FREESOUND_BASE}/search/text/?${params}`,
+    () => ({
+      headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
+      signal: AbortSignal.timeout(fetchConfig.searchTimeoutMs),
+    }),
+    `search query=${query}`,
+    fetchConfig,
+  );
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
