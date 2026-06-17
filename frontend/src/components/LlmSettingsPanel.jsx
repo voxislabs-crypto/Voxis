@@ -1618,6 +1618,7 @@ export default function LlmSettingsPanel({ onStatus }) {
       ) : null}
 
       {activeSettingsView === "runtime" ? (
+      <>
       <section className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-tag">Speech To Text</span>
@@ -1844,9 +1845,11 @@ export default function LlmSettingsPanel({ onStatus }) {
           </button>
         </div>
       </section>
+      </>
       ) : null}
 
       {activeSettingsView === "voice" ? (
+      <>
       <section className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-tag">Global Voice</span>
@@ -2112,6 +2115,7 @@ export default function LlmSettingsPanel({ onStatus }) {
         </div>
         </div>
       </section>
+      </>
       ) : null}
     </div>
   );
