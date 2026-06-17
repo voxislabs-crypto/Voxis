@@ -935,6 +935,10 @@ const PROSODY_PROGRESS_STEPS = [
   "Preparing voice previews",
 ];
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+}
+
 function normalizeVoiceEngineForDebug(engine) {
   const normalized = String(engine || "auto").trim().toLowerCase();
   if (!TTS_DEBUG_PROVIDER_LOCK) {
@@ -1118,9 +1122,9 @@ export default function VoiceLab({
     : [];
 
   const activeVoiceValue = selectedProviderId === "elevenlabs"
-    ? voiceProfile.elevenLabsVoiceId || voiceProfile.providerVoice || ""
+    ? voiceProfile.elevenLabsVoiceId || ""
     : selectedProviderId === "cartesia"
-      ? voiceProfile.cartesiaVoiceId || voiceProfile.providerVoice || ""
+      ? voiceProfile.cartesiaVoiceId || ""
       : "";
 
   const cartesiaVoicePreviewUrl = selectedProviderId === "cartesia" && activeVoiceValue
@@ -1284,7 +1288,7 @@ export default function VoiceLab({
     async function loadVoiceMaps() {
       setIsLoadingVoiceMaps(true);
       try {
-        const response = await authFetch("/settings/voice-maps");
+        const response = await authFetch("/api/settings/voice-maps");
         const payload = await readApiResponsePayload(response);
         if (!response.ok) {
           throw new Error(getApiErrorMessage(response, payload, "Failed to load saved voice maps."));
@@ -1322,7 +1326,7 @@ export default function VoiceLab({
       setIsLoadingPiperVoices(true);
       setPiperVoiceError("");
       try {
-        const response = await authFetch("/tts/piper-voices");
+        const response = await authFetch("/api/tts/piper-voices");
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to load Piper voices.");
         if (ignore) return;
@@ -1360,7 +1364,7 @@ export default function VoiceLab({
       setIsLoadingKokoroVoices(true);
       setKokoroVoiceError("");
       try {
-        const response = await authFetch("/tts/kokoro-voices");
+        const response = await authFetch("/api/tts/kokoro-voices");
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to load Kokoro voices.");
         if (ignore) return;
@@ -1404,7 +1408,7 @@ export default function VoiceLab({
     async function loadProviderOptions() {
       setIsLoadingProviderOptions(true);
       try {
-        const response = await authFetch(`/tts/provider-options?provider=${encodeURIComponent(selectedProviderId)}`);
+        const response = await authFetch(`/api/tts/provider-options?provider=${encodeURIComponent(selectedProviderId)}`);
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to load provider options.");
         if (ignore) return;
@@ -1450,7 +1454,11 @@ export default function VoiceLab({
 
         setVoiceProfile((cur) => {
           if (selectedProviderId === "elevenlabs") {
-            const nextVoice = cur.elevenLabsVoiceId || cur.providerVoice || data.defaults?.voiceId || voices[0]?.id || "";
+            const currentVoice = String(cur.elevenLabsVoiceId || "").trim();
+            const defaultVoice = String(data.defaults?.voiceId || voices[0]?.id || "").trim();
+            const nextVoice = currentVoice
+              ? (voices.some((voice) => voice.id === currentVoice) || !isUuid(currentVoice) ? currentVoice : defaultVoice)
+              : defaultVoice;
             const nextModel = cur.elevenLabsModel || data.defaults?.model || models[0]?.id || "eleven_multilingual_v2";
             return {
               ...cur,
@@ -1461,7 +1469,11 @@ export default function VoiceLab({
             };
           }
 
-          const nextVoice = cur.cartesiaVoiceId || cur.providerVoice || data.defaults?.voiceId || voices[0]?.id || "";
+          const currentVoice = String(cur.cartesiaVoiceId || "").trim();
+          const defaultVoice = String(data.defaults?.voiceId || voices[0]?.id || "").trim();
+          const nextVoice = currentVoice
+            ? (voices.some((voice) => voice.id === currentVoice) || isUuid(currentVoice) ? currentVoice : defaultVoice)
+            : defaultVoice;
           const nextModel = cur.cartesiaModel || data.defaults?.model || models[0]?.id || "sonic-3";
           return {
             ...cur,
@@ -1528,7 +1540,7 @@ export default function VoiceLab({
       setIsLoadingCloudModels(true);
       setCloudModelError("");
       try {
-        const response = await authFetch("/settings/llm");
+        const response = await authFetch("/api/settings/llm");
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Failed to load cloud models.");
         if (ignore) return;
@@ -1752,7 +1764,7 @@ export default function VoiceLab({
         return;
       }
 
-      const response = await authFetch(`/personality/${personality.id}/tts`, {
+      const response = await authFetch(`/api/personality/${personality.id}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voiceProfile: effectiveVoiceProfile, speechHint }),
@@ -1908,7 +1920,7 @@ export default function VoiceLab({
 
       if (syncMapOnProfileSave && selectedVoiceMapId) {
         const selectedMap = savedVoiceMaps.find((entry) => entry.id === selectedVoiceMapId) || null;
-        const response = await authFetch("/settings/voice-maps", {
+        const response = await authFetch("/api/settings/voice-maps", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2011,7 +2023,7 @@ export default function VoiceLab({
         };
       }
 
-      const response = await authFetch(`/personality/${personality.id}/prosody-template`, {
+      const response = await authFetch(`/api/personality/${personality.id}/prosody-template`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -2067,7 +2079,7 @@ export default function VoiceLab({
     setIsSavingVoiceMap(true);
     try {
       const existing = savedVoiceMaps.find((entry) => entry.id === selectedVoiceMapId) || null;
-      const response = await authFetch("/settings/voice-maps", {
+      const response = await authFetch("/api/settings/voice-maps", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2118,7 +2130,7 @@ export default function VoiceLab({
     if (!selectedVoiceMapId) return;
     setIsDeletingVoiceMap(true);
     try {
-      const response = await authFetch(`/settings/voice-maps/${encodeURIComponent(selectedVoiceMapId)}`, {
+      const response = await authFetch(`/api/settings/voice-maps/${encodeURIComponent(selectedVoiceMapId)}`, {
         method: "DELETE",
       });
       const payload = await readApiResponsePayload(response);
