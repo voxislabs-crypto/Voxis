@@ -1061,6 +1061,7 @@ export default function VoiceLab({
     },
   });
   const [isLoadingProviderOptions, setIsLoadingProviderOptions] = useState(false);
+  const [isClearingProviderCredential, setIsClearingProviderCredential] = useState(false);
   const [providerOptionsReloadToken, setProviderOptionsReloadToken] = useState(0);
   const [providerLastUpdatedAt, setProviderLastUpdatedAt] = useState({ elevenlabs: 0, cartesia: 0 });
   const [cloudModels, setCloudModels] = useState(CLOUD_MODEL_PRESETS);
@@ -1150,6 +1151,11 @@ export default function VoiceLab({
   const activeProviderUpdatedAt = selectedProviderId ? Number(providerLastUpdatedAt[selectedProviderId] || 0) : 0;
   const showProviderUpdated = !isLoadingProviderOptions && activeProviderUpdatedAt > 0;
   const showCloudUpdated = !isLoadingCloudModels && cloudLastUpdatedAt > 0;
+  const providerAuthError = useMemo(() => {
+    const message = String(activeProviderOptions?.error || "").trim();
+    if (!message) return "";
+    return /(401|unauthorized|invalid api key|auth)/i.test(message) ? message : "";
+  }, [activeProviderOptions?.error]);
 
   const supportsCloudModelCatalog = !selectedProviderId;
   const selectedCloudModelOption = cloudModels.some((model) => model.id === voiceProfile.providerModel)
@@ -1982,6 +1988,45 @@ export default function VoiceLab({
     }
   }
 
+  async function clearSavedProviderCredential(providerId) {
+    const normalizedProvider = String(providerId || "").trim().toLowerCase();
+    if (!normalizedProvider || !["elevenlabs", "cartesia"].includes(normalizedProvider)) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Release saved ${normalizedProvider === "elevenlabs" ? "ElevenLabs" : "Cartesia"} credential? You can enter a new API key right after this.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsClearingProviderCredential(true);
+    try {
+      const response = await authFetch(`/api/settings/tts/${encodeURIComponent(normalizedProvider)}`, {
+        method: "DELETE",
+      });
+      const payload = await readApiResponsePayload(response);
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(response, payload, `Failed to clear ${normalizedProvider} credential.`));
+      }
+
+      setProviderOptionsReloadToken((n) => n + 1);
+      onStatus?.({
+        type: "success",
+        message: `${normalizedProvider === "elevenlabs" ? "ElevenLabs" : "Cartesia"} credential released. Open Settings to enter a new API key.`,
+      });
+      onOpenSettings?.();
+    } catch (error) {
+      onStatus?.({
+        type: "error",
+        message: error.message || `Failed to clear ${normalizedProvider} credential.`,
+      });
+    } finally {
+      setIsClearingProviderCredential(false);
+    }
+  }
+
   async function extractProsodyTemplate({ useFile = false } = {}) {
     if (!personality?.id) {
       return;
@@ -2513,6 +2558,28 @@ export default function VoiceLab({
                     <small className="vlab-small">
                       {activeProviderOptions.error || "Auto-loaded from your configured ElevenLabs API key."}
                     </small>
+                    {providerAuthError ? (
+                      <div className="vlab-inline-actions" style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          className="vlab-btn sec"
+                          onClick={() => void clearSavedProviderCredential("elevenlabs")}
+                          disabled={isClearingProviderCredential}
+                        >
+                          {isClearingProviderCredential ? "Releasing..." : "Release saved key"}
+                        </button>
+                        {onOpenSettings ? (
+                          <button
+                            type="button"
+                            className="vlab-btn sec"
+                            onClick={onOpenSettings}
+                            disabled={isClearingProviderCredential}
+                          >
+                            Enter new key in Settings
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </>
                 ) : voiceProfile.engine === "cartesia" ? (
                   <>
@@ -2598,6 +2665,28 @@ export default function VoiceLab({
                     <small className="vlab-small">
                       {getProviderVoiceHelpText("cartesia", activeProviderOptions)}
                     </small>
+                    {providerAuthError ? (
+                      <div className="vlab-inline-actions" style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          className="vlab-btn sec"
+                          onClick={() => void clearSavedProviderCredential("cartesia")}
+                          disabled={isClearingProviderCredential}
+                        >
+                          {isClearingProviderCredential ? "Releasing..." : "Release saved key"}
+                        </button>
+                        {onOpenSettings ? (
+                          <button
+                            type="button"
+                            className="vlab-btn sec"
+                            onClick={onOpenSettings}
+                            disabled={isClearingProviderCredential}
+                          >
+                            Enter new key in Settings
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <small className="vlab-small">
                       The ▶ sample button plays Cartesia's provider demo clip for that voice id only. Use GENERATE SAMPLE below to test your saved rate/prosody path.
                     </small>
