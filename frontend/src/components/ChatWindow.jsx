@@ -4508,18 +4508,18 @@ export default function ChatWindow({
                   type="button"
                   className={`composer-icon-btn ${isRecording ? "recording" : ""}`}
                   onClick={toggleRecording}
-                  title={isRecording ? "Stop recording" : "Start voice input"}
+                  title={isRecording ? "End call" : "Start call"}
+                  aria-label={isRecording ? "End call" : "Start call"}
                 >
                   {isRecording ? (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                      <path d="M3 21l5.7-5.7" />
+                      <path d="M15.3 15.3l5.7 5.7" />
+                      <path d="M16.4 8.6a9 9 0 0 0-8.8 0l-2.2-2.2a12 12 0 0 1 13.2 0z" />
                     </svg>
                   ) : (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" y1="19" x2="12" y2="23" />
-                      <line x1="8" y1="23" x2="16" y2="23" />
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.61a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.29-1.28a2 2 0 0 1 2.11-.45c.83.29 1.71.5 2.61.62A2 2 0 0 1 22 16.92z" />
                     </svg>
                   )}
                 </button>
