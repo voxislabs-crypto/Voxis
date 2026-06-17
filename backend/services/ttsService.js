@@ -1781,8 +1781,13 @@ function getElevenLabsConfig() {
   // DB credential (BYOK from browser) takes priority over .env
   let dbCred = null;
   try { dbCred = getTtsCredential("elevenlabs"); } catch { /* db may not be ready */ }
+  const envApiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
+  const dbApiKey = String(dbCred?.apiKey || "").trim();
+
   return {
-    apiKey: dbCred?.apiKey || process.env.ELEVENLABS_API_KEY || "",
+    apiKey: dbApiKey || envApiKey,
+    dbApiKey,
+    envApiKey,
     voiceId: dbCred?.voiceId || process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
     model: dbCred?.model || process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
   };
@@ -2442,66 +2447,116 @@ async function fetchElevenLabsOptions() {
     };
   }
 
-  const headers = {
-    "xi-api-key": config.apiKey,
-    "Content-Type": "application/json",
-  };
+  const keyCandidates = Array.from(new Set([
+    String(config.dbApiKey || "").trim(),
+    String(config.envApiKey || "").trim(),
+  ].filter(Boolean)));
 
   let voices = [];
   let builtinVoices = [];
   let customVoices = [];
   let models = [];
   let error = "";
+  let retriedWithEnvKey = false;
 
-  try {
-    const voicesResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/voices", { headers }, { retries: 1 });
-    if (!voicesResponse.ok) {
-      throw new Error(`voices request failed (${voicesResponse.status})`);
+  for (let attemptIndex = 0; attemptIndex < keyCandidates.length; attemptIndex += 1) {
+    const apiKey = keyCandidates[attemptIndex];
+    const headers = {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json",
+    };
+
+    let attemptVoices = [];
+    let attemptBuiltinVoices = [];
+    let attemptCustomVoices = [];
+    let attemptModels = [];
+    let voicesError = null;
+    let modelsError = null;
+
+    try {
+      const voicesResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/voices", { headers }, { retries: 1 });
+      if (!voicesResponse.ok) {
+        const requestError = new Error(`voices request failed (${voicesResponse.status})`);
+        requestError.status = voicesResponse.status;
+        throw requestError;
+      }
+
+      const payload = await voicesResponse.json();
+      const mapped = (Array.isArray(payload?.voices) ? payload.voices : [])
+        .map((voice) => {
+          const id = String(voice?.voice_id || "").trim();
+          const label = normalizeOptionName(voice?.name, voice?.voice_id);
+          const category = String(voice?.category || "").trim().toLowerCase();
+          if (!id) {
+            return null;
+          }
+
+          return {
+            id,
+            label,
+            category,
+            isCustom: category !== "premade",
+          };
+        })
+        .filter(Boolean);
+
+      attemptBuiltinVoices = mapped.filter((voice) => !voice.isCustom).sort(sortByLabel);
+      attemptCustomVoices = mapped.filter((voice) => voice.isCustom).sort(sortByLabel);
+      attemptVoices = [...attemptBuiltinVoices, ...attemptCustomVoices].map(({ id, label }) => ({ id, label }));
+    } catch (fetchError) {
+      voicesError = fetchError;
     }
-    const payload = await voicesResponse.json();
-    const mapped = (Array.isArray(payload?.voices) ? payload.voices : [])
-      .map((voice) => {
-        const id = String(voice?.voice_id || "").trim();
-        const label = normalizeOptionName(voice?.name, voice?.voice_id);
-        const category = String(voice?.category || "").trim().toLowerCase();
-        if (!id) {
-          return null;
-        }
 
-        return {
-          id,
-          label,
-          category,
-          isCustom: category !== "premade",
-        };
-      })
-      .filter(Boolean);
+    try {
+      const modelsResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/models", { headers }, { retries: 1 });
+      if (!modelsResponse.ok) {
+        const requestError = new Error(`models request failed (${modelsResponse.status})`);
+        requestError.status = modelsResponse.status;
+        throw requestError;
+      }
 
-    builtinVoices = mapped.filter((voice) => !voice.isCustom).sort(sortByLabel);
-    customVoices = mapped.filter((voice) => voice.isCustom).sort(sortByLabel);
-    voices = [...builtinVoices, ...customVoices].map(({ id, label }) => ({ id, label }));
-  } catch (fetchError) {
-    error = `Unable to fetch ElevenLabs voices: ${fetchError.message || fetchError}`;
+      const payload = await modelsResponse.json();
+      attemptModels = (Array.isArray(payload) ? payload : [])
+        .filter((model) => model?.can_do_text_to_speech !== false)
+        .map((model) => ({
+          id: String(model?.model_id || model?.id || "").trim(),
+          label: normalizeOptionName(model?.name, model?.model_id || model?.id),
+        }))
+        .filter((model) => model.id)
+        .sort(sortByLabel);
+    } catch (fetchError) {
+      modelsError = fetchError;
+    }
+
+    const hasData = attemptVoices.length > 0 || attemptModels.length > 0;
+    const unauthorized = Number(voicesError?.status || modelsError?.status || 0) === 401;
+    const hasMoreCandidates = attemptIndex < keyCandidates.length - 1;
+
+    if (!hasData && unauthorized && hasMoreCandidates) {
+      retriedWithEnvKey = true;
+      continue;
+    }
+
+    voices = attemptVoices;
+    builtinVoices = attemptBuiltinVoices;
+    customVoices = attemptCustomVoices;
+    models = attemptModels;
+
+    if (voicesError) {
+      error = `Unable to fetch ElevenLabs voices: ${voicesError.message || voicesError}`;
+    } else if (modelsError) {
+      error = `Unable to fetch ElevenLabs models: ${modelsError.message || modelsError}`;
+    }
+
+    break;
   }
 
-  try {
-    const modelsResponse = await fetchWithTimeoutRetry("https://api.elevenlabs.io/v1/models", { headers }, { retries: 1 });
-    if (!modelsResponse.ok) {
-      throw new Error(`models request failed (${modelsResponse.status})`);
-    }
-    const payload = await modelsResponse.json();
-    models = (Array.isArray(payload) ? payload : [])
-      .filter((model) => model?.can_do_text_to_speech !== false)
-      .map((model) => ({
-        id: String(model?.model_id || model?.id || "").trim(),
-        label: normalizeOptionName(model?.name, model?.model_id || model?.id),
-      }))
-      .filter((model) => model.id)
-      .sort(sortByLabel);
-  } catch (fetchError) {
-    if (!error) {
-      error = `Unable to fetch ElevenLabs models: ${fetchError.message || fetchError}`;
-    }
+  if (!voices.length && !models.length && error.includes("(401)")) {
+    error = `${error}. Verify the ElevenLabs API key in Settings -> Voice Provider Credentials.`;
+  }
+
+  if (retriedWithEnvKey && !error) {
+    console.warn("[TTS] ElevenLabs provider options: saved key unauthorized, used env fallback key.");
   }
 
   return {
