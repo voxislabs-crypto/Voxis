@@ -2545,32 +2545,6 @@ export default function ChatWindow({
   }, [voiceTelemetry?.personalityEvents]);
 
   useEffect(() => {
-    return () => {
-      recordingRequestedRef.current = false;
-      stopRecognitionSession(true);
-
-      if (speechEnergyTimerRef.current) {
-        window.clearInterval(speechEnergyTimerRef.current);
-        speechEnergyTimerRef.current = null;
-      }
-
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-
-      if (zoneShiftTimerRef.current) {
-        window.clearTimeout(zoneShiftTimerRef.current);
-      }
-
-      if (personalityEventsTimerRef.current) {
-        window.clearTimeout(personalityEventsTimerRef.current);
-      }
-
-      clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
-    };
-  }, [audioUrl, stopRecognitionSession]);
-
-  useEffect(() => {
     if (speechEnergyTimerRef.current) {
       window.clearInterval(speechEnergyTimerRef.current);
       speechEnergyTimerRef.current = null;
@@ -3573,6 +3547,32 @@ export default function ChatWindow({
       startRecognitionSession();
     }
   }, [isAudioPlaying, isGeneratingAudio, startRecognitionSession, stopRecognitionSession]);
+
+  useEffect(() => {
+    return () => {
+      recordingRequestedRef.current = false;
+      stopRecognitionSession(true);
+
+      if (speechEnergyTimerRef.current) {
+        window.clearInterval(speechEnergyTimerRef.current);
+        speechEnergyTimerRef.current = null;
+      }
+
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+
+      if (zoneShiftTimerRef.current) {
+        window.clearTimeout(zoneShiftTimerRef.current);
+      }
+
+      if (personalityEventsTimerRef.current) {
+        window.clearTimeout(personalityEventsTimerRef.current);
+      }
+
+      clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    };
+  }, [audioUrl, stopRecognitionSession]);
 
   function toggleRecording() {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
