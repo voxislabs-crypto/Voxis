@@ -1010,9 +1010,11 @@ export default function VoiceLab({
     style: 0.5,
     cartesiaVoiceId: "",
     cartesiaModel: "sonic-3",
+    sfxVolume: 0.85,
     realismEnabled: false,
     realismPreset: "conversational",
   });
+  const [isPrefetchingSfx, setIsPrefetchingSfx] = useState(false);
   const [vlabTab, setVlabTab] = useState("config"); // "config" | "clone"
   const [sampleText, setSampleText] = useState("");
   const [prosodyUrl, setProsodyUrl] = useState("");
@@ -1267,6 +1269,7 @@ export default function VoiceLab({
       style: Number(personality.voiceProfile?.style ?? 0.5),
       cartesiaVoiceId: personality.voiceProfile?.cartesiaVoiceId || "",
       cartesiaModel: personality.voiceProfile?.cartesiaModel || "sonic-3",
+      sfxVolume: Number(personality.voiceProfile?.sfxVolume ?? 0.85),
       realismEnabled: Boolean(personality.voiceProfile?.realismEnabled),
       realismPreset: String(personality.voiceProfile?.realismPreset || "conversational"),
     });
@@ -1898,6 +1901,7 @@ export default function VoiceLab({
         style: Number(voiceProfile.style),
         cartesiaVoiceId: voiceProfile.cartesiaVoiceId,
         cartesiaModel: voiceProfile.cartesiaModel,
+        sfxVolume: Number(voiceProfile.sfxVolume ?? 0.85),
         realismEnabled: Boolean(voiceProfile.realismEnabled),
         realismPreset: String(voiceProfile.realismPreset || "conversational"),
       });
@@ -1924,6 +1928,45 @@ export default function VoiceLab({
       }
     } finally {
       setIsSavingVoice(false);
+    }
+  }
+
+  async function handlePrefetchPersonaSfx() {
+    if (!personality?.id) {
+      return;
+    }
+
+    setIsPrefetchingSfx(true);
+    try {
+      const response = await authFetch("/api/sfx/prefetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personalityId: personality.id }),
+      });
+      const payload = await readApiResponsePayload(response);
+      if (!response.ok) {
+        throw new Error(getApiErrorMessage(response, payload, "Failed to prefetch persona SFX."));
+      }
+
+      const fetched = Array.isArray(payload?.fetched) ? payload.fetched : [];
+      const cached = Array.isArray(payload?.cached) ? payload.cached : [];
+      const failed = Array.isArray(payload?.failed) ? payload.failed : [];
+
+      const segments = [];
+      if (fetched.length) segments.push(`downloaded: ${fetched.join(", ")}`);
+      if (cached.length) segments.push(`already cached: ${cached.join(", ")}`);
+      if (failed.length) segments.push(`failed: ${failed.map((item) => item.tag).join(", ")}`);
+
+      onStatus?.({
+        type: failed.length ? "warn" : "success",
+        message: segments.length
+          ? `Persona SFX prefetch complete (${segments.join(" | ")}).`
+          : "Persona has no configured SFX tags to prefetch.",
+      });
+    } catch (error) {
+      onStatus?.({ type: "error", message: error.message || "Failed to prefetch persona SFX." });
+    } finally {
+      setIsPrefetchingSfx(false);
     }
   }
 
@@ -2895,6 +2938,25 @@ export default function VoiceLab({
                 </div>
               </div>
               <div className="vlab-field">
+                <label htmlFor="vlab-sfx-volume">SFX Volume</label>
+                <div className="vlab-slider-row">
+                  <input
+                    id="vlab-sfx-volume"
+                    name="vlabSfxVolume"
+                    type="range"
+                    className="vlab-slider"
+                    min="0" max="1" step="0.05"
+                    value={Number(voiceProfile.sfxVolume ?? 0.85)}
+                    onChange={(e) => updateVoiceField("sfxVolume", Number(e.target.value))}
+                    style={sliderStyle(Number(voiceProfile.sfxVolume ?? 0.85), 0, 1)}
+                  />
+                  <span className="vlab-slider-readout">{Math.round(Number(voiceProfile.sfxVolume ?? 0.85) * 100)}%</span>
+                </div>
+                <small className="vlab-small">
+                  Controls non-verbal persona effects (burp, giggle, evil chuckle, fart, etc.) for this persona.
+                </small>
+              </div>
+              <div className="vlab-field">
                 <label htmlFor="vlab-realism-enabled">Realism Post-Processing</label>
                 <label className="vlab-toggle" htmlFor="vlab-realism-enabled" style={{ marginTop: 4 }}>
                   <input
@@ -3294,6 +3356,14 @@ export default function VoiceLab({
                 disabled={isSavingVoice}
               >
                 {isSavingVoice ? "SAVING…" : "✦ SAVE PROFILE"}
+              </button>
+              <button
+                type="button"
+                className="vlab-btn sec"
+                onClick={() => void handlePrefetchPersonaSfx()}
+                disabled={isPrefetchingSfx || !personality?.id}
+              >
+                {isPrefetchingSfx ? "PREFETCHING SFX…" : "⬇ PREFETCH PERSONA SFX"}
               </button>
             </div>
           </div>

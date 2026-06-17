@@ -1,5 +1,5 @@
 import { getSpeechProfile } from "./speechProfiles.js";
-import { isValidSfxTag, getAvailableSfxTags } from "./sfxCacheService.js";
+import { isValidSfxTag, getAvailableSfxTags, normalizeSfxTag } from "./sfxCacheService.js";
 
 const DEFAULT_STOP_WORDS = new Set([
   "the",
@@ -318,7 +318,11 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
   const sfxPlacement = String(vocalMannerisms.sfxPlacement || "random").toLowerCase();
 
   // Filter to valid SFX tags only
-  const validTags = sfxTags.filter((tag) => isValidSfxTag(tag));
+  const validTags = Array.from(new Set(
+    sfxTags
+      .map((tag) => normalizeSfxTag(tag))
+      .filter((tag) => isValidSfxTag(tag)),
+  ));
 
   if (!validTags.length || precisionMode) {
     return { text, sfxEvents: [] };

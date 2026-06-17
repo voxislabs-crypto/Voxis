@@ -15,6 +15,7 @@
     "seed-ara-personas": "node scripts/seedAraPersonas.js",
     "adversarial-harness": "node scripts/adversarialTranscriptHarness.js",
     "tts-diagnostics": "node scripts/testTtsDiagnostics.js",
+    "sfx-playback-test": "node scripts/testPersonaSfxPlayback.js",
     "kokoro:preload": "node scripts/preloadKokoroModel.js"
   },
   "dependencies": {

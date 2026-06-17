@@ -65,6 +65,7 @@ export function sanitizeVoiceProfile(input, fallbackProfile = {}) {
     style: clampNumber(source.style ?? fallback.style, 0, 1, 0.5),
     cartesiaVoiceId: String(source.cartesiaVoiceId || fallback.cartesiaVoiceId || "").trim(),
     cartesiaModel: String(source.cartesiaModel || fallback.cartesiaModel || "sonic-3").trim(),
+    sfxVolume: clampNumber(source.sfxVolume ?? fallback.sfxVolume, 0, 1, 0.85),
     realismEnabled: Boolean(source.realismEnabled ?? fallback.realismEnabled),
     realismPreset: normalizeRealismPreset(source.realismPreset, normalizeRealismPreset(fallback.realismPreset, "conversational")),
     voiceSourceType: String(source.voiceSourceType || fallback.voiceSourceType || "").trim(),

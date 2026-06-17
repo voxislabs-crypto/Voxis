@@ -1655,11 +1655,18 @@ export default function PersonalityForm({
             <input
               id="sfxTags"
               name="sfxTags"
-              placeholder="burp, giggle, cough, sigh, snort, hiccup"
+              placeholder="burp, giggle, fart, evil_chuckle, cough, sigh"
               value={form.sfxTags}
               onChange={updateField}
             />
-            <small>Available SFX: burp, giggle, chuckle, cough, sigh, snort, hiccup</small>
+            <small>
+              Available SFX: burp, giggle, chuckle, cough, sigh, snort, hiccup, fart, evil_chuckle,
+              maniacal_laugh, cackle, gasp, sniff, yawn, growl, scream, grunt, clap.
+            </small>
+            <small>
+              Aliases are supported and auto-mapped, e.g. belch → burp, toot/farting → fart,
+              evil laugh/sinister chuckle → evil_chuckle.
+            </small>
           </div>
 
           <div className="field">

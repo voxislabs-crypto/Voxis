@@ -2244,7 +2244,7 @@ export default function NeuralCore({
                   valence={valence}
                   arousal={arousal}
                   phase={phaseBurst || ""}
-                  speaking={["generation", "reply", "reply-complete"].includes(phaseBurst)}
+                  speaking={["generation", "reply", "token"].includes(phaseBurst)}
                   mode={mode}
                   personalitySeed={`${personality.id}:${personality.name}:${personality.creativeContext || "default"}`}
                   expressionProfile={personality.expressionProfile}

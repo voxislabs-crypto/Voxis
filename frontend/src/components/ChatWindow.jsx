@@ -12,6 +12,16 @@ import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
 const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 const TTS_DISABLE_KOKORO = String(import.meta.env.VITE_TTS_DISABLE_KOKORO ?? "false").trim().toLowerCase() === "true";
 const DEFAULT_DISABLE_NEURONMAP_3D = String(import.meta.env.VITE_DISABLE_NEURONMAP_3D ?? "true").trim().toLowerCase() !== "false";
+const VOICE_CAPTURE_RESTART_DELAY_MS = 220;
+const VOICE_CAPTURE_SILENCE_MIN_MS = 3_000;
+const VOICE_CAPTURE_SILENCE_MAX_MS = 7_000;
+const VOICE_CAPTURE_SILENCE_TIMEOUT_MS = Math.max(
+  VOICE_CAPTURE_SILENCE_MIN_MS,
+  Math.min(
+    VOICE_CAPTURE_SILENCE_MAX_MS,
+    Number(import.meta.env.VITE_VOICE_CAPTURE_SILENCE_TIMEOUT_MS ?? 5_000) || 5_000,
+  ),
+);
 const CUSTOM_CARTESIA_VOICE_OPTION = "__custom_cartesia_voice__";
 const CARTESIA_QUICK_VOICE_OPTIONS = [
   { id: "a0e99841-438c-4a64-b679-ae501e7d6091", label: "Sonic default" },
@@ -2035,6 +2045,7 @@ export default function ChatWindow({
     providerModel: "gpt-4o-mini-tts",
     cartesiaVoiceId: "",
     cartesiaModel: "sonic-3",
+    sfxVolume: 0.85,
     piperModelPath: "",
     piperSpeaker: null,
   });
@@ -2070,6 +2081,15 @@ export default function ChatWindow({
   const streamQueueProcessingRef = useRef(false);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
+  const recognitionRestartTimerRef = useRef(null);
+  const recognitionInactivityTimerRef = useRef(null);
+  const recordingRequestedRef = useRef(false);
+  const draftRef = useRef("");
+  const pendingSfxTimelineRef = useRef([]);
+  const pendingAfterSfxTagsRef = useRef([]);
+  const activeSfxTimeoutsRef = useRef([]);
+  const activeSfxPlayersRef = useRef([]);
+  const lastSfxPlaybackKeyRef = useRef("");
   const streamPlaybackActiveRef = useRef(false);
   const streamAutoplayUsedRef = useRef(false);
   const autoplayAssistantBaselineRef = useRef(0);
@@ -2078,6 +2098,10 @@ export default function ChatWindow({
   const pendingVoiceAdjustmentsRef = useRef(null);
   const pendingSingingActiveRef = useRef(false);
   const prefersReducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const latestAssistantMessage = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant") || null,
@@ -2400,6 +2424,7 @@ export default function ChatWindow({
       providerModel: personality.voiceProfile?.providerModel || "gpt-4o-mini-tts",
       cartesiaVoiceId: personality.voiceProfile?.cartesiaVoiceId || "",
       cartesiaModel: personality.voiceProfile?.cartesiaModel || "sonic-3",
+      sfxVolume: Number(personality.voiceProfile?.sfxVolume ?? 0.85),
       piperModelPath: personality.voiceProfile?.piperModelPath || "",
       piperSpeaker: personality.voiceProfile?.piperSpeaker ?? null,
     });
@@ -2521,6 +2546,9 @@ export default function ChatWindow({
 
   useEffect(() => {
     return () => {
+      recordingRequestedRef.current = false;
+      stopRecognitionSession(true);
+
       if (speechEnergyTimerRef.current) {
         window.clearInterval(speechEnergyTimerRef.current);
         speechEnergyTimerRef.current = null;
@@ -2540,7 +2568,7 @@ export default function ChatWindow({
 
       clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
     };
-  }, [audioUrl]);
+  }, [audioUrl, stopRecognitionSession]);
 
   useEffect(() => {
     if (speechEnergyTimerRef.current) {
@@ -2804,6 +2832,103 @@ export default function ChatWindow({
     streamReadyAudioQueueRef.current = [];
   }
 
+  function clearActiveSfxPlayback() {
+    for (const timeoutId of activeSfxTimeoutsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+    activeSfxTimeoutsRef.current = [];
+
+    for (const player of activeSfxPlayersRef.current) {
+      try {
+        player.pause();
+      } catch {
+        /* ignore */
+      }
+    }
+    activeSfxPlayersRef.current = [];
+  }
+
+  function computeSfxDelayMs(event, index) {
+    const explicitMs = Number(event?.ms);
+    if (Number.isFinite(explicitMs) && explicitMs >= 0) {
+      return Math.round(explicitMs);
+    }
+
+    const position = String(event?.position || "inline").trim().toLowerCase();
+    if (position === "before") {
+      return 0;
+    }
+    if (position === "throughout") {
+      const wordIndex = Number(event?.wordIndex);
+      if (Number.isFinite(wordIndex) && wordIndex >= 0) {
+        return Math.round(wordIndex * 320);
+      }
+      return 260 + (index * 220);
+    }
+    if (position === "after") {
+      return -1;
+    }
+    return 140 + (index * 180);
+  }
+
+  function playSfxTag(tag) {
+    const normalized = String(tag || "").trim().toLowerCase();
+    if (!normalized) {
+      return;
+    }
+
+    const player = new Audio(`/api/sfx/audio/${encodeURIComponent(normalized)}`);
+    player.preload = "auto";
+    player.volume = Math.max(0, Math.min(1, Number(voiceProfile.sfxVolume ?? 0.85)));
+    activeSfxPlayersRef.current.push(player);
+
+    void player.play().catch(() => {
+      /* optional SFX; ignore playback failures */
+    });
+  }
+
+  function queueSfxTimelinePlayback(timeline) {
+    clearActiveSfxPlayback();
+    pendingAfterSfxTagsRef.current = [];
+
+    const events = Array.isArray(timeline) ? timeline : [];
+    events.forEach((event, index) => {
+      const tag = String(event?.tag || "").trim().toLowerCase();
+      if (!tag) {
+        return;
+      }
+
+      const delayMs = computeSfxDelayMs(event, index);
+      if (delayMs < 0) {
+        pendingAfterSfxTagsRef.current.push(tag);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        playSfxTag(tag);
+      }, delayMs);
+      activeSfxTimeoutsRef.current.push(timeoutId);
+    });
+  }
+
+  function triggerSfxForCurrentPlayback(audioElement) {
+    if (!(audioElement instanceof HTMLAudioElement)) {
+      return;
+    }
+
+    const sourceKey = String(audioElement.currentSrc || audioElement.src || "");
+    if (!sourceKey) {
+      return;
+    }
+
+    if (lastSfxPlaybackKeyRef.current === sourceKey) {
+      return;
+    }
+
+    lastSfxPlaybackKeyRef.current = sourceKey;
+    queueSfxTimelinePlayback(pendingSfxTimelineRef.current);
+  }
+
   function getStreamQueueDepth() {
     return streamPendingSentenceQueueRef.current.length + streamReadyAudioQueueRef.current.length;
   }
@@ -2908,42 +3033,11 @@ export default function ChatWindow({
     const nextAudioUrl = URL.createObjectURL(blob);
     const requestMs = Math.round(performance.now() - requestStartedAt);
 
-    let sfxBuffers = null;
     if (Array.isArray(parsedSfxTimeline) && parsedSfxTimeline.length > 0) {
       onStatus?.({
         type: "info",
         message: `SFX timeline: ${parsedSfxTimeline.map((s) => s.tag).join(", ")}`,
       });
-
-      // Pre-fetch all SFX audio buffers
-      sfxBuffers = new Map();
-      const sfxPromises = parsedSfxTimeline.map(async (sfxEvent) => {
-        const sfxUrl = `/api/sfx/audio/${encodeURIComponent(sfxEvent.tag)}`;
-        try {
-          const sfxResponse = await fetch(sfxUrl);
-          if (!sfxResponse.ok) {
-            onStatus?.({
-              type: "warn",
-              message: `SFX audio unavailable for: ${sfxEvent.tag}.`,
-            });
-            return null;
-          }
-          const sfxBlob = await sfxResponse.blob();
-          const sfxArrayBuffer = await sfxBlob.arrayBuffer();
-          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const audioBuffer = await audioContext.decodeAudioData(sfxArrayBuffer);
-          sfxBuffers.set(sfxEvent.tag, audioBuffer);
-          return { tag: sfxEvent.tag, buffer: audioBuffer };
-        } catch (err) {
-          onStatus?.({
-            type: "warn",
-            message: `SFX failed to load: ${sfxEvent.tag}.`,
-          });
-          return null;
-        }
-      });
-
-      const loadedSfx = (await Promise.all(sfxPromises)).filter(Boolean);
     }
 
     const telemetry = parsedTelemetry
@@ -2961,7 +3055,6 @@ export default function ChatWindow({
       url: nextAudioUrl,
       telemetry,
       sfxTimeline: parsedSfxTimeline.length > 0 ? parsedSfxTimeline : undefined,
-      sfxBuffers,
     };
   }
 
@@ -2988,6 +3081,9 @@ export default function ChatWindow({
       URL.revokeObjectURL(audioUrl);
     }
 
+    pendingSfxTimelineRef.current = Array.isArray(nextItem.sfxTimeline) ? nextItem.sfxTimeline : [];
+    pendingAfterSfxTagsRef.current = [];
+    lastSfxPlaybackKeyRef.current = "";
     setAudioUrl(nextItem.url);
 
     requestAnimationFrame(() => {
@@ -3101,6 +3197,10 @@ export default function ChatWindow({
     setIsGeneratingAudio(false);
     setIsAudioPlaying(false);
     setSpeechEnergy(0);
+    clearActiveSfxPlayback();
+    pendingAfterSfxTagsRef.current = [];
+    pendingSfxTimelineRef.current = [];
+    lastSfxPlaybackKeyRef.current = "";
 
     if (hadPendingRequest || hadActivePlayback || isGeneratingAudio || isAudioPlaying) {
       onStatus?.({
@@ -3142,6 +3242,14 @@ export default function ChatWindow({
         URL.revokeObjectURL(audioUrl);
       }
 
+      clearActiveSfxPlayback();
+      pendingAfterSfxTagsRef.current = [];
+      pendingSfxTimelineRef.current = [];
+      lastSfxPlaybackKeyRef.current = "";
+
+      pendingSfxTimelineRef.current = Array.isArray(audioResult.sfxTimeline) ? audioResult.sfxTimeline : [];
+      pendingAfterSfxTagsRef.current = [];
+      lastSfxPlaybackKeyRef.current = "";
       setAudioUrl(nextAudioUrl);
 
       requestAnimationFrame(() => {
@@ -3185,6 +3293,13 @@ export default function ChatWindow({
   function handleAudioEnded() {
     setIsAudioPlaying(false);
 
+    const afterTags = [...pendingAfterSfxTagsRef.current];
+    pendingAfterSfxTagsRef.current = [];
+    for (const tag of afterTags) {
+      playSfxTag(tag);
+    }
+    clearActiveSfxPlayback();
+
     if (streamReadyAudioQueueRef.current.length > 0) {
       playNextQueuedStreamAudio({ silentAutoplayBlock: true });
       if (streamPendingSentenceQueueRef.current.length > 0 && !streamQueueProcessingRef.current) {
@@ -3215,6 +3330,7 @@ export default function ChatWindow({
         providerModel: voiceProfile.providerModel,
         cartesiaVoiceId: voiceProfile.cartesiaVoiceId || "",
         cartesiaModel: voiceProfile.cartesiaModel || "sonic-3",
+        sfxVolume: Number(voiceProfile.sfxVolume ?? 0.85),
         piperModelPath: voiceProfile.piperModelPath,
         piperSpeaker: voiceProfile.piperSpeaker,
       });
@@ -3321,44 +3437,154 @@ export default function ChatWindow({
     }
   }
 
+  const clearRecognitionTimers = useCallback(() => {
+    if (recognitionRestartTimerRef.current) {
+      window.clearTimeout(recognitionRestartTimerRef.current);
+      recognitionRestartTimerRef.current = null;
+    }
+    if (recognitionInactivityTimerRef.current) {
+      window.clearTimeout(recognitionInactivityTimerRef.current);
+      recognitionInactivityTimerRef.current = null;
+    }
+  }, []);
+
+  const stopRecognitionSession = useCallback((clearRequested = false) => {
+    if (clearRequested) {
+      recordingRequestedRef.current = false;
+    }
+    clearRecognitionTimers();
+
+    const activeRecognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (activeRecognition) {
+      try {
+        activeRecognition.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (clearRequested) {
+      setIsRecording(false);
+    }
+  }, [clearRecognitionTimers]);
+
+  const resetRecognitionInactivityTimer = useCallback(() => {
+    if (recognitionInactivityTimerRef.current) {
+      window.clearTimeout(recognitionInactivityTimerRef.current);
+      recognitionInactivityTimerRef.current = null;
+    }
+
+    recognitionInactivityTimerRef.current = window.setTimeout(() => {
+      if (recordingRequestedRef.current) {
+        stopRecognitionSession(true);
+      }
+    }, VOICE_CAPTURE_SILENCE_TIMEOUT_MS);
+  }, [stopRecognitionSession]);
+
+  const startRecognitionSession = useCallback(() => {
+    if (!recordingRequestedRef.current || recognitionRef.current || isAudioPlaying || isGeneratingAudio) {
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      recordingRequestedRef.current = false;
+      setIsRecording(false);
+      onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
+      return;
+    }
+
+    clearRecognitionTimers();
+    const recognition = new SpeechRecognition();
+    const draftPrefix = String(draftRef.current || "").trim();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      resetRecognitionInactivityTimer();
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => String(result?.[0]?.transcript || "").trim())
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      if (!transcript) {
+        return;
+      }
+
+      const nextDraft = [draftPrefix, transcript].filter(Boolean).join(" ").trim();
+      setDraft(nextDraft);
+      resetRecognitionInactivityTimer();
+    };
+
+    recognition.onerror = (event) => {
+      recognitionRef.current = null;
+      clearRecognitionTimers();
+
+      const code = String(event?.error || "").toLowerCase();
+      if (code && !["aborted", "no-speech"].includes(code)) {
+        console.error("Speech recognition error:", code);
+      }
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      clearRecognitionTimers();
+
+      if (!recordingRequestedRef.current) {
+        setIsRecording(false);
+        return;
+      }
+
+      if (isAudioPlaying || isGeneratingAudio) {
+        return;
+      }
+
+      recognitionRestartTimerRef.current = window.setTimeout(() => {
+        startRecognitionSession();
+      }, VOICE_CAPTURE_RESTART_DELAY_MS);
+    };
+
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+      setIsRecording(true);
+    } catch {
+      recognitionRef.current = null;
+      setIsRecording(false);
+    }
+  }, [clearRecognitionTimers, isAudioPlaying, isGeneratingAudio, onStatus, resetRecognitionInactivityTimer]);
+
+  useEffect(() => {
+    if (isAudioPlaying || isGeneratingAudio) {
+      if (recognitionRef.current) {
+        stopRecognitionSession(false);
+      }
+      return;
+    }
+
+    if (recordingRequestedRef.current && !recognitionRef.current) {
+      startRecognitionSession();
+    }
+  }, [isAudioPlaying, isGeneratingAudio, startRecognitionSession, stopRecognitionSession]);
+
   function toggleRecording() {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
       onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
       return;
     }
 
-    if (isRecording) {
-      // Stop recording
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      setIsRecording(false);
+    if (recordingRequestedRef.current) {
+      stopRecognitionSession(true);
     } else {
-      // Start recording
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = "en-US";
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setDraft((prev) => prev + (prev ? " " : "") + transcript);
-      };
-
-      recognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
-        setIsRecording(false);
-        onStatus?.({ type: "error", message: "Speech recognition failed. Please try again." });
-      };
-
-      recognition.onend = () => {
-        setIsRecording(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      setIsRecording(true);
+      recordingRequestedRef.current = true;
+      startRecognitionSession();
     }
   }
 
@@ -3378,7 +3604,8 @@ export default function ChatWindow({
     );
   }
 
-  const avatarSpeaking = Boolean(liveReply) || isAudioPlaying;
+  const phaseSuggestsSpeech = ["generation", "reply", "token"].includes(String(livePhase || "").trim().toLowerCase());
+  const avatarSpeaking = phaseSuggestsSpeech || isAudioPlaying;
 
   return (
     <>
@@ -3976,7 +4203,10 @@ export default function ChatWindow({
                 className="audio-player"
                 controls
                 src={audioUrl}
-                onPlay={() => setIsAudioPlaying(true)}
+                onPlay={() => {
+                  setIsAudioPlaying(true);
+                  triggerSfxForCurrentPlayback(audioRef.current);
+                }}
                 onPause={() => setIsAudioPlaying(false)}
                 onEnded={handleAudioEnded}
               />

@@ -23,6 +23,13 @@ import { normalizeStateFlaws } from "../services/stateFlawService.js";
 import { extractPersonaFromConversation, classifyIntent } from "../services/personaExtractionService.js";
 import { explainBehavior } from "../services/explanationService.js";
 import { extractUserPreferences, storeUserPreferences } from "../services/preferenceLearningService.js";
+import {
+  fetchAndCacheSfx,
+  getCachedSfxPath,
+  isFreesoundConfigured,
+  isValidSfxTag,
+  normalizeSfxTag,
+} from "../services/sfxCacheService.js";
 import path from "path";
 import { rm, unlink } from "fs/promises";
 
@@ -39,12 +46,57 @@ function sanitizeItems(items) {
 function sanitizeVocalMannerisms(input) {
   const source = input && typeof input === "object" ? input : {};
   const rawFrequency = Number(source.frequency);
+  const rawSfxFrequency = Number(source.sfxFrequency);
+  const sfxTags = Array.from(new Set(
+    sanitizeItems(source.sfxTags)
+      .map((tag) => normalizeSfxTag(tag))
+      .filter((tag) => isValidSfxTag(tag)),
+  )).slice(0, 8);
+  const sfxPlacementRaw = String(source.sfxPlacement || "random").trim().toLowerCase();
+  const sfxPlacement = ["start", "end", "random", "throughout"].includes(sfxPlacementRaw)
+    ? sfxPlacementRaw
+    : "random";
+
   return {
     items: sanitizeItems(source.items).slice(0, 24),
     frequency: Number.isFinite(rawFrequency)
       ? Math.min(1, Math.max(0, rawFrequency))
       : 0.15,
+    sfxTags,
+    sfxFrequency: Number.isFinite(rawSfxFrequency)
+      ? Math.min(1, Math.max(0, rawSfxFrequency))
+      : 0.25,
+    sfxPlacement,
   };
+}
+
+async function prefetchPersonaSfx(vocalMannerisms) {
+  if (!isFreesoundConfigured()) {
+    return;
+  }
+
+  const sfxTags = Array.isArray(vocalMannerisms?.sfxTags) ? vocalMannerisms.sfxTags : [];
+  if (!sfxTags.length) {
+    return;
+  }
+
+  for (const tag of sfxTags) {
+    const normalizedTag = normalizeSfxTag(tag);
+    if (!normalizedTag || !isValidSfxTag(normalizedTag)) {
+      continue;
+    }
+
+    const cached = await getCachedSfxPath(normalizedTag);
+    if (cached) {
+      continue;
+    }
+
+    try {
+      await fetchAndCacheSfx(normalizedTag);
+    } catch (error) {
+      console.warn(`[SFX Cache] Prefetch failed for \"${normalizedTag}\": ${String(error?.message || error)}`);
+    }
+  }
 }
 
 function sanitizeStateFlaws(input) {
@@ -712,6 +764,8 @@ export function createPersonalityHandler(req, res, next) {
       ownerId: req.voxisUser?.id ?? null,
     });
 
+    void prefetchPersonaSfx(vocalMannerisms);
+
     return res.status(201).json(personality);
   } catch (error) {
     return next(error);
@@ -909,6 +963,8 @@ export function updatePersonalityHandler(req, res, next) {
       stateFlaws,
       vocalMannerisms,
     });
+
+    void prefetchPersonaSfx(vocalMannerisms);
 
     return res.json(updated);
   } catch (error) {

@@ -60,7 +60,101 @@ const SFX_CATALOG = {
     durationMin: 0.2,
     durationMax: 1.5,
   },
+  fart: {
+    query: "fart toot comedic",
+    durationMin: 0.2,
+    durationMax: 3.0,
+  },
+  evil_chuckle: {
+    query: "evil chuckle villain laugh",
+    durationMin: 0.4,
+    durationMax: 4.0,
+  },
+  maniacal_laugh: {
+    query: "maniacal laugh villain",
+    durationMin: 0.6,
+    durationMax: 4.5,
+  },
+  cackle: {
+    query: "witch cackle laugh",
+    durationMin: 0.4,
+    durationMax: 3.5,
+  },
+  gasp: {
+    query: "gasp surprise",
+    durationMin: 0.2,
+    durationMax: 2.5,
+  },
+  sniff: {
+    query: "sniff nose",
+    durationMin: 0.2,
+    durationMax: 1.8,
+  },
+  yawn: {
+    query: "yawn tired",
+    durationMin: 0.7,
+    durationMax: 4.0,
+  },
+  growl: {
+    query: "growl creature voice",
+    durationMin: 0.3,
+    durationMax: 3.0,
+  },
+  scream: {
+    query: "short scream horror",
+    durationMin: 0.3,
+    durationMax: 2.5,
+  },
+  grunt: {
+    query: "grunt effort",
+    durationMin: 0.2,
+    durationMax: 2.0,
+  },
+  clap: {
+    query: "single clap",
+    durationMin: 0.1,
+    durationMax: 1.5,
+  },
 };
+
+const SFX_ALIASES = Object.freeze({
+  belch: "burp",
+  burps: "burp",
+  burping: "burp",
+  giggles: "giggle",
+  laugh: "chuckle",
+  laughter: "chuckle",
+  evilchuckle: "evil_chuckle",
+  evil_laugh: "evil_chuckle",
+  wicked_chuckle: "evil_chuckle",
+  sinister_chuckle: "evil_chuckle",
+  evilcackle: "cackle",
+  maniacal: "maniacal_laugh",
+  farting: "fart",
+  toot: "fart",
+  flatulence: "fart",
+  gasp_sfx: "gasp",
+  sniffle: "sniff",
+  yawning: "yawn",
+  roar: "growl",
+  shriek: "scream",
+});
+
+function normalizeTagToken(tag) {
+  return String(tag || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export function normalizeSfxTag(tag) {
+  const token = normalizeTagToken(tag);
+  if (!token) return "";
+  if (SFX_CATALOG[token]) return token;
+  if (SFX_ALIASES[token]) return SFX_ALIASES[token];
+  return "";
+}
 
 /**
  * Get list of available SFX tags
@@ -76,7 +170,7 @@ export function getAvailableSfxTags() {
  * @returns {boolean}
  */
 export function isValidSfxTag(tag) {
-  return Boolean(tag && SFX_CATALOG[tag]);
+  return Boolean(normalizeSfxTag(tag));
 }
 
 const ACCEPTED_LICENSES = [

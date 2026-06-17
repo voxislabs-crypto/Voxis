@@ -460,8 +460,8 @@ function resolveLikenessProfile({ likenessHint = "", personalitySeed = "", mode 
 }
 
 function resolveTargetState({ phase, speaking }) {
-  if (speaking || ["generation", "reply", "reply-complete"].includes(phase)) {
-    return "speak";
+  if (speaking || ["generation", "reply", "token"].includes(phase)) {
+  return "speak";
   }
 
   if (["intent", "mood", "memory", "memory-write", "user-memory-write"].includes(phase)) {
@@ -637,7 +637,7 @@ function resolveMicroExpression({ valence, arousal, phase, neuralActivity }) {
     pupilScale = 0.9;
   }
 
-  if (["generation", "reply", "reply-complete", "token"].includes(phaseKey)) {
+  if (["generation", "reply", "token"].includes(phaseKey)) {
     browLeftOffset -= 0.6;
     browRightOffset -= 0.4;
     eyeLeftScale += 0.06;
@@ -818,7 +818,7 @@ export default function AvatarCore({
   const adjustedPupilOffsetX = clamp(pupilOffsetX + microExpression.gazeBiasX * 2.6, -2.6, 2.6);
   const adjustedPupilOffsetY = clamp(pupilOffsetY + microExpression.gazeBiasY * 1.9, -1.8, 1.8);
 
-  const speakingWave = animState === "speak" || ["generation", "reply", "reply-complete"].includes(phase);
+  const speakingWave = animState === "speak" || ["generation", "reply", "token"].includes(phase);
   const mouthPhaseStyle = useMemo(
     () => resolveMouthPhaseStyle({ phase, valence, arousal }),
     [phase, valence, arousal],
@@ -828,7 +828,7 @@ export default function AvatarCore({
       Math.max(0, Number(arousal) || 0) * 0.3 +
       Number(neuralActivity || 0) * 0.46 +
       clamp(Number(speechEnergy || 0), 0, 1) * 0.52 +
-      (["intent", "generation", "reply", "reply-complete"].includes(phase) ? 0.2 : 0),
+      (["intent", "generation", "reply", "token"].includes(phase) ? 0.2 : 0),
     0,
     1,
   );
