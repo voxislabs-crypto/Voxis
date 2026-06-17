@@ -190,6 +190,35 @@ function getApiKey() {
   return process.env.FREESOUND_API_KEY || "";
 }
 
+function summarizeFetchError(error) {
+  const cause = error?.cause;
+  const parts = [String(error?.message || error || "unknown error")];
+
+  if (cause?.code) {
+    parts.push(`code=${cause.code}`);
+  }
+  if (cause?.errno) {
+    parts.push(`errno=${cause.errno}`);
+  }
+  if (cause?.syscall) {
+    parts.push(`syscall=${cause.syscall}`);
+  }
+  if (cause?.hostname) {
+    parts.push(`host=${cause.hostname}`);
+  }
+
+  return parts.join(" | ");
+}
+
+async function fetchWithDiagnostics(url, options, contextLabel) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    const details = summarizeFetchError(error);
+    throw new Error(`[${contextLabel}] ${details}`);
+  }
+}
+
 export function isFreesoundConfigured() {
   return Boolean(getApiKey());
 }
@@ -204,10 +233,10 @@ async function downloadAudio(sound, destPath) {
   if (!previewUrl) throw new Error(`No preview URL for Freesound sound ${sound.id}`);
 
   const url = `${previewUrl}?token=${apiKey}`;
-  const resp = await fetch(url, {
+  const resp = await fetchWithDiagnostics(url, {
     headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
     signal: AbortSignal.timeout(30000),
-  });
+  }, `download sound=${sound.id}`);
 
   if (!resp.ok) throw new Error(`Download failed ${resp.status} for sound ${sound.id}`);
 
@@ -241,10 +270,10 @@ export async function fetchAndCacheSfx(name) {
     format: "json",
   });
 
-  const resp = await fetch(`${FREESOUND_BASE}/search/text/?${params}`, {
+  const resp = await fetchWithDiagnostics(`${FREESOUND_BASE}/search/text/?${params}`, {
     headers: { "User-Agent": "Voxis/1.0 (https://github.com/voxislabs-crypto/Voxis)" },
     signal: AbortSignal.timeout(15000),
-  });
+  }, `search sfx=${name}`);
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
@@ -303,6 +332,10 @@ export async function initSfxCache() {
         await fetchAndCacheSfx(name);
       } catch (err) {
         console.warn(`[SFX Cache] Failed to cache "${name}": ${err.message}`);
+        if (err?.stack) {
+          const firstLine = String(err.stack).split("\n").slice(0, 2).join(" | ");
+          console.warn(`[SFX Cache] Diagnostic stack (${name}): ${firstLine}`);
+        }
       }
     }
   }
