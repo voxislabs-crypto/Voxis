@@ -28,12 +28,16 @@ let _kokoroInitPromise = null;
 let _kokoroModule = null;
 let _kokoroImportError = null;
 let _kokoroLoadError = null;
+const MAX_TTS_RESPONSE_CACHE_ENTRIES = 64;
+const ttsResponseCache = new Map();
 
 const DEFAULT_TTS_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "mp3";
 const DEFAULT_FETCH_TIMEOUT_MS = 9000;
+const DEFAULT_ELEVENLABS_TIMEOUT_MS = 18000;
+const MAX_ELEVENLABS_TIMEOUT_MS = 60000;
 const DEFAULT_CARTESIA_TIMEOUT_MS = 16000;
 const MAX_CARTESIA_TIMEOUT_MS = 45000;
 const DEFAULT_CARTESIA_VOICE_ID = "694f9389-aac1-45b6-b726-9d9369183238";
@@ -116,6 +120,38 @@ function isTtsDisableKokoroEnabled() {
 
 function isAllowedTtsEngine(engine) {
   return getAllowedTtsEngines().includes(String(engine || "").trim().toLowerCase());
+}
+
+function buildTtsResponseCacheKey({ personality, text, voiceProfile, speechHint, directedText, adjustedVoiceProfile }) {
+  return JSON.stringify({
+    personalityId: Number(personality?.id || 0),
+    moodState: personality?.moodState ?? null,
+    expressionStyle: personality?.expressionStyle ?? null,
+    vocalMannerisms: personality?.vocalMannerisms ?? null,
+    text: String(text || "").trim(),
+    speechHint: String(speechHint || "").trim(),
+    directedText: String(directedText || "").trim(),
+    voiceProfile: adjustedVoiceProfile || voiceProfile || {},
+  });
+}
+
+function getCachedTtsResponse(cacheKey) {
+  return ttsResponseCache.get(cacheKey) || null;
+}
+
+function setCachedTtsResponse(cacheKey, value) {
+  if (!cacheKey || !value) {
+    return;
+  }
+
+  if (ttsResponseCache.has(cacheKey)) {
+    ttsResponseCache.delete(cacheKey);
+  } else if (ttsResponseCache.size >= MAX_TTS_RESPONSE_CACHE_ENTRIES) {
+    const oldestKey = ttsResponseCache.keys().next().value;
+    ttsResponseCache.delete(oldestKey);
+  }
+
+  ttsResponseCache.set(cacheKey, value);
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
@@ -240,6 +276,25 @@ function getCartesiaTimeoutMs(text = "") {
   const budgetCap = Math.max(8000, outerBudget - reservedFallbackMs);
   const cap = Math.max(10000, Math.min(22000, budgetCap));
   return Math.min(scaledTimeout, cap);
+}
+
+function getElevenLabsTimeoutMs(text = "") {
+  const configuredTimeout = Number(process.env.ELEVENLABS_TIMEOUT_MS || DEFAULT_ELEVENLABS_TIMEOUT_MS);
+  const safeConfiguredTimeout = Number.isFinite(configuredTimeout)
+    ? Math.max(DEFAULT_ELEVENLABS_TIMEOUT_MS, Math.round(configuredTimeout))
+    : DEFAULT_ELEVENLABS_TIMEOUT_MS;
+
+  const textLength = String(text || "").trim().length;
+  if (!textLength) {
+    return safeConfiguredTimeout;
+  }
+
+  // ElevenLabs latency rises noticeably with longer prompts and higher-quality models.
+  const scaledTimeout = textLength <= 140
+    ? safeConfiguredTimeout
+    : Math.min(MAX_ELEVENLABS_TIMEOUT_MS, safeConfiguredTimeout + ((textLength - 140) * 45));
+
+  return Math.max(safeConfiguredTimeout, scaledTimeout);
 }
 
 function clampPiperPauseMs(pauseMs, voiceProfile = {}) {
@@ -1801,6 +1856,7 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
   const config = getElevenLabsConfig();
   const voiceId = String(voiceProfile?.elevenLabsVoiceId || config.voiceId).trim();
   const model = String(voiceProfile?.elevenLabsModel || config.model).trim();
+  const timeoutMs = getElevenLabsTimeoutMs(text);
 
   if (!config.apiKey) {
     const error = new Error("ElevenLabs TTS requires ELEVENLABS_API_KEY to be set.");
@@ -1812,28 +1868,46 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
   const similarityBoost = Math.min(1, Math.max(0, Number(voiceProfile?.similarityBoost ?? 0.75)));
   const style = Math.min(1, Math.max(0, Number(voiceProfile?.style ?? 0.5)));
 
-  const response = await fetchWithTimeoutRetry(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": config.apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: model,
-        voice_settings: {
-          stability,
-          similarity_boost: similarityBoost,
-          style,
-          use_speaker_boost: true,
+  let response;
+  try {
+    response = await fetchWithTimeoutRetry(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": config.apiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
         },
-      }),
-    },
-    { retries: 1 },
-  );
+        body: JSON.stringify({
+          text,
+          model_id: model,
+          voice_settings: {
+            stability,
+            similarity_boost: similarityBoost,
+            style,
+            use_speaker_boost: true,
+          },
+        }),
+      },
+      { retries: 1, timeoutMs },
+    );
+  } catch (error) {
+    if (/timed out/i.test(String(error?.message || ""))) {
+      error.statusCode = 504;
+      error.providerStatus = 504;
+      error.ttsProvider = "elevenlabs";
+      error.ttsProviderCode = "timeout";
+      error.message = `ElevenLabs TTS timed out after ${timeoutMs}ms. Try a shorter sentence, then verify your voice/model settings.`;
+    } else {
+      error.statusCode = Number(error?.statusCode || 502);
+      error.providerStatus = Number(error?.providerStatus || 0);
+      error.ttsProvider = "elevenlabs";
+      error.ttsProviderCode = String(error?.ttsProviderCode || "network_error");
+      error.message = `ElevenLabs TTS request failed before audio generation: ${String(error?.message || "Unknown error")}`;
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);
@@ -2075,6 +2149,21 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     voiceProfile,
     speechHint,
   });
+  const cacheKey = buildTtsResponseCacheKey({
+    personality,
+    text,
+    voiceProfile,
+    speechHint,
+    directedText,
+    adjustedVoiceProfile,
+  });
+  const cachedResponse = getCachedTtsResponse(cacheKey);
+  if (cachedResponse?.buffer) {
+    return {
+      ...cachedResponse,
+      cached: true,
+    };
+  }
   const emotionFrame = interpretEmotionSpectrum(resolveMood(personality));
   const attemptedEngines = [];
 
@@ -2224,7 +2313,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
   try {
     const audio = await runEngine(engine);
-    return {
+    const response = {
       ...audio,
       directedText,
       adjustedVoiceProfile,
@@ -2266,7 +2355,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       },
       realism: audio?.realism || null,
       sfx,
+      cached: false,
     };
+    setCachedTtsResponse(cacheKey, response);
+    return response;
   } catch (primaryError) {
     // For explicit engine requests, we normally avoid silent fallback.
     // Exception: provider-level limits (quota/concurrency) on ElevenLabs can
@@ -2282,7 +2374,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       try {
         const fallbackVoiceProfile = buildFallbackVoiceProfile(fallbackEngine, adjustedVoiceProfile, personality);
         const audio = await runEngine(fallbackEngine, fallbackVoiceProfile);
-        return {
+        const response = {
           ...audio,
           directedText,
           adjustedVoiceProfile: fallbackVoiceProfile,
@@ -2323,7 +2415,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
           },
           realism: audio?.realism || null,
           sfx,
+          cached: false,
         };
+        setCachedTtsResponse(cacheKey, response);
+        return response;
       } catch {
         // Continue to next fallback.
       }

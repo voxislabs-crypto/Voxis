@@ -1757,11 +1757,17 @@ export default function VoiceLab({
     const cacheKey = buildTtsCacheKey(personality.id, text, effectiveVoiceProfile);
 
     try {
-      const cachedBlob = getTtsCache(cacheKey);
-      if (cachedBlob) {
-        const next = URL.createObjectURL(cachedBlob);
+      const cachedEntry = getTtsCache(cacheKey);
+      if (cachedEntry?.blob instanceof Blob) {
+        const next = URL.createObjectURL(cachedEntry.blob);
         if (audioUrl) URL.revokeObjectURL(audioUrl);
         setAudioUrl(next);
+        if (cachedEntry.telemetry || cachedEntry.sfxTimeline) {
+          setPreviewTelemetry((current) => ({
+            ...(current || {}),
+            ttsTelemetry: cachedEntry.telemetry || current?.ttsTelemetry || null,
+          }));
+        }
         requestAnimationFrame(() => {
           const audio = audioRef.current;
           if (audio instanceof HTMLAudioElement) void audio.play().catch(() => {});
@@ -1881,7 +1887,11 @@ export default function VoiceLab({
       }
 
       const blob = await response.blob();
-      setTtsCache(cacheKey, blob);
+      setTtsCache(cacheKey, {
+        blob,
+        telemetry: ttsTelemetry,
+        sfxTimeline: ttsSfx,
+      });
       const next = URL.createObjectURL(blob);
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       setAudioUrl(next);

@@ -5,5 +5,9 @@ const router = Router();
 
 router.get("/api/sfx/audio/:name", serveSfx);
 router.post("/api/sfx/prefetch", prefetchSfx);
+// Dev proxy compatibility: Vite rewrites /api/* -> /* in this workspace.
+// Keep both route shapes so SFX works in dev and production.
+router.get("/sfx/audio/:name", serveSfx);
+router.post("/sfx/prefetch", prefetchSfx);
 
 export default router;

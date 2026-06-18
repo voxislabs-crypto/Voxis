@@ -263,6 +263,54 @@ export function getLegacyPersonalityCount() {
   return Number(row?.count || 0);
 }
 
+export function getPersonalityCountByOwner(ownerId) {
+  const numericOwnerId = Number(ownerId);
+  if (!Number.isInteger(numericOwnerId) || numericOwnerId <= 0) {
+    return 0;
+  }
+
+  const row = db
+    .prepare(`SELECT COUNT(*) AS count FROM personalities WHERE ownerId = ?`)
+    .get(numericOwnerId);
+
+  return Number(row?.count || 0);
+}
+
+export function transferPersonalitiesToOwner({ fromOwnerId, toOwnerId, includeLegacy = false } = {}) {
+  const sourceOwnerId = Number(fromOwnerId);
+  const targetOwnerId = Number(toOwnerId);
+
+  if (!Number.isInteger(sourceOwnerId) || sourceOwnerId <= 0) {
+    return 0;
+  }
+  if (!Number.isInteger(targetOwnerId) || targetOwnerId <= 0) {
+    return 0;
+  }
+  if (sourceOwnerId === targetOwnerId) {
+    return 0;
+  }
+
+  let changes = 0;
+
+  const transferOwned = db.prepare(`
+    UPDATE personalities
+    SET ownerId = ?
+    WHERE ownerId = ?
+  `).run(targetOwnerId, sourceOwnerId);
+  changes += Number(transferOwned?.changes || 0);
+
+  if (includeLegacy) {
+    const transferLegacy = db.prepare(`
+      UPDATE personalities
+      SET ownerId = ?
+      WHERE ownerId IS NULL
+    `).run(targetOwnerId);
+    changes += Number(transferLegacy?.changes || 0);
+  }
+
+  return changes;
+}
+
 export function claimLegacyPersonalities(ownerId) {
   const numericOwnerId = Number(ownerId);
   if (!Number.isInteger(numericOwnerId) || numericOwnerId <= 0) {

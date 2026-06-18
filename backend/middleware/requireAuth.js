@@ -2,6 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { verifyToken } from "@clerk/backend";
 import { createUser, getUserByClerkId } from "../models/userModel.js";
+import { getPersonalityCountByOwner, transferPersonalitiesToOwner } from "../models/personalityModel.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -155,6 +156,38 @@ export async function requireAuth(req, res, next) {
         clerkId: clerkUserId,
       });
       voxisUser = user;
+    }
+
+    // Recovery migration: if personas were created earlier under local dev auth
+    // (clerkId "1") and this authenticated account has none, transfer those
+    // personas so they become visible without manual DB fixes.
+    if (clerkUserId !== "1") {
+      try {
+        const currentOwnerId = Number(voxisUser?.id);
+        const currentPersonaCount = getPersonalityCountByOwner(currentOwnerId);
+        if (Number.isInteger(currentOwnerId) && currentOwnerId > 0 && currentPersonaCount === 0) {
+          const devUser = getUserByClerkId("1");
+          const devOwnerId = Number(devUser?.id);
+          if (Number.isInteger(devOwnerId) && devOwnerId > 0 && devOwnerId !== currentOwnerId) {
+            const movedCount = transferPersonalitiesToOwner({
+              fromOwnerId: devOwnerId,
+              toOwnerId: currentOwnerId,
+              includeLegacy: true,
+            });
+            if (movedCount > 0) {
+              console.info("[Auth] Migrated local/dev personas to authenticated account", {
+                movedCount,
+                fromOwnerId: devOwnerId,
+                toOwnerId: currentOwnerId,
+              });
+            }
+          }
+        }
+      } catch (migrationError) {
+        console.warn("[Auth] Persona recovery migration skipped", {
+          message: String(migrationError?.message || migrationError),
+        });
+      }
     }
 
     req.voxisUser = voxisUser;

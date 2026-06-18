@@ -1,7 +1,7 @@
 /**
- * Session-scoped TTS audio cache.
+ * Session-scoped TTS response cache.
  *
- * Stores Blob objects keyed by a hash of (personalityId, text, voiceProfile).
+ * Stores response entries keyed by a hash of (personalityId, text, voiceProfile).
  * Callers should create a new object URL from the cached Blob on each hit so
  * the URL lifecycle stays under their control.
  *
@@ -10,7 +10,7 @@
 
 const MAX_ENTRIES = 80;
 
-/** @type {Map<string, Blob>} */
+/** @type {Map<string, { blob: Blob, telemetry?: object|null, sfxTimeline?: Array<object> }>} */
 const _cache = new Map();
 
 /**
@@ -37,20 +37,25 @@ export function buildTtsCacheKey(personalityId, text, voiceProfile = {}) {
 }
 
 /**
- * Retrieve a cached Blob, or null on miss.
+ * Retrieve a cached entry, or null on miss.
  * @param {string} key
- * @returns {Blob|null}
+ * @returns {{ blob: Blob, telemetry?: object|null, sfxTimeline?: Array<object> }|null}
  */
 export function getTtsCache(key) {
   return _cache.get(key) ?? null;
 }
 
 /**
- * Store a Blob in the cache (evicts oldest entry when full).
+ * Store a response entry in the cache (evicts oldest entry when full).
  * @param {string} key
- * @param {Blob} blob
+ * @param {Blob|object} value
  */
-export function setTtsCache(key, blob) {
+export function setTtsCache(key, value) {
+  const entry = value instanceof Blob ? { blob: value } : value;
+  if (!entry || !(entry.blob instanceof Blob)) {
+    return;
+  }
+
   if (_cache.has(key)) {
     // Refresh position by deleting then re-inserting
     _cache.delete(key);
@@ -59,7 +64,7 @@ export function setTtsCache(key, blob) {
     const oldestKey = _cache.keys().next().value;
     _cache.delete(oldestKey);
   }
-  _cache.set(key, blob);
+  _cache.set(key, entry);
 }
 
 /**

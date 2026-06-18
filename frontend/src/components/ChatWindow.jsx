@@ -541,6 +541,125 @@ const chatStyles = `
     flex-direction: column;
     gap: 8px;
   }
+  .live-call-hud {
+    display: grid;
+    gap: 4px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(120, 206, 255, 0.25);
+    background:
+      linear-gradient(135deg, rgba(0, 188, 255, 0.14), rgba(6, 18, 38, 0.6));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 10px 22px rgba(0, 90, 160, 0.25);
+  }
+
+  .live-call-hud-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .live-call-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(84, 214, 126, 0.38);
+    background: rgba(84, 214, 126, 0.12);
+    color: #bbffd1;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .live-call-status::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 0 0 rgba(120, 240, 160, 0.55);
+    animation: liveCallDotPulse 1.6s ease-in-out infinite;
+  }
+
+  .live-call-status.state-speaking {
+    border-color: rgba(132, 212, 255, 0.55);
+    background: rgba(80, 192, 255, 0.2);
+    color: #d7f3ff;
+  }
+
+  .live-call-status.state-thinking {
+    border-color: rgba(255, 210, 128, 0.55);
+    background: rgba(255, 188, 82, 0.16);
+    color: #ffefce;
+  }
+
+  .live-call-status.state-reconnecting {
+    border-color: rgba(198, 172, 255, 0.55);
+    background: rgba(160, 120, 255, 0.18);
+    color: #efe4ff;
+  }
+
+  .live-call-bars {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 14px;
+  }
+
+  .live-call-bars span {
+    width: 3px;
+    border-radius: 999px;
+    background: rgba(162, 231, 255, 0.9);
+    animation: liveCallBarBounce 1.2s ease-in-out infinite;
+  }
+
+  .live-call-bars span:nth-child(1) { height: 4px; animation-delay: 0ms; }
+  .live-call-bars span:nth-child(2) { height: 8px; animation-delay: 120ms; }
+  .live-call-bars span:nth-child(3) { height: 12px; animation-delay: 240ms; }
+  .live-call-bars span:nth-child(4) { height: 7px; animation-delay: 360ms; }
+
+  .live-call-bars.state-thinking span {
+    background: rgba(255, 210, 128, 0.92);
+  }
+
+  .live-call-bars.state-speaking span {
+    background: rgba(154, 232, 255, 0.95);
+  }
+
+  .live-call-bars.state-reconnecting span {
+    background: rgba(206, 184, 255, 0.92);
+    animation-duration: 1.8s;
+  }
+
+  .live-call-mode {
+    color: rgba(163, 227, 255, 0.88);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .live-call-copy {
+    color: rgba(198, 230, 255, 0.86);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  @keyframes liveCallDotPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(120, 240, 160, 0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(120, 240, 160, 0); }
+  }
+
+  @keyframes liveCallBarBounce {
+    0%, 100% { transform: scaleY(0.55); opacity: 0.6; }
+    50% { transform: scaleY(1); opacity: 1; }
+  }
 
   .composer textarea {
     width: 100%;
@@ -570,26 +689,35 @@ const chatStyles = `
     top: 12px;
     display: flex;
     gap: 8px;
+    padding: 6px;
+    border-radius: 11px;
+    border: 1px solid rgba(126, 220, 255, 0.22);
+    background: rgba(4, 12, 24, 0.76);
+    backdrop-filter: blur(8px);
   }
 
   .composer-icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid rgba(0, 180, 255, 0.2);
-    border-radius: 8px;
+    border-radius: 10px;
     background: rgba(0, 180, 255, 0.06);
     color: var(--accent);
     cursor: pointer;
-    transition: background 150ms, border-color 150ms, transform 100ms;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transition: background 150ms, border-color 150ms, transform 100ms, box-shadow 150ms;
   }
 
   .composer-icon-btn:hover {
     background: rgba(0, 180, 255, 0.12);
     border-color: rgba(0, 180, 255, 0.4);
     transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 8px 18px rgba(0, 128, 214, 0.25);
   }
 
   .composer-icon-btn.recording {
@@ -599,9 +727,122 @@ const chatStyles = `
     animation: recordingPulse 1.5s ease-in-out infinite;
   }
 
+  .composer-icon-btn.live-call-active {
+    background: rgba(84, 214, 126, 0.18);
+    border-color: rgba(84, 214, 126, 0.5);
+    color: #78f0a0;
+    animation: liveCallPulse 1.8s ease-in-out infinite;
+  }
+
+  .composer-icon-btn.voice-input-btn {
+    border-color: rgba(255, 146, 124, 0.26);
+    background: rgba(255, 118, 90, 0.1);
+    color: #ffb9a8;
+  }
+
+  .composer-icon-btn.voice-input-btn:hover {
+    border-color: rgba(255, 172, 154, 0.46);
+    background: rgba(255, 118, 90, 0.2);
+  }
+
+  .composer-icon-btn.live-call-btn {
+    border-color: rgba(122, 221, 255, 0.34);
+    background: rgba(30, 180, 255, 0.14);
+    color: #a8edff;
+  }
+
+  .live-call-reactor {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    --reactor-level: 0;
+  }
+
+  .live-call-reactor-ring {
+    position: absolute;
+    inset: -5px;
+    border-radius: 999px;
+    border: 1px solid rgba(122, 221, 255, 0.34);
+    opacity: 0;
+    transform: scale(0.9);
+    pointer-events: none;
+  }
+
+  .live-call-reactor-core {
+    position: absolute;
+    inset: -10px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(100, 228, 255, 0.2), rgba(100, 228, 255, 0));
+    filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .live-call-reactor.active .live-call-reactor-ring {
+    opacity: 1;
+    animation: reactorPulse 1.5s ease-in-out infinite;
+    box-shadow: 0 0 calc(4px + var(--reactor-level) * 18px) rgba(122, 221, 255, calc(0.15 + var(--reactor-level) * 0.5));
+  }
+
+  .live-call-reactor.active .live-call-reactor-core {
+    opacity: calc(0.2 + var(--reactor-level) * 0.9);
+    animation: reactorGlow 1.8s ease-in-out infinite;
+    transform: scale(calc(0.9 + var(--reactor-level) * 0.2));
+  }
+
+  .live-call-reactor.state-speaking .live-call-reactor-ring {
+    border-color: rgba(138, 225, 255, 0.7);
+    animation-duration: 1.05s;
+  }
+
+  .live-call-reactor.state-thinking .live-call-reactor-ring {
+    border-color: rgba(255, 210, 128, 0.74);
+    animation-duration: 1.35s;
+  }
+
+  .live-call-reactor.state-reconnecting .live-call-reactor-ring {
+    border-color: rgba(198, 172, 255, 0.72);
+    animation-duration: 2s;
+  }
+
+  .live-call-reactor.state-listening .live-call-reactor-ring {
+    border-color: rgba(120, 240, 160, 0.72);
+    animation-duration: 1.2s;
+  }
+
+  .composer-icon-btn.attach-btn {
+    width: 32px;
+    height: 32px;
+    border-color: rgba(150, 180, 255, 0.28);
+    background: rgba(110, 130, 220, 0.14);
+    color: #ced9ff;
+  }
+
+  .composer-icon-btn.attach-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
   @keyframes recordingPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(255, 96, 96, 0.4); }
     50% { box-shadow: 0 0 0 8px rgba(255, 96, 96, 0); }
+  }
+
+  @keyframes liveCallPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(84, 214, 126, 0.38); }
+    50% { box-shadow: 0 0 0 8px rgba(84, 214, 126, 0); }
+  }
+
+  @keyframes reactorPulse {
+    0%, 100% { transform: scale(0.9); opacity: 0.45; }
+    50% { transform: scale(1.08); opacity: 0.95; }
+  }
+
+  @keyframes reactorGlow {
+    0%, 100% { transform: scale(0.92); opacity: 0.35; }
+    50% { transform: scale(1.12); opacity: 0.7; }
   }
 
   .composer-icon-btn svg {
@@ -1033,6 +1274,52 @@ const chatStyles = `
   @media (max-width: 720px) {
     .composer {
       grid-template-columns: 1fr;
+    }
+
+    .composer textarea {
+      padding-right: 124px;
+    }
+
+    .composer-actions {
+      right: 8px;
+      top: 8px;
+      gap: 5px;
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .composer-icon-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+    }
+
+    .composer-icon-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .composer-icon-btn.attach-btn {
+      width: 28px;
+      height: 28px;
+    }
+
+    .composer-icon-btn.attach-btn svg {
+      width: 13px;
+      height: 13px;
+    }
+
+    .live-call-reactor {
+      width: 34px;
+      height: 34px;
+    }
+
+    .live-call-hud {
+      padding: 8px 10px;
+    }
+
+    .live-call-copy {
+      font-size: 0.68rem;
     }
 
     .composer button {
@@ -1632,6 +1919,21 @@ const chatStyles = `
       width: auto;
       bottom: 92px;
     }
+
+    .composer textarea {
+      padding-right: 132px;
+    }
+
+    .composer-actions {
+      right: 10px;
+      top: 10px;
+      gap: 6px;
+      padding: 5px;
+    }
+
+    .live-call-hud {
+      max-width: calc(100% - 8px);
+    }
   }
 `;
 
@@ -2044,6 +2346,7 @@ export default function ChatWindow({
   const [draft, setDraft] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
@@ -2083,6 +2386,7 @@ export default function ChatWindow({
   const lastNarrationRef = useRef("");
   const messageListRef = useRef(null);
   const audioRef = useRef(null);
+  const audioUrlRef = useRef("");
   const speechPlaybackRateRef = useRef(1);
   const speechEnergyTimerRef = useRef(null);
   const ttsRequestAbortRef = useRef(null);
@@ -2100,6 +2404,13 @@ export default function ChatWindow({
   const recognitionRestartTimerRef = useRef(null);
   const recognitionInactivityTimerRef = useRef(null);
   const recordingRequestedRef = useRef(false);
+  const recognitionModeRef = useRef("dictation");
+  const micAudioContextRef = useRef(null);
+  const micAnalyserRef = useRef(null);
+  const micDataArrayRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const micEnergyTimerRef = useRef(null);
+  const smoothedMicEnergyRef = useRef(0);
   const draftRef = useRef("");
   const pendingSfxTimelineRef = useRef([]);
   const pendingAfterSfxTagsRef = useRef([]);
@@ -2118,6 +2429,10 @@ export default function ChatWindow({
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    audioUrlRef.current = audioUrl;
+  }, [audioUrl]);
 
   const latestAssistantMessage = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant") || null,
@@ -2525,7 +2840,7 @@ export default function ChatWindow({
   }, [assistantMessageCount, latestAssistantSpeechText, personality?.id]);
 
   useEffect(() => {
-    if (!voiceProfile.autoplay) {
+    if (!voiceProfile.autoplay && !isLiveCallActive) {
       return;
     }
 
@@ -2533,7 +2848,7 @@ export default function ChatWindow({
     // response just because the tab/component became active.
     autoplayAssistantBaselineRef.current = assistantMessageCount;
     lastGeneratedRef.current = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
-  }, [voiceProfile.autoplay, assistantMessageCount, latestAssistantSpeechText, personality?.id]);
+  }, [isLiveCallActive, voiceProfile.autoplay, assistantMessageCount, latestAssistantSpeechText, personality?.id]);
 
   useEffect(() => {
     const nextValence = Number(avatarMood?.valence || 0);
@@ -2796,7 +3111,7 @@ export default function ChatWindow({
       activeMode === "kids" &&
       Boolean(neuralProfile?.voiceNarrationEnabled) &&
       !prefersReducedMotion &&
-      !(voiceProfile.enabled && voiceProfile.autoplay) &&
+      !(voiceProfile.enabled && (voiceProfile.autoplay || isLiveCallActive)) &&
       latestAssistantMessage &&
       valence > 0.35 &&
       typeof window !== "undefined" &&
@@ -2832,6 +3147,7 @@ export default function ChatWindow({
     personality?.id,
     personality?.moodState?.valence,
     prefersReducedMotion,
+    isLiveCallActive,
     voiceProfile.autoplay,
     voiceProfile.enabled,
   ]);
@@ -2902,22 +3218,32 @@ export default function ChatWindow({
     activeSfxPlayersRef.current = [];
   }
 
-  function computeSfxDelayMs(event, index) {
+  function computeSfxDelayMs(event, index, audioElement = null) {
     const explicitMs = Number(event?.ms);
     if (Number.isFinite(explicitMs) && explicitMs >= 0) {
       return Math.round(explicitMs);
     }
 
     const position = String(event?.position || "inline").trim().toLowerCase();
+    const progress = Number(event?.progress);
+    const audioDurationSec = Number(audioElement?.duration);
+    const hasDuration = Number.isFinite(audioDurationSec) && audioDurationSec > 0;
+
+    if (Number.isFinite(progress) && progress >= 0 && progress <= 1 && hasDuration) {
+      // Keep a little tail room so a late cue doesn't collide with the end event.
+      const durationMs = Math.max(0, Math.round(audioDurationSec * 1000) - 180);
+      return Math.max(0, Math.round(progress * durationMs));
+    }
+
     if (position === "before") {
       return 0;
     }
     if (position === "throughout") {
-      const wordIndex = Number(event?.wordIndex);
-      if (Number.isFinite(wordIndex) && wordIndex >= 0) {
-        return Math.round(wordIndex * 320);
+      const sentenceIndex = Number(event?.sentenceIndex ?? event?.wordIndex);
+      if (Number.isFinite(sentenceIndex) && sentenceIndex >= 0) {
+        return Math.round(450 + (sentenceIndex * 900));
       }
-      return 260 + (index * 220);
+      return 420 + (index * 820);
     }
     if (position === "after") {
       return -1;
@@ -2931,17 +3257,27 @@ export default function ChatWindow({
       return;
     }
 
-    const player = new Audio(`/api/sfx/audio/${encodeURIComponent(normalized)}`);
+    // Use non-/api route to avoid Vite /api rewrite pitfalls in dev.
+    const player = new Audio(`/sfx/audio/${encodeURIComponent(normalized)}`);
     player.preload = "auto";
     player.volume = Math.max(0, Math.min(1, Number(voiceProfile.sfxVolume ?? 0.85)));
+    player.addEventListener("error", () => {
+      onStatus?.({
+        type: "error",
+        message: `SFX '${normalized}' failed to load/play. Check Freesound cache and route mapping.`,
+      });
+    });
     activeSfxPlayersRef.current.push(player);
 
     void player.play().catch(() => {
-      /* optional SFX; ignore playback failures */
+      onStatus?.({
+        type: "error",
+        message: `SFX '${normalized}' playback was blocked or failed in the browser.`,
+      });
     });
   }
 
-  function queueSfxTimelinePlayback(timeline) {
+  function queueSfxTimelinePlayback(timeline, audioElement = null) {
     clearActiveSfxPlayback();
     pendingAfterSfxTagsRef.current = [];
 
@@ -2952,7 +3288,7 @@ export default function ChatWindow({
         return;
       }
 
-      const delayMs = computeSfxDelayMs(event, index);
+      const delayMs = computeSfxDelayMs(event, index, audioElement);
       if (delayMs < 0) {
         pendingAfterSfxTagsRef.current.push(tag);
         return;
@@ -2980,7 +3316,7 @@ export default function ChatWindow({
     }
 
     lastSfxPlaybackKeyRef.current = sourceKey;
-    queueSfxTimelinePlayback(pendingSfxTimelineRef.current);
+    queueSfxTimelinePlayback(pendingSfxTimelineRef.current, audioElement);
   }
 
   function getStreamQueueDepth() {
@@ -2990,11 +3326,12 @@ export default function ChatWindow({
   async function requestSpeechAudio(text, controller, meta = {}) {
     const requestStartedAt = performance.now();
     const cacheKey = buildTtsCacheKey(personality.id, text, voiceProfile);
-    const cachedBlob = getTtsCache(cacheKey);
-    if (cachedBlob) {
+    const cachedEntry = getTtsCache(cacheKey);
+    if (cachedEntry?.blob instanceof Blob) {
       return {
-        url: URL.createObjectURL(cachedBlob),
-        telemetry: null,
+        url: URL.createObjectURL(cachedEntry.blob),
+        telemetry: cachedEntry.telemetry || null,
+        sfxTimeline: Array.isArray(cachedEntry.sfxTimeline) ? cachedEntry.sfxTimeline : [],
       };
     }
     const response = await authFetch(`/personality/${personality.id}/tts`, {
@@ -3083,7 +3420,6 @@ export default function ChatWindow({
     }
 
     const blob = await response.blob();
-    setTtsCache(cacheKey, blob);
     const nextAudioUrl = URL.createObjectURL(blob);
     const requestMs = Math.round(performance.now() - requestStartedAt);
 
@@ -3104,6 +3440,12 @@ export default function ChatWindow({
           streamingSegment: Boolean(meta?.streamingSegment),
         }
       : parsedTelemetry;
+
+    setTtsCache(cacheKey, {
+      blob,
+      telemetry,
+      sfxTimeline: parsedSfxTimeline,
+    });
 
     return {
       url: nextAudioUrl,
@@ -3493,6 +3835,61 @@ export default function ChatWindow({
     }
   }
 
+  const submitDraftFromVoiceCapture = useCallback(async () => {
+    const message = String(draftRef.current || "").trim();
+    if (!message || isSending) {
+      return false;
+    }
+
+    setDraft("");
+    setAttachedFile(null);
+    await onSend(message);
+    return true;
+  }, [isSending, onSend]);
+
+  const stopMicEnergyTracking = useCallback(() => {
+    if (micEnergyTimerRef.current) {
+      window.clearInterval(micEnergyTimerRef.current);
+      micEnergyTimerRef.current = null;
+    }
+
+    if (micStreamRef.current) {
+      try {
+        for (const track of micStreamRef.current.getTracks()) {
+          track.stop();
+        }
+      } catch {
+        /* ignore */
+      }
+      micStreamRef.current = null;
+    }
+
+    if (micAudioContextRef.current) {
+      void micAudioContextRef.current.close().catch(() => {
+        /* ignore */
+      });
+      micAudioContextRef.current = null;
+    }
+
+    micAnalyserRef.current = null;
+    micDataArrayRef.current = null;
+    smoothedMicEnergyRef.current = 0;
+
+    if (!isAudioPlaying) {
+      setSpeechEnergy(0);
+    }
+  }, [isAudioPlaying]);
+
+  const startMicEnergyTracking = useCallback(async () => {
+    // Live call stability takes priority over mic-reactive cosmetics.
+    // The separate capture path was contributing to browser instability in the field,
+    // so we intentionally keep the reactor driven by playback/state instead.
+    if (micEnergyTimerRef.current || isAudioPlaying || !recordingRequestedRef.current) {
+      return;
+    }
+    return;
+  }, [isAudioPlaying]);
+
   const clearRecognitionTimers = useCallback(() => {
     if (recognitionRestartTimerRef.current) {
       window.clearTimeout(recognitionRestartTimerRef.current);
@@ -3507,6 +3904,7 @@ export default function ChatWindow({
   const stopRecognitionSession = useCallback((clearRequested = false) => {
     if (clearRequested) {
       recordingRequestedRef.current = false;
+      recognitionModeRef.current = "dictation";
     }
     clearRecognitionTimers();
 
@@ -3520,10 +3918,37 @@ export default function ChatWindow({
       }
     }
 
+    stopMicEnergyTracking();
+
     if (clearRequested) {
       setIsRecording(false);
+      setIsLiveCallActive(false);
     }
-  }, [clearRecognitionTimers]);
+  }, [clearRecognitionTimers, stopMicEnergyTracking]);
+
+  const handleRecognitionSilenceTimeout = useCallback(() => {
+    if (!recordingRequestedRef.current) {
+      return false;
+    }
+
+    const isLiveCallMode = recognitionModeRef.current === "live-call";
+    const pendingMessage = String(draftRef.current || "").trim();
+
+    if (isLiveCallMode && pendingMessage && !isSending && !isAudioPlaying && !isGeneratingAudio) {
+      stopRecognitionSession(false);
+      void submitDraftFromVoiceCapture().catch((error) => {
+        onStatus?.({ type: "error", message: error?.message || "Live call send failed." });
+      });
+      return false;
+    }
+
+    if (isLiveCallMode) {
+      return true;
+    }
+
+    stopRecognitionSession(true);
+    return false;
+  }, [isAudioPlaying, isGeneratingAudio, isSending, onStatus, stopRecognitionSession, submitDraftFromVoiceCapture]);
 
   const resetRecognitionInactivityTimer = useCallback(() => {
     if (recognitionInactivityTimerRef.current) {
@@ -3532,21 +3957,24 @@ export default function ChatWindow({
     }
 
     recognitionInactivityTimerRef.current = window.setTimeout(() => {
-      if (recordingRequestedRef.current) {
-        stopRecognitionSession(true);
+      const shouldContinueMonitoring = handleRecognitionSilenceTimeout();
+      if (shouldContinueMonitoring) {
+        resetRecognitionInactivityTimer();
       }
     }, VOICE_CAPTURE_SILENCE_TIMEOUT_MS);
-  }, [stopRecognitionSession]);
+  }, [handleRecognitionSilenceTimeout]);
 
   const startRecognitionSession = useCallback(() => {
-    if (!recordingRequestedRef.current || recognitionRef.current || isAudioPlaying || isGeneratingAudio) {
+    if (!recordingRequestedRef.current || recognitionRef.current || isAudioPlaying || isGeneratingAudio || isSending) {
       return;
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       recordingRequestedRef.current = false;
+      recognitionModeRef.current = "dictation";
       setIsRecording(false);
+      setIsLiveCallActive(false);
       onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
       return;
     }
@@ -3560,6 +3988,7 @@ export default function ChatWindow({
 
     recognition.onstart = () => {
       resetRecognitionInactivityTimer();
+      startMicEnergyTracking();
     };
 
     recognition.onresult = (event) => {
@@ -3583,6 +4012,30 @@ export default function ChatWindow({
       clearRecognitionTimers();
 
       const code = String(event?.error || "").toLowerCase();
+      if (["not-allowed", "service-not-allowed"].includes(code)) {
+        recordingRequestedRef.current = false;
+        recognitionModeRef.current = "dictation";
+        setIsRecording(false);
+        setIsLiveCallActive(false);
+        onStatus?.({
+          type: "error",
+          message: "Microphone access is blocked. Allow mic permission in your browser and try again.",
+        });
+        return;
+      }
+
+      if (code === "audio-capture") {
+        recordingRequestedRef.current = false;
+        recognitionModeRef.current = "dictation";
+        setIsRecording(false);
+        setIsLiveCallActive(false);
+        onStatus?.({
+          type: "error",
+          message: "No usable microphone was found. Check your input device and try again.",
+        });
+        return;
+      }
+
       if (code && !["aborted", "no-speech"].includes(code)) {
         console.error("Speech recognition error:", code);
       }
@@ -3593,11 +4046,13 @@ export default function ChatWindow({
       clearRecognitionTimers();
 
       if (!recordingRequestedRef.current) {
+        recognitionModeRef.current = "dictation";
         setIsRecording(false);
+        setIsLiveCallActive(false);
         return;
       }
 
-      if (isAudioPlaying || isGeneratingAudio) {
+      if (isAudioPlaying || isGeneratingAudio || isSending) {
         return;
       }
 
@@ -3613,12 +4068,16 @@ export default function ChatWindow({
       setIsRecording(true);
     } catch {
       recognitionRef.current = null;
+      recordingRequestedRef.current = false;
+      recognitionModeRef.current = "dictation";
       setIsRecording(false);
+      setIsLiveCallActive(false);
+      onStatus?.({ type: "error", message: "Unable to start microphone capture in this browser." });
     }
-  }, [clearRecognitionTimers, isAudioPlaying, isGeneratingAudio, onStatus, resetRecognitionInactivityTimer]);
+  }, [clearRecognitionTimers, isAudioPlaying, isGeneratingAudio, isSending, onStatus, resetRecognitionInactivityTimer, startMicEnergyTracking]);
 
   useEffect(() => {
-    if (isAudioPlaying || isGeneratingAudio) {
+    if (isAudioPlaying || isGeneratingAudio || isSending) {
       if (recognitionRef.current) {
         stopRecognitionSession(false);
       }
@@ -3628,20 +4087,21 @@ export default function ChatWindow({
     if (recordingRequestedRef.current && !recognitionRef.current) {
       startRecognitionSession();
     }
-  }, [isAudioPlaying, isGeneratingAudio, startRecognitionSession, stopRecognitionSession]);
+  }, [isAudioPlaying, isGeneratingAudio, isSending, startRecognitionSession, stopRecognitionSession]);
 
   useEffect(() => {
     return () => {
       recordingRequestedRef.current = false;
       stopRecognitionSession(true);
+      stopMicEnergyTracking();
 
       if (speechEnergyTimerRef.current) {
         window.clearInterval(speechEnergyTimerRef.current);
         speechEnergyTimerRef.current = null;
       }
 
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
       }
 
       if (zoneShiftTimerRef.current) {
@@ -3654,7 +4114,7 @@ export default function ChatWindow({
 
       clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
     };
-  }, [audioUrl, stopRecognitionSession]);
+  }, []);
 
   function toggleRecording() {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
@@ -3662,12 +4122,41 @@ export default function ChatWindow({
       return;
     }
 
+    if (isLiveCallActive) {
+      stopRecognitionSession(true);
+      return;
+    }
+
+    recognitionModeRef.current = "dictation";
+
     if (recordingRequestedRef.current) {
       stopRecognitionSession(true);
     } else {
       recordingRequestedRef.current = true;
       startRecognitionSession();
     }
+  }
+
+  function toggleLiveCall() {
+    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+      onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
+      return;
+    }
+
+    if (isLiveCallActive) {
+      stopRecognitionSession(true);
+      return;
+    }
+
+    if (recordingRequestedRef.current) {
+      stopRecognitionSession(true);
+    }
+
+    recognitionModeRef.current = "live-call";
+    recordingRequestedRef.current = true;
+    setIsLiveCallActive(true);
+    startRecognitionSession();
+    onStatus?.({ type: "info", message: "Live call started. I will send your speech automatically after short pauses." });
   }
 
   if (!personality) {
@@ -3688,6 +4177,28 @@ export default function ChatWindow({
 
   const phaseSuggestsSpeech = ["generation", "reply", "token"].includes(String(livePhase || "").trim().toLowerCase());
   const avatarSpeaking = phaseSuggestsSpeech || isAudioPlaying;
+  const isVoiceInputActive = isRecording && !isLiveCallActive;
+  const liveCallStatusLabel = !isLiveCallActive
+    ? ""
+    : isAudioPlaying || isGeneratingAudio
+    ? "Speaking"
+    : isSending
+    ? "Thinking"
+    : isRecording
+    ? "Listening"
+    : "Reconnecting";
+  const liveCallStateClass = String(liveCallStatusLabel || "idle").toLowerCase().replace(/\s+/g, "-");
+  const liveCallReactorLevel = isLiveCallActive ? Math.max(0, Math.min(1, Number(speechEnergy || 0))) : 0;
+  const liveCallModeLabel = isLiveCallActive ? "Neural Link Live Call" : isVoiceInputActive ? "Voice Input" : "";
+  const liveCallStatusCopy = !isLiveCallActive
+    ? ""
+    : liveCallStatusLabel === "Listening"
+    ? "Listening for your next phrase."
+    : liveCallStatusLabel === "Thinking"
+    ? "Generating reply and preparing response context."
+    : liveCallStatusLabel === "Speaking"
+    ? "Avatar is speaking. Mic resumes automatically after playback."
+    : "Re-arming microphone session.";
 
   return (
     <>
@@ -4361,6 +4872,12 @@ export default function ChatWindow({
                   setIsAudioPlaying(true);
                   triggerSfxForCurrentPlayback(audioRef.current);
                 }}
+                onLoadedMetadata={() => {
+                  // If duration becomes known after onPlay, we can schedule
+                  // progress-based "throughout" cues more accurately.
+                  lastSfxPlaybackKeyRef.current = "";
+                  triggerSfxForCurrentPlayback(audioRef.current);
+                }}
                 onPause={() => setIsAudioPlaying(false)}
                 onEnded={handleAudioEnded}
               />
@@ -4650,6 +5167,21 @@ export default function ChatWindow({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
+            {isLiveCallActive ? (
+              <div className="live-call-hud">
+                <div className="live-call-hud-head">
+                  <div className={`live-call-status state-${liveCallStateClass}`}>Live Call: {liveCallStatusLabel}</div>
+                  <div className={`live-call-bars state-${liveCallStateClass}`} aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </div>
+                <div className="live-call-mode">{liveCallModeLabel}</div>
+                <div className="live-call-copy">{liveCallStatusCopy}</div>
+              </div>
+            ) : null}
             <div className="composer-input-wrap">
               <textarea
                 placeholder={`Message ${personality.name}...`}
@@ -4660,12 +5192,12 @@ export default function ChatWindow({
               <div className="composer-actions">
                 <button
                   type="button"
-                  className={`composer-icon-btn ${isRecording ? "recording" : ""}`}
+                  className={`composer-icon-btn voice-input-btn ${isVoiceInputActive ? "recording" : ""}`}
                   onClick={toggleRecording}
-                  title={isRecording ? "End call" : "Start call"}
-                  aria-label={isRecording ? "End call" : "Start call"}
+                  title={isVoiceInputActive ? "End voice input" : "Start voice input"}
+                  aria-label={isVoiceInputActive ? "End voice input" : "Start voice input"}
                 >
-                  {isRecording ? (
+                  {isVoiceInputActive ? (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M3 21l5.7-5.7" />
                       <path d="M15.3 15.3l5.7 5.7" />
@@ -4677,9 +5209,39 @@ export default function ChatWindow({
                     </svg>
                   )}
                 </button>
+                <div
+                  className={`live-call-reactor ${isLiveCallActive ? `active state-${liveCallStateClass}` : "state-idle"}`}
+                  style={{ "--reactor-level": liveCallReactorLevel.toFixed(3) }}
+                >
+                  <span className="live-call-reactor-core" aria-hidden="true" />
+                  <span className="live-call-reactor-ring" aria-hidden="true" />
+                  <button
+                    type="button"
+                    className={`composer-icon-btn live-call-btn ${isLiveCallActive ? "live-call-active" : ""}`}
+                    onClick={toggleLiveCall}
+                    title={isLiveCallActive ? "End live call" : "Start live call"}
+                    aria-label={isLiveCallActive ? "End live call" : "Start live call"}
+                  >
+                    {isLiveCallActive ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 12a8 8 0 0 1 16 0" />
+                        <path d="M6 16v-4a2 2 0 0 1 2-2h1v6H8a2 2 0 0 1-2-2z" />
+                        <path d="M18 16v-4a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z" />
+                        <path d="M10.5 19a2 2 0 0 0 3 0" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 12a8 8 0 0 1 16 0" />
+                        <path d="M6 16v-4a2 2 0 0 1 2-2h1v6H8a2 2 0 0 1-2-2z" />
+                        <path d="M18 16v-4a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z" />
+                        <path d="M12 12v5" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 <button
                   type="button"
-                  className="composer-icon-btn"
+                  className="composer-icon-btn attach-btn"
                   onClick={handleFileButtonClick}
                   title="Attach file"
                 >

@@ -336,12 +336,15 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
   // Select a random SFX tag from valid tags
   const tagIndex = Math.floor(hashString(`${inputSeed}:sfx:tag`) * validTags.length);
   const selectedTag = validTags[tagIndex];
+  const effectivePlacement = sfxPlacement === "random" && selectedTag === "burp"
+    ? "throughout"
+    : sfxPlacement;
 
   const sfxEvents = [];
   let output = text;
 
   // Handle placement modes
-  switch (sfxPlacement) {
+  switch (effectivePlacement) {
     case "start":
       output = `[SFX:${selectedTag}] ${output}`;
       sfxEvents.push({ tag: selectedTag, position: "before", ms: 0 });
@@ -357,17 +360,28 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
       const sentences = output.split(/(?<=[.!?])\s+/);
       const injectCount = Math.max(1, Math.floor(sentences.length * 0.3));
       const injectIndices = new Set();
+      const sentenceCharCounts = sentences.map((sentence) => String(sentence || "").length);
+      const totalChars = sentenceCharCounts.reduce((sum, len) => sum + len, 0) || 1;
       
       while (injectIndices.size < Math.min(injectCount, sentences.length)) {
         const idx = Math.floor(hashString(`${inputSeed}:sfx:throughout:${injectIndices.size}`) * sentences.length);
         injectIndices.add(idx);
       }
 
-      let sentenceOffset = 0;
       injectIndices.forEach((idx) => {
         if (sentences[idx]) {
           sentences[idx] = `[SFX:${selectedTag}] ${sentences[idx]}`;
-          sfxEvents.push({ tag: selectedTag, position: "throughout", wordIndex: idx });
+          const charOffset = sentenceCharCounts
+            .slice(0, idx)
+            .reduce((sum, len) => sum + len, 0);
+          const progress = Math.max(0, Math.min(0.98, (charOffset + (sentenceCharCounts[idx] * 0.25)) / totalChars));
+          sfxEvents.push({
+            tag: selectedTag,
+            position: "throughout",
+            wordIndex: idx,
+            sentenceIndex: idx,
+            progress: Number(progress.toFixed(3)),
+          });
         }
       });
 
