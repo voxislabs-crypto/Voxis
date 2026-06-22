@@ -1738,6 +1738,8 @@ export default function VoxisTab({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [ttsBusy, setTtsBusy] = useState(false);
   const [constellationMode, setConstellationMode] = useState(false);
+  const [pendingGuideAction, setPendingGuideAction] = useState(null);
+  const [recentGuideActions, setRecentGuideActions] = useState([]);
   const recognitionRef = useRef(null);
   const echoAbortRef = useRef(null);
   const ttsAbortRef = useRef(null);
@@ -2121,6 +2123,20 @@ export default function VoxisTab({
           streamDebug: true,
           guideMode: true,           // Use the special Voxis guide meta-persona
           useVoxisGuide: true,
+          recentGuideActions: recentGuideActions.slice(-5),
+          // Better context passing for the guide
+          allPersonas: personalities.map(p => ({
+            id: p.id,
+            name: p.name,
+            description: (p.description || "").slice(0, 200),
+            traits: (p.traits || []).slice(0, 5),
+          })),
+          currentPersonaContext: personality ? {
+            id: personality.id,
+            name: personality.name,
+            traits: personality.traits || [],
+            behaviorRules: personality.behaviorRules || [],
+          } : null,
         }),
         signal: controller.signal,
       });
@@ -2199,9 +2215,12 @@ export default function VoxisTab({
         });
       }
 
-      // Handle Voxis guide persona actions (create / modify) from special JSON blocks
+      // Parse Voxis guide actions but do NOT execute yet - show confirmation UI
       if (finalReply) {
-        void handleVoxisGuideActions(finalReply);
+        const action = parseVoxisGuideAction(finalReply);
+        if (action) {
+          setPendingGuideAction(action);
+        }
       }
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -2245,31 +2264,32 @@ export default function VoxisTab({
     }
   };
 
-  // Parse and execute persona create/update actions emitted by the Voxis guide
-  const handleVoxisGuideActions = async (text) => {
-    if (!text) return;
+  // Parse action from Voxis response (does not execute)
+  function parseVoxisGuideAction(text) {
+    if (!text) return null;
     try {
-      // Look for ```json ... ``` blocks or raw { ... }
       const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/\{[\s\S]*"action"[\s\S]*\}/i);
-      if (!jsonMatch) return;
+      if (!jsonMatch) return null;
+      const actionData = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+      if (!actionData?.action) return null;
+      return actionData;
+    } catch {
+      return null;
+    }
+  }
 
-      let actionData;
-      try {
-        actionData = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-      } catch {
-        return;
-      }
+  // Execute a confirmed action (called from confirmation UI)
+  const executeGuideAction = async (actionData) => {
+    if (!actionData) return;
 
-      if (!actionData?.action) return;
-
+    try {
       if (actionData.action === "create_persona" && actionData.spec) {
         const spec = actionData.spec;
-        // Basic validation
         if (!spec.name || !spec.description) {
-          showToast("Voxis tried to create a persona but name or description was missing.", true);
+          showToast("Missing name or description.", true);
           return;
         }
-        showToast("Voxis is forging the new persona...");
+        showToast("Voxis is creating the persona...");
 
         const res = await authFetch("/personality", {
           method: "POST",
@@ -2289,48 +2309,44 @@ export default function VoxisTab({
 
         if (res.ok) {
           const created = await res.json();
-          showToast(`Persona "${created.name}" created successfully.`);
+          showToast(`Persona "${created.name}" created!`);
           if (onPersonalityUpdated) onPersonalityUpdated(created);
-          // Optionally auto-select the new one
           if (onSelectPersonality && created.id) {
-            setTimeout(() => onSelectPersonality(created.id), 800);
+            setTimeout(() => onSelectPersonality(created.id), 600);
           }
+          setRecentGuideActions(prev => [...prev, { type: "create", name: created.name, time: Date.now() }].slice(-10));
+          setPendingGuideAction(null);
+          // Tell Voxis it succeeded
+          void sendForgeMessage(`The persona was created successfully.`);
         } else {
           const err = await res.json().catch(() => ({}));
-          showToast(err.error || "Failed to create persona from Voxis guide.", true);
+          showToast(err.error || "Creation failed.", true);
         }
       }
 
       if (actionData.action === "update_persona" && actionData.changes) {
         const targetId = actionData.targetId || (personality && personality.id);
         if (!targetId) {
-          showToast("Voxis wants to update a persona but no target was selected.", true);
+          showToast("No target persona selected for update.", true);
           return;
         }
 
-        showToast("Applying changes from Voxis...");
+        showToast("Applying Voxis changes...");
 
-        // Fetch current to merge
         const currentRes = await authFetch(`/personality/${targetId}`);
         if (!currentRes.ok) {
-          showToast("Could not load current persona for update.", true);
+          showToast("Could not fetch current persona.", true);
           return;
         }
         const current = await currentRes.json();
-
         const merged = { ...current };
 
-        if (actionData.changes.traits) {
-          merged.traits = [...new Set([...(current.traits || []), ...actionData.changes.traits])];
-        }
-        if (actionData.changes.behaviorRules) {
-          merged.behaviorRules = [...new Set([...(current.behaviorRules || []), ...actionData.changes.behaviorRules])];
-        }
-        if (actionData.changes.quirks) {
-          merged.quirks = [...new Set([...(current.quirks || []), ...actionData.changes.quirks])];
-        }
-        if (actionData.changes.speechStyle) merged.speechStyle = actionData.changes.speechStyle;
-        if (actionData.changes.description) merged.description = actionData.changes.description;
+        const ch = actionData.changes;
+        if (ch.traits) merged.traits = [...new Set([...(current.traits || []), ...ch.traits])];
+        if (ch.behaviorRules) merged.behaviorRules = [...new Set([...(current.behaviorRules || []), ...ch.behaviorRules])];
+        if (ch.quirks) merged.quirks = [...new Set([...(current.quirks || []), ...ch.quirks])];
+        if (ch.speechStyle) merged.speechStyle = ch.speechStyle;
+        if (ch.description) merged.description = ch.description;
 
         const updateRes = await authFetch(`/personality/${targetId}`, {
           method: "PUT",
@@ -2340,17 +2356,26 @@ export default function VoxisTab({
 
         if (updateRes.ok) {
           const updated = await updateRes.json();
-          showToast(`Updated ${updated.name || "persona"} based on Voxis guidance.`);
+          showToast(`Updated ${updated.name || "persona"}.`);
           if (onPersonalityUpdated) onPersonalityUpdated(updated);
+          setRecentGuideActions(prev => [...prev, { type: "update", target: updated.name || actionData.targetName, changes: Object.keys(actionData.changes || {}), time: Date.now() }].slice(-10));
+          setPendingGuideAction(null);
+          void sendForgeMessage(`The changes were applied successfully.`);
         } else {
           const err = await updateRes.json().catch(() => ({}));
-          showToast(err.error || "Failed to apply persona changes.", true);
+          showToast(err.error || "Update failed.", true);
         }
       }
     } catch (e) {
-      // Silent fail on action parsing - don't break normal chat
-      console.warn("[VoxisTab] Failed to parse/apply guide action:", e);
+      console.error("Action execution error", e);
+      showToast("Something went wrong applying the action.", true);
     }
+  };
+
+  // Legacy wrapper for any old calls
+  const handleVoxisGuideActions = async (text) => {
+    const action = parseVoxisGuideAction(text);
+    if (action) setPendingGuideAction(action);
   };
 
   const handleSpeakSubmit = (event) => {
@@ -2529,6 +2554,142 @@ export default function VoxisTab({
           </div>
         </div>
       ) : null}
+
+      {/* Home Base Header for Voxis Guide */}
+      <div style={{ margin: "12px 22px 4px", padding: "4px 12px", borderBottom: "1px solid rgba(0,180,255,0.3)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "#26ffff", fontWeight: 700, letterSpacing: "1px" }}>VOXIS GUIDE</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.5 }}>— home base for persona creation & evolution</span>
+      </div>
+
+      {/* Voxis Guide Home Base controls */}
+      <div style={{ margin: "0 22px 12px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button
+          onClick={() => {
+            setEcho({ name: "Voxis", body: "Let's create a new persona from scratch. Tell me the core concept, vibe, or a starting point (e.g. 'a bitter ex-pirate who now runs a tea shop').", error: false });
+            setPendingGuideAction(null);
+          }}
+          style={{ padding: "6px 12px", borderRadius: 8, background: "rgba(0,180,255,0.2)", color: "#26ffff", border: "1px solid #26ffff", cursor: "pointer", fontSize: "0.75rem" }}
+        >
+          + Create New Persona
+        </button>
+        <button
+          onClick={() => {
+            if (personality) {
+              setEcho({ name: "Voxis", body: `What would you like to change about ${personality.name}? (e.g. "make them more sarcastic", "add a dark secret", "tone down the aggression")`, error: false });
+            } else {
+              setEcho({ name: "Voxis", body: "Select or name a persona first, then tell me what to tweak.", error: false });
+            }
+            setPendingGuideAction(null);
+          }}
+          style={{ padding: "6px 12px", borderRadius: 8, background: "rgba(255,43,214,0.15)", color: "#ff2bd6", border: "1px solid #ff2bd6", cursor: "pointer", fontSize: "0.75rem" }}
+          disabled={!personality}
+        >
+          Modify Current
+        </button>
+        {recentGuideActions.length > 0 && (
+          <span style={{ fontSize: "0.65rem", opacity: 0.6, alignSelf: "center" }}>
+            {recentGuideActions.length} recent change{recentGuideActions.length > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {/* Confirmation UI for Voxis guide actions - robust, user-controlled */}
+      {pendingGuideAction && (
+        <div style={{
+          margin: "12px 22px",
+          padding: 16,
+          borderRadius: 12,
+          background: "rgba(0, 30, 60, 0.85)",
+          border: "1px solid #26ffff",
+          color: "#f5e9ff"
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#26ffff" }}>
+            Voxis proposes an action - Review before applying
+          </div>
+          
+          {pendingGuideAction.action === "create_persona" && pendingGuideAction.spec && (
+            <div style={{ marginBottom: 12 }}>
+              <strong>Create new persona:</strong><br />
+              <strong>Name:</strong> {pendingGuideAction.spec.name}<br />
+              <strong>Description:</strong> {pendingGuideAction.spec.description?.slice(0,150)}...<br />
+              <strong>Traits:</strong> {(pendingGuideAction.spec.traits || []).join(", ")}<br />
+              <strong>Behavior:</strong> {(pendingGuideAction.spec.behaviorRules || []).join(" | ")}
+            </div>
+          )}
+          
+          {pendingGuideAction.action === "update_persona" && (
+            <div style={{ marginBottom: 12 }}>
+              <strong>Update persona:</strong> {pendingGuideAction.targetName || "selected"}<br />
+              <strong>Changes:</strong><br />
+              {Object.entries(pendingGuideAction.changes || {}).map(([k,v]) => (
+                <div key={k}>- {k}: {Array.isArray(v) ? v.join(", ") : String(v)}</div>
+              ))}
+            </div>
+          )}
+          
+          <pre style={{ fontSize: "0.7rem", background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, overflow: "auto", maxHeight: 120, margin: "8px 0" }}>
+            {JSON.stringify(pendingGuideAction, null, 2)}
+          </pre>
+          
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button
+              onClick={() => {
+                executeGuideAction(pendingGuideAction);
+              }}
+              style={{
+                padding: "8px 16px",
+                background: "#0f0",
+                color: "black",
+                border: "none",
+                borderRadius: 8,
+                fontWeight: 600,
+                cursor: "pointer"
+              }}
+            >
+              Confirm & Apply
+            </button>
+            <button
+              onClick={() => {
+                setPendingGuideAction(null);
+                void sendForgeMessage("I decided not to apply that action yet. Let's discuss it more or adjust the details.");
+              }}
+              style={{
+                padding: "8px 16px",
+                background: "transparent",
+                color: "#ff2bd6",
+                border: "1px solid #ff2bd6",
+                borderRadius: 8,
+                cursor: "pointer"
+              }}
+            >
+              Cancel / Discuss
+            </button>
+          </div>
+          <div style={{ fontSize: "0.65rem", opacity: 0.65, marginTop: 6 }}>
+            This is a preview. Voxis will be notified of your decision.
+          </div>
+        </div>
+      )}
+
+      {/* Home base - History of changes */}
+      {recentGuideActions.length > 0 && (
+        <div style={{ 
+          margin: "0 22px 12px", 
+          padding: "8px 12px", 
+          background: "rgba(10,20,40,0.6)", 
+          borderRadius: 8,
+          fontSize: "0.7rem",
+          border: "1px solid rgba(0,180,255,0.2)"
+        }}>
+          <div style={{ color: "#26ffff", marginBottom: 4, fontWeight: 600 }}>Recent Forge Actions</div>
+          {recentGuideActions.slice(-5).reverse().map((a, i) => (
+            <div key={i} style={{ opacity: 0.8, margin: "2px 0" }}>
+              {new Date(a.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} — {a.type} {a.name || a.target || "persona"}
+              {a.changes ? ` (${a.changes.join(', ')})` : ""}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="forge-body">
         <section className={`forge-panel refine-panel ${refinements.length === 0 ? "is-hidden" : ""}`}>

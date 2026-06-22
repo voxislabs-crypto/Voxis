@@ -96,6 +96,7 @@ import { regulateReplyCadence } from "../services/cadenceRegulator.js";
 import { buildUtterancePlan } from "../services/utterancePlanService.js";
 import { extractRefinementSuggestions } from "../services/refinementSuggestionService.js";
 import { buildVoxisPrompt } from "../prompts/voxisSystemPrompt.js";
+import { runPerceptionEmotionHook, runResponseLayer } from "../services/neuralHandshakeService.js";
 import {
   normalizeDriftState,
   applyEmotionDrift,
@@ -309,14 +310,33 @@ export async function personaOpenerHandler(req, res, next) {
     const guideMode = Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
 
     if (guideMode) {
-      // Special Voxis guide mode - use the meta architect prompt
+      // Special Voxis guide mode - use the meta architect prompt + neural handshake
       const currentForContext = personality || null;
-      const available = getAllPersonalities ? getAllPersonalities().slice(0, 10) : [];
-      const voxisSys = buildVoxisPrompt(currentForContext, available, "");
+      // Prefer passed list for better context, fallback to DB
+      const passedPersonas = Array.isArray(req.body?.allPersonas) ? req.body.allPersonas : [];
+      const available = passedPersonas.length > 0 
+        ? passedPersonas 
+        : (getAllPersonalities ? getAllPersonalities().slice(0, 15) : []);
+      const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
+      const contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+
+      // Run lightweight Perception → Emotion hook (first layer of neural handshake)
+      const handshake = runPerceptionEmotionHook(message || seed, {
+        selectedPersona: currentForContext,
+        lastEmotion: {},
+      });
+
+      // Run Response layer to get feedback (e.g. SFX cues back down)
+      const responseLayer = runResponseLayer ? runResponseLayer(handshake.perception, handshake.emotion) : {};
+
+      const emotionContext = `Current emotional lens from handshake: valence=${handshake.emotion.valence}, arousal=${handshake.emotion.arousal}, dominant=${handshake.emotion.dominant.join(", ")}. Suggested cues: ${JSON.stringify(handshake.emotion.suggestedCues)}. Response layer: ${responseLayer.negotiationNote || ""}`;
+
+      const voxisSys = buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`);
       promptPackage = {
         prompt: voxisSys,
-        // minimal other fields for compatibility
         directedText: "",
+        handshake, 
+        responseLayer, // SFX cues and tone from the "down" direction of the handshake
       };
     } else {
       promptPackage = buildPersonaPromptPackage(personality, memoryFacts, seed, {
@@ -1059,9 +1079,21 @@ export async function chatHandler(req, res, next) {
 
     if (guideMode) {
       const currentForContext = personality || null;
-      const available = getAllPersonalities ? getAllPersonalities().slice(0, 10) : [];
-      const voxisSys = buildVoxisPrompt(currentForContext, available, "");
-      promptPackage = { prompt: voxisSys, directedText: "" };
+      const available = getAllPersonalities ? getAllPersonalities().slice(0, 15) : [];
+      const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
+      const contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+
+      const handshake = runPerceptionEmotionHook(message, {
+        selectedPersona: currentForContext,
+        lastEmotion: {},
+      });
+
+      const responseLayer = runResponseLayer ? runResponseLayer(handshake.perception, handshake.emotion) : {};
+
+      const emotionContext = `Current emotional lens from handshake: valence=${handshake.emotion.valence}, arousal=${handshake.emotion.arousal}, dominant=${handshake.emotion.dominant.join(", ")}. Suggested cues: ${JSON.stringify(handshake.emotion.suggestedCues)}.`;
+
+      const voxisSys = buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`);
+      promptPackage = { prompt: voxisSys, directedText: "", handshake, responseLayer };
     } else {
       promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message, {
         currentMoodLabel: moodLabel,
