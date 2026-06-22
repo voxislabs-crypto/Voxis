@@ -980,6 +980,12 @@ export default function App() {
       ? window.localStorage.getItem("voxis:disable-neuronmap-3d")
       : null;
 
+  const LAST_PERSONA_STORAGE_KEY = "voxis:last-persona-id";
+  const storedLastPersonaId =
+    typeof window !== "undefined" && window.localStorage
+      ? window.localStorage.getItem(LAST_PERSONA_STORAGE_KEY)
+      : null;
+
   const [personalities, setPersonalities] = useState([]);
   const [legacyPersonaCount, setLegacyPersonaCount] = useState(0);
   const [users, setUsers] = useState([]);
@@ -995,7 +1001,9 @@ export default function App() {
     supervisedAdvancedMode: false,
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(
+    storedLastPersonaId != null ? Number(storedLastPersonaId) : null,
+  );
   const [activeView, setActiveView] = useState("chat");
   const [personaEditorTarget, setPersonaEditorTarget] = useState(null);
   const [builderMode, setBuilderMode] = useState("create");
@@ -1247,6 +1255,17 @@ export default function App() {
     }
     window.localStorage.setItem("voxis:disable-neuronmap-3d", disableNeuronMap3d ? "1" : "0");
   }, [disableNeuronMap3d]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+    if (selectedId != null) {
+      window.localStorage.setItem(LAST_PERSONA_STORAGE_KEY, String(selectedId));
+    } else {
+      window.localStorage.removeItem(LAST_PERSONA_STORAGE_KEY);
+    }
+  }, [selectedId]);
 
   useEffect(() => {
     if (!neuralToast) {
@@ -1684,8 +1703,14 @@ export default function App() {
       setPersonalities(personalityList);
       setLegacyPersonaCount(Math.max(0, Number(data?.legacyPersonaCount) || 0));
 
-      if (!selectedId && personalityList.length) {
-        setSelectedId(personalityList[0].id);
+      // Persist last selected persona across sessions.
+      // Prefer a previously saved ID if it's still valid; otherwise fall back to first.
+      if (personalityList.length > 0) {
+        const currentIsStillValid =
+          selectedId != null && personalityList.some((p) => p.id === selectedId);
+        if (!currentIsStillValid) {
+          setSelectedId(personalityList[0].id);
+        }
       }
     } catch (error) {
       setStatus({

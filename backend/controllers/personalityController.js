@@ -56,6 +56,10 @@ function sanitizeVocalMannerisms(input) {
   const sfxPlacement = ["start", "end", "random", "throughout"].includes(sfxPlacementRaw)
     ? sfxPlacementRaw
     : "random";
+  const rawSfxEarlyOffset = Number(source.sfxEarlyOffset);
+  const sfxEarlyOffset = Number.isFinite(rawSfxEarlyOffset)
+    ? Math.min(1, Math.max(0, rawSfxEarlyOffset))
+    : 0.2;
 
   return {
     items: sanitizeItems(source.items).slice(0, 24),
@@ -67,6 +71,7 @@ function sanitizeVocalMannerisms(input) {
       ? Math.min(1, Math.max(0, rawSfxFrequency))
       : 0.25,
     sfxPlacement,
+    sfxEarlyOffset,
   };
 }
 

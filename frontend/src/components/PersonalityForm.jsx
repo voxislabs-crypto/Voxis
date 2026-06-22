@@ -671,6 +671,7 @@ const initialForm = {
   sfxTags: "",
   sfxFrequency: 0.25,
   sfxPlacement: "random",
+  sfxEarlyOffset: 0.2,
   intoxicationEnabled: false,
   intoxicationLevel: 0,
   intoxicationDecayPerTurn: 0.02,
@@ -787,6 +788,7 @@ function mapPersonalityToForm(personality) {
     sfxTags: toCommaList(personality.vocalMannerisms?.sfxTags),
     sfxFrequency: String(Number(personality.vocalMannerisms?.sfxFrequency ?? 0.25)),
     sfxPlacement: String(personality.vocalMannerisms?.sfxPlacement ?? "random"),
+    sfxEarlyOffset: String(Number(personality.vocalMannerisms?.sfxEarlyOffset ?? 0.2)),
     intoxicationEnabled: Boolean(intoxication.enabled),
     intoxicationLevel: String(Number(intoxication.level ?? 0)),
     intoxicationDecayPerTurn: String(Number(intoxication.decayPerTurn ?? 0.02)),
@@ -896,6 +898,20 @@ function splitLineSeparated(value) {
     .filter(Boolean);
 }
 
+function hashForPreview(str) {
+  let hash = 2166136261;
+  const text = String(str || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function shouldInjectPreview(seed, threshold) {
+  return hashForPreview(seed) <= (Number(threshold) || 0);
+}
+
 export default function PersonalityForm({
   onCreated,
   onUpdated,
@@ -917,6 +933,214 @@ export default function PersonalityForm({
   const [recommendedVoicePreset, setRecommendedVoicePreset] = useState(null);
   const [loadedPreset, setLoadedPreset] = useState(null); // key of active preset
   const isEditing = Boolean(editingPersonality?.id);
+
+  const DEFAULT_SFX_TAGS = [
+    "burp", "braap", "urrrp", "long_burp", // burp variants (different sounds for *BUUUURP* vs *BRAAAP* etc.)
+    "giggle", "chuckle", "cough", "sigh", "snort", "hiccup", "fart",
+    "evil_chuckle", "maniacal_laugh", "cackle", "gasp", "sniff", "yawn", "growl", "scream", "grunt", "clap"
+  ];
+  const [availableSfxTags, setAvailableSfxTags] = useState(DEFAULT_SFX_TAGS);
+
+  // Fetch live catalog
+  useEffect(() => {
+    let cancelled = false;
+    authFetch("/sfx/tags").then((r) => (r.ok ? r.json() : null)).then((data) => {
+      if (!cancelled && data && Array.isArray(data.tags) && data.tags.length) {
+        setAvailableSfxTags(data.tags);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [authFetch]);
+
+  // SFX live preview state (local to this form) — hoisted early for hook rules
+  const [sfxPreviewText, setSfxPreviewText] = useState("Morty, you gotta listen. This is important stuff.");
+  const [sfxPreviewResult, setSfxPreviewResult] = useState("");
+
+
+
+  function getActiveSfxTags() {
+    return splitCommaSeparated(form.sfxTags || "");
+  }
+
+  function addSfxTag(rawTag) {
+    const t = String(rawTag || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!t) return;
+    const curr = getActiveSfxTags();
+    if (curr.includes(t)) return;
+    const next = [...curr, t].join(", ");
+    setForm((f) => ({ ...f, sfxTags: next }));
+  }
+
+  function removeSfxTag(tag) {
+    const next = getActiveSfxTags().filter((t) => t !== tag);
+    setForm((f) => ({ ...f, sfxTags: next.join(", ") }));
+  }
+
+  function runSfxPreviewSimulation() {
+    const tags = getActiveSfxTags();
+    const freq = Number(form.sfxFrequency) || 0;
+    const placement = String(form.sfxPlacement || "random");
+    const baseText = sfxPreviewText || "";
+
+    if (!tags.length || freq <= 0) {
+      setSfxPreviewResult(baseText);
+      return;
+    }
+
+    const seed = baseText;
+    if (!shouldInjectPreview(seed + ":sfx", freq)) {
+      setSfxPreviewResult(baseText);
+      return;
+    }
+
+    const tagIdx = Math.floor(hashForPreview(seed + ":tag") * tags.length);
+    const selectedTag = tags[tagIdx] || tags[0];
+
+    const effectivePlacement =
+      placement === "random" && selectedTag === "burp" ? "throughout" : placement;
+
+    let result = baseText;
+    if (effectivePlacement === "start") {
+      result = `[SFX:${selectedTag}] ${result}`;
+    } else if (effectivePlacement === "end") {
+      result = `${result} [SFX:${selectedTag}]`;
+    } else if (effectivePlacement === "throughout") {
+      const sentences = result.split(/(?<=[.!?])\s+/);
+      if (sentences.length > 1) {
+        const insertIdx = Math.floor(hashForPreview(seed + ":through") * sentences.length);
+        sentences[insertIdx] = `[SFX:${selectedTag}] ${sentences[insertIdx]}`;
+        result = sentences.join(" ");
+      } else {
+        result = `[SFX:${selectedTag}] ${result}`;
+      }
+    } else {
+      // random
+      const atStart = hashForPreview(seed + ":pos") < 0.5;
+      result = atStart ? `[SFX:${selectedTag}] ${result}` : `${result} [SFX:${selectedTag}]`;
+    }
+
+    setSfxPreviewResult(result);
+  }
+
+  async function testSpeakWithSfx() {
+    const text = (sfxPreviewText || "").trim();
+    if (!text) return;
+
+    const pid = editingPersonality?.id;
+    if (!pid) {
+      const tags = getActiveSfxTags();
+      tags.forEach((tag, idx) => {
+        setTimeout(() => {
+          const a = new Audio(`/sfx/audio/${encodeURIComponent(tag)}`);
+          a.volume = 0.85;
+          a.play().catch(() => {});
+        }, idx * 180);
+      });
+      return;
+    }
+
+    try {
+      const resp = await authFetch(`/personality/${pid}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!resp.ok) throw new Error("TTS request failed");
+
+      const blob = await resp.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audioEl = new Audio(audioUrl);
+      audioEl.volume = 1;
+      audioEl.play().catch(() => {});
+
+      let timeline = [];
+      const header = resp.headers.get("X-Voxis-Tts-Sfx-Timeline") || resp.headers.get("X-Voxis-Tts-Sfx");
+      if (header) {
+        try { timeline = JSON.parse(decodeURIComponent(header)) || []; } catch {}
+      }
+
+      // Better sync + pause talkback during SFX so burp comes through cleanly
+      timeline.forEach((evt, i) => {
+        const tag = (evt && evt.tag) || evt;
+        if (!tag) return;
+        // use progress if available for accurate during-speech timing
+        let delay = (evt && (evt.position === "before" || evt.position === "inline")) ? i * 70 : 220 + i * 200;
+        if (evt && typeof evt.progress === 'number' && audioEl.duration > 0) {
+          delay = Math.max(0, Math.round(evt.progress * audioEl.duration * 1000));
+        }
+        setTimeout(() => {
+          const s = new Audio(`/sfx/audio/${encodeURIComponent(tag)}`);
+          s.volume = 0.82;
+          const wasPlaying = !audioEl.paused;
+          if (wasPlaying) audioEl.pause();
+          const restore = () => { if (wasPlaying) audioEl.play().catch(()=>{}); };
+          s.addEventListener('ended', restore);
+          s.addEventListener('error', restore);
+          s.play().catch(() => restore());
+        }, delay);
+      });
+    } catch (e) {
+      const tags = getActiveSfxTags();
+      tags.forEach((tag, idx) => setTimeout(() => {
+        const a = new Audio(`/sfx/audio/${encodeURIComponent(tag)}`);
+        a.volume = 0.85;
+        a.play().catch(() => {});
+      }, idx * 160));
+    }
+  }
+
+  function applySfxPreset(key) {
+    if (key === "drunkRick") {
+      setForm((f) => ({ ...f, sfxTags: "burp", sfxFrequency: "0.35", sfxPlacement: "random" }));
+    } else if (key === "nervousGiggle") {
+      setForm((f) => ({ ...f, sfxTags: "giggle, chuckle", sfxFrequency: "0.42", sfxPlacement: "throughout" }));
+    } else if (key === "evilLaugh") {
+      setForm((f) => ({ ...f, sfxTags: "evil_chuckle, maniacal_laugh", sfxFrequency: "0.30", sfxPlacement: "random" }));
+    } else if (key === "clear") {
+      setForm((f) => ({ ...f, sfxTags: "", sfxFrequency: "0.2", sfxPlacement: "random" }));
+    }
+  }
+
+  // Auto-update the visible SFX preview whenever the config or sample text changes
+  useEffect(() => {
+    const tags = getActiveSfxTags();
+    const freq = Number(form.sfxFrequency) || 0;
+    const placement = String(form.sfxPlacement || "random");
+    const baseText = sfxPreviewText || "";
+
+    if (!tags.length || freq <= 0) {
+      setSfxPreviewResult(baseText);
+      return;
+    }
+    const seed = baseText;
+    if (!shouldInjectPreview(seed + ":sfx", freq)) {
+      setSfxPreviewResult(baseText);
+      return;
+    }
+    const tagIdx = Math.floor(hashForPreview(seed + ":tag") * tags.length);
+    const selectedTag = tags[tagIdx] || tags[0];
+    const effectivePlacement = placement === "random" && selectedTag === "burp" ? "throughout" : placement;
+
+    let result = baseText;
+    if (effectivePlacement === "start") {
+      result = `[SFX:${selectedTag}] ${result}`;
+    } else if (effectivePlacement === "end") {
+      result = `${result} [SFX:${selectedTag}]`;
+    } else if (effectivePlacement === "throughout") {
+      const sentences = result.split(/(?<=[.!?])\s+/);
+      if (sentences.length > 1) {
+        const insertIdx = Math.floor(hashForPreview(seed + ":through") * sentences.length);
+        sentences[insertIdx] = `[SFX:${selectedTag}] ${sentences[insertIdx]}`;
+        result = sentences.join(" ");
+      } else {
+        result = `[SFX:${selectedTag}] ${result}`;
+      }
+    } else {
+      const atStart = hashForPreview(seed + ":pos") < 0.5;
+      result = atStart ? `[SFX:${selectedTag}] ${result}` : `${result} [SFX:${selectedTag}]`;
+    }
+    setSfxPreviewResult(result);
+  }, [form.sfxTags, form.sfxFrequency, form.sfxPlacement, sfxPreviewText]);
 
   const bigFiveProfile = useMemo(
     () => ({
@@ -1042,6 +1266,7 @@ export default function PersonalityForm({
             sfxTags: splitCommaSeparated(form.sfxTags),
             sfxFrequency: Number(form.sfxFrequency) || 0.25,
             sfxPlacement: form.sfxPlacement || "random",
+            sfxEarlyOffset: Number(form.sfxEarlyOffset) || 0.2,
           },
           stateFlaws: {
             intoxication: {
@@ -1650,38 +1875,107 @@ export default function PersonalityForm({
             <small>Approximate share of replies where mannerisms appear. 0.15 = 15%.</small>
           </div>
 
-          <div className="field full">
-            <label htmlFor="sfxTags">SFX Tags (comma-separated)</label>
-            <input
-              id="sfxTags"
-              name="sfxTags"
-              placeholder="burp, giggle, fart, evil_chuckle, cough, sigh"
-              value={form.sfxTags}
-              onChange={updateField}
-            />
-            <small>
-              Available SFX: burp, giggle, chuckle, cough, sigh, snort, hiccup, fart, evil_chuckle,
-              maniacal_laugh, cackle, gasp, sniff, yawn, growl, scream, grunt, clap.
-            </small>
-            <small>
-              Aliases are supported and auto-mapped, e.g. belch → burp, toot/farting → fart,
-              evil laugh/sinister chuckle → evil_chuckle.
+          {/* Dynamic SFX editor */}
+          <div className="field full" style={{ marginTop: 8 }}>
+            <label>SFX Addon Sounds (persona sound effects)</label>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0" }}>
+              {getActiveSfxTags().length === 0 ? (
+                <span style={{ opacity: 0.6, fontSize: "0.85em" }}>No SFX tags yet — add some for random sound effects during speech (e.g. burps for Rick).</span>
+              ) : (
+                getActiveSfxTags().map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      background: "rgba(0, 200, 255, 0.12)",
+                      border: "1px solid rgba(0,200,255,0.3)",
+                      borderRadius: 999,
+                      padding: "2px 8px",
+                      fontSize: "0.78rem",
+                    }}
+                  >
+                    🔊 {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeSfxTag(tag)}
+                      style={{ background: "none", border: "none", color: "#8fd", cursor: "pointer", fontSize: "1em", lineHeight: 1 }}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    addSfxTag(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+                style={{ minWidth: 160 }}
+                defaultValue=""
+              >
+                <option value="">+ Add SFX…</option>
+                {availableSfxTags
+                  .filter((t) => !getActiveSfxTags().includes(t))
+                  .map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+              </select>
+
+              <input
+                placeholder="custom tag (e.g. snort)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    addSfxTag(e.currentTarget.value);
+                    e.currentTarget.value = "";
+                  }
+                }}
+                style={{ width: 160 }}
+              />
+              <button type="button" onClick={(e) => {
+                const inp = e.currentTarget.parentNode.querySelector('input[placeholder*="custom"]');
+                if (inp) { addSfxTag(inp.value); inp.value = ""; }
+              }}>Add</button>
+            </div>
+
+            <small style={{ display: "block", marginTop: 4 }}>
+              Available: {availableSfxTags.join(", ")}. Backend normalizes aliases (belch→burp etc).
             </small>
           </div>
 
           <div className="field">
-            <label htmlFor="sfxFrequency">SFX Frequency (0-1)</label>
-            <input
-              id="sfxFrequency"
-              name="sfxFrequency"
-              type="number"
-              min="0"
-              max="1"
-              step="0.01"
-              value={form.sfxFrequency}
-              onChange={updateField}
-            />
-            <small>Probability of SFX injection per utterance. 0.25 = 25%.</small>
+            <label>SFX Frequency (0–1)</label>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={Number(form.sfxFrequency) || 0}
+                onChange={(e) => setForm((f) => ({ ...f, sfxFrequency: e.target.value }))}
+                style={{ flex: 1 }}
+              />
+              <input
+                id="sfxFrequency"
+                name="sfxFrequency"
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value={form.sfxFrequency}
+                onChange={updateField}
+                style={{ width: 80 }}
+              />
+            </div>
+            <small>Chance per utterance to inject an SFX. Higher = more frequent addon sounds during TTS.</small>
           </div>
 
           <div className="field">
@@ -1692,12 +1986,62 @@ export default function PersonalityForm({
               value={form.sfxPlacement}
               onChange={updateField}
             >
-              <option value="random">Random (start or end)</option>
+              <option value="random">Random (or throughout for burp)</option>
               <option value="start">Start of speech</option>
               <option value="end">End of speech</option>
               <option value="throughout">Throughout (between sentences)</option>
             </select>
-            <small>Where SFX should be placed in the speech.</small>
+            <small>Controls where the sound effect plays relative to the spoken words.</small>
+          </div>
+
+          <div className="field">
+            <label htmlFor="sfxEarlyOffset">SFX Early Offset (seconds, min for first burp)</label>
+            <input
+              id="sfxEarlyOffset"
+              name="sfxEarlyOffset"
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value={form.sfxEarlyOffset}
+              onChange={updateField}
+            />
+            <small>Minimum delay for early SFX so it doesn't play before the voice starts (0.2 = 200ms). Per-persona configurable.</small>
+          </div>
+
+          {/* SFX preview — live markers + real test playback */}
+          <div className="field full" style={{ background: "rgba(255,255,255,0.02)", padding: 10, borderRadius: 6 }}>
+            <label style={{ fontWeight: 600 }}>See SFX in response text (live preview)</label>
+
+            <div style={{ margin: "4px 0 8px" }}>
+              <small style={{ marginRight: 8, opacity: 0.8 }}>Presets:</small>
+              <button type="button" onClick={() => applySfxPreset("drunkRick")} style={{ marginRight: 4, fontSize: "0.75rem" }}>Drunk Rick</button>
+              <button type="button" onClick={() => applySfxPreset("nervousGiggle")} style={{ marginRight: 4, fontSize: "0.75rem" }}>Nervous Giggle</button>
+              <button type="button" onClick={() => applySfxPreset("evilLaugh")} style={{ marginRight: 4, fontSize: "0.75rem" }}>Evil Laugh</button>
+              <button type="button" onClick={() => applySfxPreset("clear")} style={{ fontSize: "0.75rem" }}>Clear</button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, margin: "6px 0" }}>
+              <input
+                value={sfxPreviewText}
+                onChange={(e) => setSfxPreviewText(e.target.value)}
+                placeholder="Type sample speech here..."
+                style={{ flex: 1 }}
+              />
+              <button type="button" onClick={runSfxPreviewSimulation}>Recompute</button>
+              <button type="button" onClick={testSpeakWithSfx} title="Play real TTS (if saved) + the SFX sounds">🔊 Test speak + SFX</button>
+            </div>
+
+            {sfxPreviewResult ? (
+              <div style={{ fontFamily: "monospace", fontSize: "0.82rem", padding: 8, background: "rgba(0,0,0,0.3)", borderRadius: 4, whiteSpace: "pre-wrap" }}>
+                {sfxPreviewResult}
+              </div>
+            ) : (
+              <small style={{ opacity: 0.7 }}>Markers like [SFX:burp] appear in the internal text. They are stripped for voice but trigger timed sound effects.</small>
+            )}
+            <small style={{ display: "block", marginTop: 4, opacity: 0.6 }}>
+              Test button performs a real TTS request (when persona is saved) and plays matching SFX at the right times. In chat, recent SFX triggers also appear as 🔊 badges under assistant replies.
+            </small>
           </div>
 
           <label className="checkbox-row" style={{ paddingTop: 36 }}>

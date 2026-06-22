@@ -703,7 +703,8 @@ class PerformanceScheduler {
         }
 
         if (item.type === "sfx") {
-          await (this.loopEngine?.playSfx(item.sound) ?? Promise.resolve());
+          const sfxName = typeof item.sound === "string" ? item.sound : (item.sound?.tag || item.sound);
+          await (this.loopEngine?.playSfx(sfxName) ?? Promise.resolve());
           continue;
         }
 

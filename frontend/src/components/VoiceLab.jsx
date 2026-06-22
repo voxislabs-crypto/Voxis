@@ -3064,7 +3064,7 @@ export default function VoiceLab({
                   <span className="vlab-slider-readout">{Math.round(Number(voiceProfile.sfxVolume ?? 0.85) * 100)}%</span>
                 </div>
                 <small className="vlab-small">
-                  Controls non-verbal persona effects (burp, giggle, evil chuckle, fart, etc.) for this persona.
+                  Controls non-verbal persona effects (burp / braap / urrrp variants, giggle, evil chuckle, fart, etc.) for this persona.
                 </small>
               </div>
               <div className="vlab-field">

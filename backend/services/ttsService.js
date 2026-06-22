@@ -271,7 +271,7 @@ function getCartesiaTimeoutMs(text = "") {
 
   // Reserve explicit fallback headroom so Cartesia stalls cannot consume the
   // whole request budget and force an outer backend timeout.
-  const outerBudget = Number(process.env.TTS_REQUEST_TIMEOUT_MS) || 25000;
+  const outerBudget = Number(process.env.TTS_REQUEST_TIMEOUT_MS) || 60000;
   const reservedFallbackMs = 12000;
   const budgetCap = Math.max(8000, outerBudget - reservedFallbackMs);
   const cap = Math.max(10000, Math.min(22000, budgetCap));
@@ -294,7 +294,13 @@ function getElevenLabsTimeoutMs(text = "") {
     ? safeConfiguredTimeout
     : Math.min(MAX_ELEVENLABS_TIMEOUT_MS, safeConfiguredTimeout + ((textLength - 140) * 45));
 
-  return Math.max(safeConfiguredTimeout, scaledTimeout);
+  // Reserve headroom so long EL requests don't get killed by the outer backend timeout.
+  const outerBudget = Number(process.env.TTS_REQUEST_TIMEOUT_MS) || 60000;
+  const reservedFallbackMs = 8000;
+  const budgetCap = Math.max(10000, outerBudget - reservedFallbackMs);
+  const cap = Math.min(MAX_ELEVENLABS_TIMEOUT_MS, budgetCap);
+
+  return Math.max(safeConfiguredTimeout, Math.min(scaledTimeout, cap));
 }
 
 function clampPiperPauseMs(pauseMs, voiceProfile = {}) {
@@ -1038,11 +1044,36 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
   const sfxTimeline = [];
   const sfxEvents = speechPacket?.sfx || [];
   
-  // Remove [SFX:tag] markers from text
-  directedText = directedText.replace(/\[SFX:([a-zA-Z0-9_-]+)\]\s*/g, (match, tag) => {
-    sfxTimeline.push({ tag, position: "inline" });
-    return "";
-  }).trim();
+  // For explicit [SFX:...] from the LLM text (e.g. from *BUUUURP*), compute approximate
+  // progress based on character position in the original text. This makes burps land
+  // mid-sentence at the correct time during playback.
+  const originalForMarkers = String(speechPacket?.speech || text || "").trim();
+  const origLen = originalForMarkers.length || 1;
+  
+  // Collect explicit markers with progress first (from original positions)
+  const explicitMarkers = [];
+  let searchPos = 0;
+  const markerRegex = /\[SFX:([a-zA-Z0-9_-]+)\]\s*/gi;
+  let m;
+  while ((m = markerRegex.exec(originalForMarkers)) !== null) {
+    const tag = m[1];
+    const pos = m.index;
+    const progress = Math.min(0.98, Math.max(0.02, pos / origLen));
+    explicitMarkers.push({ tag, position: "inline", progress });
+    searchPos = m.index + m[0].length;
+  }
+  sfxTimeline.push(...explicitMarkers);
+  
+  // Remove all [SFX:tag] markers (tolerate minor nesting)
+  directedText = String(directedText || "");
+  let safety = 0;
+  while (safety++ < 5) {
+    const before = directedText;
+    directedText = directedText.replace(/\[SFX:([a-zA-Z0-9_-]+)\]\s*/gi, () => "");
+    directedText = directedText.replace(/\[SFX:\[SFX:([a-zA-Z0-9_-]+)\]\s*\]\s*/gi, () => "");
+    if (directedText === before) break;
+  }
+  directedText = directedText.trim();
   
   // Backward compatibility: handle old [BURP] marker
   directedText = directedText.replace(/\[BURP\]\s*/g, () => {

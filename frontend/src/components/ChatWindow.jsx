@@ -73,6 +73,24 @@ function stripInlineMetadataTokens(text) {
   return source.slice(0, first.index).trim();
 }
 
+function stripSfxCues(text) {
+  // Remove explicit SFX cue spellings (e.g. *BUUUURP*, *BRAAAP*) so the visible text
+  // doesn't include the spoken cues — the actual sound is provided by frontend SFX overlays.
+  // IMPORTANT: preserve original newlines, paragraphs, and indentation.
+  let t = String(text || "");
+  t = t.replace(/\*+[\s*]*([a-zA-Z]+)[\s!?.*]*\*+/gi, '');
+  t = t.replace(/[\(\[]\s*([a-zA-Z]+)\s*[\)\]]/gi, '');
+  t = t.replace(/<([a-zA-Z]+)>/gi, '');
+  t = t.replace(/\b(BUUU+RP|BRAAA+P|URRR+P|BRRR+RP|BURP|BELCH|BRAAP|URRRP)\b/gi, '');
+
+  // Collapse runs of spaces/tabs only. Preserve \n and \n\n for paragraphs.
+  t = t.replace(/[ \t]+/g, ' ');
+  t = t.replace(/^[ \t]+/gm, '');   // trim leading whitespace per line
+  t = t.replace(/[ \t]+$/gm, '');   // trim trailing whitespace per line
+
+  return t.trim();
+}
+
 function extractEPFDialogue(text) {
   const dialogueLines = String(text || "")
     .split(/\r?\n/g)
@@ -1978,9 +1996,12 @@ function getAssistantDisplayContent(message, mode) {
   const rawContent = String(message?.content || "");
   const plannedDisplay = String(message?.utterancePlan?.displayText || "");
   const displayContent = String(message?.displayContent || plannedDisplay || "");
-  const chatVisibleContent = mode === "scientist"
+  let chatVisibleContent = mode === "scientist"
     ? rawContent
     : displayContent || extractEPFDialogue(rawContent) || rawContent;
+
+  // Strip explicit SFX cues from display (sounds are handled by overlays)
+  chatVisibleContent = stripSfxCues(chatVisibleContent);
 
   return formatAssistantContentForMode(chatVisibleContent, mode);
 }
@@ -2175,7 +2196,7 @@ async function fetchTtsHealthSnapshot(authFetch) {
 }
 
 const MAX_STREAM_READY_AUDIO = 3;
-const MAX_STREAM_SENTENCE_CHARS = 260;
+const MAX_STREAM_SENTENCE_CHARS = 220; // keep TTS requests small to avoid provider timeouts on long responses (e.g. ElevenLabs)
 const DOT_PLACEHOLDER = "__VOXIS_DOT__";
 const COMMON_ABBREVIATIONS = [
   "Mr.",
@@ -2370,6 +2391,7 @@ export default function ChatWindow({
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [currentAudioIsCached, setCurrentAudioIsCached] = useState(false);
   const [speechPlaybackRate, setSpeechPlaybackRate] = useState(1);
   const [cartesiaVoiceOptions, setCartesiaVoiceOptions] = useState(CARTESIA_QUICK_VOICE_OPTIONS);
   const [elevenLabsVoiceOptions, setElevenLabsVoiceOptions] = useState(ELEVENLABS_QUICK_VOICE_OPTIONS);
@@ -2414,11 +2436,88 @@ export default function ChatWindow({
   const draftRef = useRef("");
   const pendingSfxTimelineRef = useRef([]);
   const pendingAfterSfxTagsRef = useRef([]);
+  const sfxPlayQueueRef = useRef([]); // logical {type:'speak'|'sfx', ...} from sketch
   const activeSfxTimeoutsRef = useRef([]);
   const activeSfxPlayersRef = useRef([]);
   const lastSfxPlaybackKeyRef = useRef("");
   const streamPlaybackActiveRef = useRef(false);
+  const [lastMessageSfx, setLastMessageSfx] = useState([]);
+  const activeSfxInterruptCountRef = useRef(0); // for pausing main speech audio during SFX
+  const sfxScheduleRef = useRef([]); // precomputed {tag, targetTime, event, played} 
+  const sfxAfterRef = useRef([]);
+  const sfxCheckerRef = useRef(null);
+  const sfxArmedRef = useRef(false);
+  const lastTimeRef = useRef(0);
+  const lastCheckTimeRef = useRef(0);
   const streamAutoplayUsedRef = useRef(false);
+
+  const sfxEarlyOffset = Number(personality?.vocalMannerisms?.sfxEarlyOffset ?? 0.2);
+
+  // Reusable-ish arming logic (can be extracted to a hook/utils for other SFX types later)
+  // Currently closed over sfxEarlyOffset and the refs for this component.
+
+  function armSfxSchedule(el) {
+    if (!el || sfxArmedRef.current) return;
+    sfxArmedRef.current = true;
+    // reset time trackers for this playback
+    lastTimeRef.current = el.currentTime || 0;
+    lastCheckTimeRef.current = Date.now();
+    let schedule = sfxScheduleRef.current;
+    if (!schedule || schedule.length === 0) {
+      const pending = pendingSfxTimelineRef.current || [];
+      const dur = el.duration || 0;
+      schedule = pending.map((evt, idx) => {
+        let t = computeSfxDelayMs(evt, idx, el);
+        t = toSfxTargetSeconds(t);
+        if (evt.progress != null && dur > 0) {
+          t = evt.progress * dur; // authoritative seconds
+        }
+        let targetTime = Math.max(sfxEarlyOffset, t);
+        const tagStr = String(evt.tag || evt || '').toLowerCase();
+        if (tagStr.includes('burp')) {
+          // Stronger lead for drunk interjections so they don't land after 3-4 words.
+          const progress = Number(evt?.progress || 0);
+          const lead = progress < 0.08 ? 0.08 : 0.28; // less aggressive for absolute start cues
+          targetTime = Math.max(0.05, targetTime - lead);
+        }
+        return {
+          tag: evt.tag || evt,
+          targetTime,
+          event: evt,
+          played: false
+        };
+      });
+      sfxScheduleRef.current = schedule;
+    }
+    if (new URLSearchParams(window.location.search).has('debug=sfx')) {
+      console.log('SFX PLAYING', el.currentTime);
+      console.log('SFX TARGETS', schedule.map(x => ({tag: x.tag, target: x.targetTime})));
+    }
+    if (schedule.length > 0) {
+      const checker = () => {
+        if (!el) return;
+        const now = Date.now();
+        if (now - lastCheckTimeRef.current < 50) return;
+        lastCheckTimeRef.current = now;
+        const ct = el.currentTime;
+        const prev = lastTimeRef.current;
+        lastTimeRef.current = ct;
+        schedule.forEach((item) => {
+          if (!item.played && prev < item.targetTime && ct >= item.targetTime) {
+            item.played = true;
+            if (new URLSearchParams(window.location.search).has('debug=sfx')) {
+              console.log('SFX FIRED', item.tag, ct);
+            }
+            playSfxTag(item.tag, el, item.event);
+          }
+        });
+      };
+      el.addEventListener('timeupdate', checker);
+      sfxCheckerRef.current = checker;
+    } else {
+      triggerSfxForCurrentPlayback(el);
+    }
+  }
   const autoplayAssistantBaselineRef = useRef(0);
   const prevZoneKeyRef = useRef("");
   // Tracks the latest voice adjustments from the chat pipeline — applied to TTS requests
@@ -2830,6 +2929,7 @@ export default function ChatWindow({
     setActivePersonalityEvents([]);
     streamAutoplaySessionRef.current = null;
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    setCurrentAudioIsCached(false);
     autoplayAssistantBaselineRef.current = assistantMessageCount;
     lastGeneratedRef.current = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
     if (personalityEventsTimerRef.current) {
@@ -3024,6 +3124,8 @@ export default function ChatWindow({
     }
 
     // Finalize trailing text once stream ends (even if it lacked punctuation).
+    // Use small TTS chunks for the final audio too (prevents long synthesis timeouts
+    // on ElevenLabs etc. for full responses). The queue + ended chaining gives full length.
     if (streamAutoplaySessionRef.current === sessionKey && streamAutoplayUsedRef.current) {
       const { sentences, remainder } = splitCompleteSentences(latestAssistantSpeechText);
       const finalized = [...sentences];
@@ -3073,11 +3175,27 @@ export default function ChatWindow({
       return;
     }
 
+    // Don't generate audio for partial/streaming updates; wait for the final complete message.
+    if (latestAssistantMessage?.live) {
+      return;
+    }
+
     const stamp = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
     if (lastGeneratedRef.current === stamp) {
       return;
     }
 
+    // Ensure the main player gets a single full audio + complete SFX timeline
+    // (fixes "no burps when replaying from quick voice / bottom controls" vs bubble Replay).
+    // Early chunks are still used during live token streaming for low latency start.
+    clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    streamAutoplayUsedRef.current = false;
+
+    // For the main player ("quick voice area"), always use a single full-text
+    // generate once the response is complete. This ensures the complete SFX
+    // timeline is attached to one audio file (so replaying via bottom controls
+    // gets all burps). During live streaming we still use small chunks for
+    // low-latency start.
     void generateAudio(latestAssistantSpeechText, { silentAutoplayBlock: true });
     lastGeneratedRef.current = stamp;
   }, [
@@ -3200,6 +3318,7 @@ export default function ChatWindow({
     }
 
     streamReadyAudioQueueRef.current = [];
+    sfxPlayQueueRef.current = [];
   }
 
   function clearActiveSfxPlayback() {
@@ -3216,6 +3335,28 @@ export default function ChatWindow({
       }
     }
     activeSfxPlayersRef.current = [];
+
+    // Reset pause counter; caller of queue should have resumed if necessary
+    activeSfxInterruptCountRef.current = 0;
+
+    sfxArmedRef.current = false;
+    sfxScheduleRef.current = [];
+    sfxAfterRef.current = [];
+    sfxPlayQueueRef.current = [];
+    lastTimeRef.current = 0;
+    lastCheckTimeRef.current = 0;
+    if (sfxCheckerRef.current && audioRef.current) {
+      audioRef.current.removeEventListener('timeupdate', sfxCheckerRef.current);
+      sfxCheckerRef.current = null;
+    }
+  }
+
+  function toSfxTargetSeconds(raw) {
+    // Normalize delay/target values (compute returns ms numbers, schedule targets must be seconds for currentTime)
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    if (n < 0) return n;
+    return n > 30 ? n / 1000 : n; // ms values >30s unlikely for offsets; convert
   }
 
   function computeSfxDelayMs(event, index, audioElement = null) {
@@ -3251,29 +3392,212 @@ export default function ChatWindow({
     return 140 + (index * 180);
   }
 
-  function playSfxTag(tag) {
+  // SFX_TRIGGERS + buildSfxPlayQueue adapted from the clean controller sketch.
+  // Prefers backend-provided sfxTimeline (with progress/position from buildSpeechPacket).
+  // Produces an ordered queue of speak + sfx actions for the full text.
+  // The actual playback still uses the single full stripped TTS audio + timed inserts
+  // (master clock) + pause/resume during SFX. The queue gives us explicit structure,
+  // debug visibility, and a path for future segmented playback if desired.
+  const SFX_TRIGGERS = {
+    burp: ['burp', 'burped', 'belch', '*burp*', 'braap', 'urrrp', 'long_burp'],
+    giggle: ['giggle', 'giggles', '*giggle*'],
+    chuckle: ['chuckle', '*chuckle*'],
+    yawn: ['yawn', '*yawn*'],
+    gasp: ['gasp', '*gasp*'],
+    sigh: ['sigh', '*sigh*'],
+    cough: ['cough', '*cough*'],
+    hiccup: ['hiccup', '*hiccup*'],
+    // extend from persona.vocalMannerisms.sfxTags at call time if needed
+  };
+
+  function buildSfxPlayQueue(fullText, sfxTimeline = [], personaSfxMap = {}) {
+    let text = String(fullText || "").trim();
+    const queue = [];
+    let lastIndex = 0;
+
+    // Merge persona configured tags into triggers for fallback regex
+    const triggers = { ...SFX_TRIGGERS };
+    const extra = Array.isArray(personaSfxMap?.sfxTags) ? personaSfxMap.sfxTags : [];
+    extra.forEach((t) => {
+      const k = String(t || '').trim().toLowerCase();
+      if (k && !triggers[k]) triggers[k] = [k];
+    });
+
+    const events = Array.isArray(sfxTimeline) && sfxTimeline.length > 0
+      ? [...sfxTimeline].sort((a, b) => {
+          const pa = Number(a.progress ?? (a.ms != null ? a.ms / 1000 / 30 : 0)); // rough
+          const pb = Number(b.progress ?? (b.ms != null ? b.ms / 1000 / 30 : 0));
+          return pa - pb;
+        })
+      : [];
+
+    if (events.length > 0) {
+      // Preferred: backend timeline (progress or ms/position from speechDirector + ttsService)
+      for (const evt of events) {
+        const tag = String(evt.tag || evt.trigger || '').trim().toLowerCase();
+        if (!tag) continue;
+
+        // Approximate char cut using progress if present (progress is relative to original text length)
+        let cutAt = lastIndex;
+        const prog = Number(evt.progress);
+        if (Number.isFinite(prog) && prog > 0 && text.length > 0) {
+          cutAt = Math.max(lastIndex, Math.floor(prog * text.length));
+        } else if (evt.ms != null) {
+          // very rough char estimate; progress is better
+          cutAt = lastIndex;
+        }
+
+        const before = text.substring(lastIndex, cutAt).trim();
+        if (before) {
+          queue.push({ type: 'speak', text: before });
+        }
+
+        queue.push({
+          type: 'sfx',
+          tag,
+          variant: evt.variant || (tag === 'burp' ? getRandomBurpVariant() : 'default'),
+          event: evt,
+          position: evt.position || 'inline'
+        });
+
+        lastIndex = Math.max(lastIndex, cutAt);
+      }
+
+      const remaining = text.substring(lastIndex).trim();
+      if (remaining) queue.push({ type: 'speak', text: remaining });
+    } else {
+      // Fallback: client-side regex on triggers (for legacy or no timeline)
+      const allTriggers = Object.keys(triggers).flatMap(k => triggers[k]);
+      const triggerRegex = new RegExp(
+        `\\b(${allTriggers.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+        'gi'
+      );
+
+      let match;
+      while ((match = triggerRegex.exec(text)) !== null) {
+        const triggerWord = match[0].toLowerCase();
+        const before = text.substring(lastIndex, match.index).trim();
+        if (before) {
+          queue.push({ type: 'speak', text: before });
+        }
+
+        // map word to tag
+        let sfxTag = Object.keys(SFX_TRIGGERS).find(key =>
+          SFX_TRIGGERS[key].some(t => triggerWord.includes(t.replace(/[*]/g, '')))
+        );
+        sfxTag = sfxTag || (personaSfxMap[triggerWord] || 'burp');
+
+        queue.push({
+          type: 'sfx',
+          tag: sfxTag,
+          variant: sfxTag === 'burp' ? getRandomBurpVariant() : 'default'
+        });
+
+        lastIndex = match.index + match[0].length;
+      }
+
+      const remaining = text.substring(lastIndex).trim();
+      if (remaining) queue.push({ type: 'speak', text: remaining });
+    }
+
+    return queue;
+  }
+
+  function getRandomBurpVariant() {
+    const variants = ['burp', 'braap', 'urrrp', 'long_burp'];
+    return variants[Math.floor(Math.random() * variants.length)];
+  }
+
+  function playSfxTag(tag, mainAudio = null, event = null) {
     const normalized = String(tag || "").trim().toLowerCase();
     if (!normalized) {
       return;
     }
 
+    // Robust mapping from logical tag (may be "burp", "long_burp", "longburp", "braap" etc.)
+    // to actual cached sound file. This prevents 404s for variant spellings (e.g. longburp vs long_burp).
+    let soundTag = normalized;
+    if (normalized.includes('burp') || normalized.includes('long') || normalized === 'braap' || normalized === 'urrrp') {
+      if (normalized.includes('long') || normalized === 'longburp' || normalized === 'long_burp') {
+        soundTag = 'long_burp';
+      } else if (normalized.includes('braa') || normalized === 'braap') {
+        soundTag = 'braap';
+      } else if (normalized.includes('urr') || normalized === 'urrrp') {
+        soundTag = 'urrrp';
+      } else {
+        // plain "burp" (or unknown burp variant) → randomize the actual sound for variety
+        soundTag = getRandomBurpVariant();
+      }
+    }
+
     // Use non-/api route to avoid Vite /api rewrite pitfalls in dev.
-    const player = new Audio(`/sfx/audio/${encodeURIComponent(normalized)}`);
+    const player = new Audio(`/sfx/audio/${encodeURIComponent(soundTag)}`);
     player.preload = "auto";
     player.volume = Math.max(0, Math.min(1, Number(voiceProfile.sfxVolume ?? 0.85)));
-    player.addEventListener("error", () => {
+    player.addEventListener("error", (e) => {
+      // Load/decode failure (e.g. 404 from missing proxy or uncached file)
+      const displayTag = normalized === soundTag ? normalized : `${normalized} (using ${soundTag})`;
       onStatus?.({
         type: "error",
-        message: `SFX '${normalized}' failed to load/play. Check Freesound cache and route mapping.`,
+        message: `SFX '${displayTag}' failed to load. Ensure backend/sfx-cache/${soundTag}.mp3 exists and Vite proxy for /sfx is active (restart dev server).`,
       });
+      console.warn("[SFX] load error for", normalized, e);
     });
     activeSfxPlayersRef.current.push(player);
 
-    void player.play().catch(() => {
-      onStatus?.({
-        type: "error",
-        message: `SFX '${normalized}' playback was blocked or failed in the browser.`,
-      });
+    const position = event ? String(event.position || "").toLowerCase() : "";
+    const isDuringSpeech = position !== "after";  // before and throughout pause speech so burp plays clean without overlap
+
+    let didPause = false;
+
+    const startInterrupt = () => {
+      if (isDuringSpeech && mainAudio instanceof HTMLAudioElement) {
+        if (activeSfxInterruptCountRef.current === 0) {
+          if (!mainAudio.paused) {
+            mainAudio.pause();
+            didPause = true;
+          }
+        }
+        activeSfxInterruptCountRef.current++;
+      }
+    };
+
+    const endInterrupt = () => {
+      if (didPause && mainAudio instanceof HTMLAudioElement) {
+        activeSfxInterruptCountRef.current = Math.max(0, activeSfxInterruptCountRef.current - 1);
+        if (activeSfxInterruptCountRef.current === 0) {
+          mainAudio.play().catch(() => {});
+        }
+      }
+      // cleanup player ref
+      const idx = activeSfxPlayersRef.current.indexOf(player);
+      if (idx >= 0) activeSfxPlayersRef.current.splice(idx, 1);
+    };
+
+    // Start the interrupt (pause speech during SFX for clean playback)
+    startInterrupt();
+
+    player.addEventListener("ended", endInterrupt);
+    player.addEventListener("error", endInterrupt);
+
+    void player.play().catch((err) => {
+      // Often "NotAllowedError" due to browser autoplay policy.
+      // Not a hard failure; SFX are non-critical.
+      const isBlocked = err && (err.name === "NotAllowedError" || /play|gesture|interact/i.test(err.message || ""));
+      if (isBlocked) {
+        onStatus?.({
+          type: "info",
+          message: `SFX sounds temporarily blocked by browser. Click anywhere or send another message to enable audio effects.`,
+        });
+      } else {
+        onStatus?.({
+          type: "error",
+          message: `SFX '${normalized}' playback failed in the browser.`,
+        });
+      }
+      console.warn("[SFX] play() rejected for", normalized, err);
+      // still cleanup
+      endInterrupt();
     });
   }
 
@@ -3295,13 +3619,17 @@ export default function ChatWindow({
       }
 
       const timeoutId = window.setTimeout(() => {
-        playSfxTag(tag);
+        playSfxTag(tag, audioElement, event);
+        activeSfxTimeoutsRef.current = activeSfxTimeoutsRef.current.filter((id) => id !== timeoutId);
       }, delayMs);
       activeSfxTimeoutsRef.current.push(timeoutId);
     });
   }
 
   function triggerSfxForCurrentPlayback(audioElement) {
+    // Fallback trigger (used in streaming and some paths).
+    // For the main controls audio player we now prefer the precompute + onPlay schedule
+    // to avoid SFX firing before the user actually hits play.
     if (!(audioElement instanceof HTMLAudioElement)) {
       return;
     }
@@ -3332,6 +3660,7 @@ export default function ChatWindow({
         url: URL.createObjectURL(cachedEntry.blob),
         telemetry: cachedEntry.telemetry || null,
         sfxTimeline: Array.isArray(cachedEntry.sfxTimeline) ? cachedEntry.sfxTimeline : [],
+        fromCache: true,
       };
     }
     const response = await authFetch(`/personality/${personality.id}/tts`, {
@@ -3451,6 +3780,7 @@ export default function ChatWindow({
       url: nextAudioUrl,
       telemetry,
       sfxTimeline: parsedSfxTimeline.length > 0 ? parsedSfxTimeline : undefined,
+      fromCache: false,
     };
   }
 
@@ -3460,6 +3790,8 @@ export default function ChatWindow({
       streamPlaybackActiveRef.current = false;
       return;
     }
+
+    setCurrentAudioIsCached(!!nextItem.fromCache);
 
     streamPlaybackActiveRef.current = true;
     setVoiceTelemetry(nextItem.telemetry || null);
@@ -3477,9 +3809,28 @@ export default function ChatWindow({
       URL.revokeObjectURL(audioUrl);
     }
 
-    pendingSfxTimelineRef.current = Array.isArray(nextItem.sfxTimeline) ? nextItem.sfxTimeline : [];
+    // Ensure fresh SFX arming for this chunk (in case previous left armed=true)
+    sfxArmedRef.current = false;
+    sfxScheduleRef.current = [];
+    sfxAfterRef.current = [];
     pendingAfterSfxTagsRef.current = [];
+    sfxPlayQueueRef.current = [];
     lastSfxPlaybackKeyRef.current = "";
+    lastTimeRef.current = 0;
+    lastCheckTimeRef.current = 0;
+    if (sfxCheckerRef.current && audioRef.current) {
+      audioRef.current.removeEventListener('timeupdate', sfxCheckerRef.current);
+      sfxCheckerRef.current = null;
+    }
+
+    const tl = Array.isArray(nextItem.sfxTimeline) ? nextItem.sfxTimeline : [];
+    pendingSfxTimelineRef.current = tl;
+
+    // Build queue for this chunk too (legacy streaming path)
+    const playQueue = buildSfxPlayQueue('', tl, personality?.vocalMannerisms || {});
+    sfxPlayQueueRef.current = playQueue;
+
+    setLastMessageSfx(tl);
     setAudioUrl(nextItem.url);
 
     requestAnimationFrame(() => {
@@ -3593,10 +3944,19 @@ export default function ChatWindow({
     setIsGeneratingAudio(false);
     setIsAudioPlaying(false);
     setSpeechEnergy(0);
+    setCurrentAudioIsCached(false);
     clearActiveSfxPlayback();
     pendingAfterSfxTagsRef.current = [];
     pendingSfxTimelineRef.current = [];
+    sfxPlayQueueRef.current = [];
     lastSfxPlaybackKeyRef.current = "";
+    sfxScheduleRef.current = [];
+    sfxAfterRef.current = [];
+    sfxArmedRef.current = false;
+    if (sfxCheckerRef.current && audioRef.current) {
+      audioRef.current.removeEventListener('timeupdate', sfxCheckerRef.current);
+      sfxCheckerRef.current = null;
+    }
 
     if (hadPendingRequest || hadActivePlayback || isGeneratingAudio || isAudioPlaying) {
       onStatus?.({
@@ -3615,6 +3975,10 @@ export default function ChatWindow({
     streamAutoplaySessionRef.current = null;
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
 
+    // We intentionally do NOT force a fresh generation here.
+    // requestSpeechAudio() will serve from the in-memory client cache
+    // if the exact text + voiceProfile combination was seen before.
+    // This keeps costs to zero on the backend for repeated replays.
     setIsGeneratingAudio(true);
     const controller = new AbortController();
     ttsRequestAbortRef.current = controller;
@@ -3622,6 +3986,8 @@ export default function ChatWindow({
     try {
       const audioResult = await requestSpeechAudio(text, controller);
       const nextAudioUrl = audioResult.url;
+
+      setCurrentAudioIsCached(!!audioResult.fromCache);
 
       setVoiceTelemetry(audioResult.telemetry);
 
@@ -3641,11 +4007,34 @@ export default function ChatWindow({
       clearActiveSfxPlayback();
       pendingAfterSfxTagsRef.current = [];
       pendingSfxTimelineRef.current = [];
+      sfxPlayQueueRef.current = [];
       lastSfxPlaybackKeyRef.current = "";
+      sfxScheduleRef.current = [];
+      sfxAfterRef.current = [];
+      sfxArmedRef.current = false;
+      if (sfxCheckerRef.current && audioRef.current) {
+        audioRef.current.removeEventListener('timeupdate', sfxCheckerRef.current);
+        sfxCheckerRef.current = null;
+      }
+      setLastMessageSfx([]);
 
-      pendingSfxTimelineRef.current = Array.isArray(audioResult.sfxTimeline) ? audioResult.sfxTimeline : [];
+      const tl = Array.isArray(audioResult.sfxTimeline) ? audioResult.sfxTimeline : [];
+      pendingSfxTimelineRef.current = tl;
+
+      // Build the explicit SFX-aware play queue (speak chunks + sfx actions) for the full text.
+      // This matches the controller sketch: full text in, triggers removed for audio (backend already strips),
+      // queue of segments ready. We primarily drive via master-audio timeline + pause/resume,
+      // but keep the queue for structure, debug, and future use.
+      const playQueue = buildSfxPlayQueue(latestAssistantSpeechText || text /* the one just requested */, tl, personality?.vocalMannerisms || {});
+      sfxPlayQueueRef.current = playQueue;
+      if (new URLSearchParams(window.location.search).has('debug=sfx') && playQueue.length > 0) {
+        console.log('SFX PLAY QUEUE', playQueue);
+      }
+
       pendingAfterSfxTagsRef.current = [];
       lastSfxPlaybackKeyRef.current = "";
+      sfxScheduleRef.current = [];
+      setLastMessageSfx(tl);
       setAudioUrl(nextAudioUrl);
 
       requestAnimationFrame(() => {
@@ -3689,9 +4078,29 @@ export default function ChatWindow({
   function handleAudioEnded() {
     setIsAudioPlaying(false);
 
+    // play after SFX using the precomputed after list
+    const afters = sfxAfterRef.current;
+    const el = audioRef.current;
+    afters.forEach((item) => {
+      if (!item.played) {
+        item.played = true;
+        playSfxTag(item.tag, el, item.event);
+      }
+    });
+    sfxAfterRef.current = [];
+
+    // cleanup timeupdate checker
+    if (sfxCheckerRef.current && el) {
+      el.removeEventListener('timeupdate', sfxCheckerRef.current);
+      sfxCheckerRef.current = null;
+    }
+    sfxArmedRef.current = false;
+    sfxScheduleRef.current = [];
+
     const afterTags = [...pendingAfterSfxTagsRef.current];
     pendingAfterSfxTagsRef.current = [];
     for (const tag of afterTags) {
+      // After end of speech: no need to pause main (it's already ended)
       playSfxTag(tag);
     }
     clearActiveSfxPlayback();
@@ -4870,13 +5279,55 @@ export default function ChatWindow({
                 src={audioUrl}
                 onPlay={() => {
                   setIsAudioPlaying(true);
-                  triggerSfxForCurrentPlayback(audioRef.current);
+                  const el = audioRef.current;
+                  if (el && el.currentTime > 0.05) {
+                    armSfxSchedule(el);
+                  } else if (el) {
+                    setTimeout(() => {
+                      if (audioRef.current && !sfxArmedRef.current) {
+                        armSfxSchedule(audioRef.current);
+                      }
+                    }, 80);
+                  }
+                }}
+                onPlaying={() => {
+                  const el = audioRef.current;
+                  armSfxSchedule(el);
                 }}
                 onLoadedMetadata={() => {
-                  // If duration becomes known after onPlay, we can schedule
-                  // progress-based "throughout" cues more accurately.
-                  lastSfxPlaybackKeyRef.current = "";
-                  triggerSfxForCurrentPlayback(audioRef.current);
+                  // Precompute targets using real duration for accurate scheduling.
+                  // Targets must be in seconds (currentTime scale). compute returns ms; normalize.
+                  const el = audioRef.current;
+                  const pending = pendingSfxTimelineRef.current;
+                  if (el && pending && pending.length) {
+                    const sched = [];
+                    const afters = [];
+                    pending.forEach((evt, idx) => {
+                      const d = computeSfxDelayMs(evt, idx, el);
+                      const tSec = toSfxTargetSeconds(d);
+                      const item = {
+                        tag: evt.tag || evt,
+                        targetTime: tSec,
+                        event: evt,
+                        played: false
+                      };
+                      if (d < 0) {
+                        afters.push(item);
+                      } else {
+                        let tt = Math.max(sfxEarlyOffset, tSec);
+                        const tagStr = String(evt.tag || evt || '').toLowerCase();
+                        if (tagStr.includes('burp')) {
+                          const progress = Number(evt?.progress || 0);
+                          const lead = progress < 0.08 ? 0.08 : 0.28;
+                          tt = Math.max(0.05, tt - lead);
+                        }
+                        item.targetTime = tt;
+                        sched.push(item);
+                      }
+                    });
+                    sfxScheduleRef.current = sched;
+                    sfxAfterRef.current = afters;
+                  }
                 }}
                 onPause={() => setIsAudioPlaying(false)}
                 onEnded={handleAudioEnded}
@@ -4896,6 +5347,39 @@ export default function ChatWindow({
                     {rate}×
                   </button>
                 ))}
+                {currentAudioIsCached && (
+                  <span
+                    title="Served from local cache (no backend TTS call — free & instant)"
+                    style={{
+                      marginLeft: 8,
+                      fontSize: '0.58rem',
+                      padding: '1px 6px 1px 5px',
+                      borderRadius: 999,
+                      background: 'rgba(0, 220, 130, 0.15)',
+                      color: '#0f0',
+                      border: '1px solid rgba(0, 255, 130, 0.35)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                      userSelect: 'none',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        background: '#0f0',
+                        borderRadius: '50%',
+                        boxShadow: '0 0 4px #0f0',
+                        display: 'inline-block',
+                      }}
+                    />
+                    cached
+                  </span>
+                )}
               </div>
             ) : null}
           </div>
@@ -5058,6 +5542,11 @@ export default function ChatWindow({
                             >
                               Replay
                             </button>
+                            {lastMessageSfx.length > 0 && (
+                              <span style={{ marginLeft: 8, fontSize: '0.65rem', opacity: 0.75, verticalAlign: 'middle' }}>
+                                🔊 {lastMessageSfx.map((e, i) => (e.tag || e)).join(' ')}
+                              </span>
+                            )}
                             {canPerform && (
                               <button
                                 type="button"

@@ -311,6 +311,10 @@ function buildDraft(personality) {
     speechStyle: personality.speechStyle || "",
     vocalMannerismItems: listToText(personality.vocalMannerisms?.items),
     vocalMannerismFrequency: String(personality.vocalMannerisms?.frequency ?? 0.15),
+    sfxTags: (personality.vocalMannerisms?.sfxTags || []).join(", "),
+    sfxFrequency: String(personality.vocalMannerisms?.sfxFrequency ?? 0.25),
+    sfxPlacement: personality.vocalMannerisms?.sfxPlacement || "random",
+    sfxEarlyOffset: String(personality.vocalMannerisms?.sfxEarlyOffset ?? 0.2),
     intoxicationEnabled: String(Boolean(personality.stateFlaws?.intoxication?.enabled)),
     intoxicationLevel: String(personality.stateFlaws?.intoxication?.level ?? 0),
     intoxicationDecayPerTurn: String(personality.stateFlaws?.intoxication?.decayPerTurn ?? 0.02),
@@ -563,6 +567,10 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
       vocalMannerisms: {
         items: textToList(draft.vocalMannerismItems),
         frequency: normalizeRatio(draft.vocalMannerismFrequency, 0.15),
+        sfxTags: String(draft.sfxTags || "").split(/[,\s]+/).map(t => t.trim()).filter(Boolean),
+        sfxFrequency: normalizeRatio(draft.sfxFrequency, 0.25),
+        sfxPlacement: draft.sfxPlacement || "random",
+        sfxEarlyOffset: normalizeRatio(draft.sfxEarlyOffset, 0.2),
       },
       stateFlaws: {
         intoxication: {
@@ -1067,6 +1075,53 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
               onChange={(event) => setDraft((current) => ({ ...current, vocalMannerismFrequency: event.target.value }))}
             />
           </div>
+
+          {/* SFX addon sounds - basic text support here; use main PersonalityForm for chips + live preview */}
+          <div className="persona-field full">
+            <label>SFX Tags (comma separated)</label>
+            <input
+              value={draft.sfxTags}
+              onChange={(event) => setDraft((current) => ({ ...current, sfxTags: event.target.value }))}
+              placeholder="burp, braap, giggle"
+            />
+          </div>
+          <div className="persona-field">
+            <label>SFX Frequency (0-1)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={draft.sfxFrequency}
+              onChange={(event) => setDraft((current) => ({ ...current, sfxFrequency: event.target.value }))}
+            />
+          </div>
+          <div className="persona-field">
+            <label>SFX Placement</label>
+            <select
+              value={draft.sfxPlacement}
+              onChange={(event) => setDraft((current) => ({ ...current, sfxPlacement: event.target.value }))}
+            >
+              <option value="random">random</option>
+              <option value="start">start</option>
+              <option value="end">end</option>
+              <option value="throughout">throughout</option>
+            </select>
+          </div>
+
+          <div className="persona-field">
+            <label>SFX Early Offset (0-1)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={draft.sfxEarlyOffset}
+              onChange={(event) => setDraft((current) => ({ ...current, sfxEarlyOffset: event.target.value }))}
+            />
+            <small>Min delay for first SFX (prevents before-voice burps). Configurable per persona.</small>
+          </div>
+
           <div className="persona-field">
             <label>Intoxication Enabled</label>
             <select

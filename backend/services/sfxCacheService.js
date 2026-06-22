@@ -39,12 +39,32 @@ const TRANSIENT_FETCH_ERROR_CODES = new Set([
 
 // ── SFX catalog ──────────────────────────────────────────────────────────────
 // Each entry defines the Freesound search parameters for that effect.
+// Burp has several variants (burp, braap, urrrp, long_burp) so different
+// onomatopoeia in persona text can map to different audio clips.
 const SFX_CATALOG = {
   burp: {
     // Broader queries return more CC-licensed results
     query: "belch burp",
     durationMin: 0.3,
     durationMax: 4.0,
+  },
+  // burp variants for different onomatopoeia (BRAAAP, URRRP, long BUUUURP etc.)
+  // These can be used as alternate sounds for the burp tag.
+  braap: {
+    // Use broader query that actually returns results; the filename gives the variant flavor
+    query: "short burp belch",
+    durationMin: 0.3,
+    durationMax: 4.0,
+  },
+  urrrp: {
+    query: "long burp belch",
+    durationMin: 0.3,
+    durationMax: 4.0,
+  },
+  long_burp: {
+    query: "deep burp belch",
+    durationMin: 0.5,
+    durationMax: 5.0,
   },
   giggle: {
     query: "giggle laugh female",
@@ -181,6 +201,9 @@ const SFX_FALLBACKS = Object.freeze({
   fart: ["burp", "grunt"],
   evil_chuckle: ["maniacal_laugh", "cackle", "chuckle"],
   cackle: ["maniacal_laugh", "evil_chuckle", "chuckle"],
+  braap: ["burp"],
+  urrrp: ["long_burp", "burp"],
+  long_burp: ["burp"],
 });
 
 function normalizeTagToken(tag) {

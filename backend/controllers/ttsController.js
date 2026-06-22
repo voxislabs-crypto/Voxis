@@ -37,14 +37,14 @@ function isTtsDebugLockEnabled() {
   return String(process.env.TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 }
 
-const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 25_000;
+const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 60_000;
 
 function getTtsRequestTimeoutMs() {
   const configured = Number(process.env.TTS_REQUEST_TIMEOUT_MS || DEFAULT_TTS_REQUEST_TIMEOUT_MS);
   if (!Number.isFinite(configured)) {
     return DEFAULT_TTS_REQUEST_TIMEOUT_MS;
   }
-  return Math.max(8_000, Math.min(60_000, Math.round(configured)));
+  return Math.max(8_000, Math.min(120_000, Math.round(configured)));
 }
 
 function inferRequestedEngine(voiceProfile = {}) {
@@ -65,7 +65,7 @@ async function generateSpeechAudioWithTimeout(options, timeoutMs) {
       new Promise((_, reject) => {
         timer = setTimeout(() => {
           const error = new Error(
-            `Speech synthesis timed out after ${timeoutMs}ms before the provider returned audio.`,
+            `Speech synthesis timed out after ${timeoutMs}ms before the provider returned audio. Try shorter text, enable sentence chunking in playback, or increase TTS_REQUEST_TIMEOUT_MS.`,
           );
           error.statusCode = 504;
           error.ttsProvider = inferRequestedEngine(options?.voiceProfile);

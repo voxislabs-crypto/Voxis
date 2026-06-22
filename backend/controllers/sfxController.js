@@ -21,7 +21,15 @@ export async function serveSfx(req, res) {
     return res.status(400).json({ error: "Invalid SFX name." });
   }
 
-  let filePath = await getCachedSfxPath(name);
+  // Client-side or old data may send "longburp" etc without underscore.
+  // Map to canonical cached filename.
+  const aliasMap = {
+    longburp: 'long_burp',
+    'long-burp': 'long_burp',
+  };
+  const resolvedName = aliasMap[name] || name;
+
+  let filePath = await getCachedSfxPath(resolvedName);
   if (!filePath && isFreesoundConfigured()) {
     try {
       filePath = await fetchAndCacheSfx(name);
@@ -31,7 +39,7 @@ export async function serveSfx(req, res) {
   }
 
   if (!filePath) {
-    return res.status(404).json({ error: `SFX "${name}" not cached yet.` });
+    return res.status(404).json({ error: `SFX "${resolvedName}" not cached yet.` });
   }
 
   res.setHeader("Content-Type", "audio/mpeg");
@@ -102,4 +110,17 @@ export async function prefetchSfx(req, res) {
     fetched,
     failed,
   });
+}
+
+/**
+ * GET /api/sfx/tags
+ * Returns the list of known/available SFX tags for use in persona vocalMannerisms.
+ */
+export function listSfxTagsHandler(req, res) {
+  try {
+    const tags = getAvailableSfxTags();
+    return res.json({ tags, count: tags.length });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to list SFX tags." });
+  }
 }

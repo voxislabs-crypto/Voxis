@@ -1,13 +1,14 @@
 import { Router } from "express";
-import { prefetchSfx, serveSfx } from "../controllers/sfxController.js";
+import { listSfxTagsHandler, prefetchSfx, serveSfx } from "../controllers/sfxController.js";
 
 const router = Router();
 
 router.get("/api/sfx/audio/:name", serveSfx);
 router.post("/api/sfx/prefetch", prefetchSfx);
-// Dev proxy compatibility: Vite rewrites /api/* -> /* in this workspace.
-// Keep both route shapes so SFX works in dev and production.
+router.get("/api/sfx/tags", listSfxTagsHandler);
+// Dev proxy compatibility
 router.get("/sfx/audio/:name", serveSfx);
 router.post("/sfx/prefetch", prefetchSfx);
+router.get("/sfx/tags", listSfxTagsHandler);
 
 export default router;

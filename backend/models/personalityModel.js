@@ -119,13 +119,17 @@ function normalizeRow(row) {
         triggerKeywords: ["drink", "drunk", "alcohol", "whiskey", "vodka", "beer", "wine", "buzzed"],
       },
     }),
-    vocalMannerisms: parseJsonObject(row.vocalMannerisms, {
-      frequency: 0.15,
-      items: [],
-      sfxTags: [],
-      sfxFrequency: 0.25,
-      sfxPlacement: "random",
-    }),
+    vocalMannerisms: (() => {
+      const raw = parseJsonObject(row.vocalMannerisms, {});
+      return {
+        frequency: Number(raw.frequency ?? 0.15),
+        items: Array.isArray(raw.items) ? raw.items : [],
+        sfxTags: Array.isArray(raw.sfxTags) ? raw.sfxTags : [],
+        sfxFrequency: Number.isFinite(Number(raw.sfxFrequency)) ? Number(raw.sfxFrequency) : 0.25,
+        sfxPlacement: raw.sfxPlacement || "random",
+        sfxEarlyOffset: Number.isFinite(Number(raw.sfxEarlyOffset)) ? Number(raw.sfxEarlyOffset) : 0.2,
+      };
+    })(),
   };
 }
 

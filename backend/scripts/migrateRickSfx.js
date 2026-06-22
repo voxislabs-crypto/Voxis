@@ -8,7 +8,7 @@
  * Run with: node backend/scripts/migrateRickSfx.js
  */
 
-import { getPersonalityById, listPersonalities, updatePersonality } from "../models/personalityModel.js";
+import { getAllPersonalities, updatePersonality } from "../models/personalityModel.js";
 
 function isRickPersona(personality) {
   const name = String(personality.name || "").toLowerCase();
@@ -31,8 +31,8 @@ function migratePersona(personality) {
   const updatedVocalMannerisms = {
     ...currentVocalMannerisms,
     sfxTags: ["burp"],
-    sfxFrequency: 0.28,
-    sfxPlacement: "start",
+    sfxFrequency: 0.32,
+    sfxPlacement: "random", // "random" + burp => "throughout" for drunk interjections
   };
 
   console.log(`  Migrating "${personality.name}" with SFX configuration:`, updatedVocalMannerisms);

@@ -108,6 +108,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/sfx": {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 });

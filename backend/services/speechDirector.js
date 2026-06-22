@@ -43,6 +43,55 @@ function shouldInject(seed, threshold) {
   return hashString(seed) <= threshold;
 }
 
+/**
+ * Normalize explicit SFX cues that the LLM may have emitted inside the
+ * response text (e.g. *BUUUUUURP*, *BRAAAP*, (urrrp), BURP!) into [SFX:tag]
+ * markers. These get stripped before TTS and turned into timeline events
+ * so the actual sound plays instead of the persona "saying" the word.
+ *
+ * Uses a single capture + replacer approach so new spellings are easy to add
+ * without a bunch of separate regex lines.
+ */
+function normalizeExplicitSfxCues(text) {
+  let t = String(text || "");
+
+  // Helper: decide which SFX tag based on the captured burp-like word.
+  // Supports extended spellings (BUUUURP, BRAAAAP, URRRRP, etc.)
+  function getBurpSfxTag(word) {
+    const lower = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (/braa+p|braap/.test(lower)) return "braap";
+    if (/urr+rp|urrrp/.test(lower)) return "urrrp";
+    if (/buu+rp|buuurp|longburp/.test(lower)) return "long_burp";
+    return "burp";
+  }
+
+  const burpReplacer = (match, word) => {
+    const lower = String(word || "").toLowerCase();
+    if (!/(burp|belch|braa|urr|brr|buu)/.test(lower)) {
+      return match; // not a burp cue, leave it alone
+    }
+    const tag = getBurpSfxTag(word);
+    return `[SFX:${tag}]`;
+  };
+
+  // Asterisked: *BUUUUUURP*, *BRAAAP*, etc.
+  t = t.replace(/\*+[\s*]*([a-zA-Z]+)[\s!?.*]*\*+/gi, burpReplacer);
+
+  // (burp), [BRAAAP], etc.
+  t = t.replace(/[\(\[]\s*([a-zA-Z]+)\s*[\)\]]/gi, burpReplacer);
+
+  // <burp>
+  t = t.replace(/<([a-zA-Z]+)>/gi, burpReplacer);
+
+  // Bare words — using a combined pattern + capture as suggested
+  t = t.replace(/\b(BUUU+RP|BRAAA+P|URRR+P|BRRR+RP|BURP|BELCH|BRAAP|URRRP)\b/gi, burpReplacer);
+
+  // giggle / chuckle
+  t = t.replace(/\*+\s*(giggle|giggle+|chuckle)\s*\*+/gi, "[SFX:giggle]");
+  t = t.replace(/[\(\[]\s*(giggle|chuckle)\s*[\)\]]/gi, "[SFX:giggle]");
+  return t;
+}
+
 function shouldInjectNotablePhrase(options = {}) {
   const channel = String(options?.channel || "").trim().toLowerCase();
   const ttsEngine = String(options?.ttsEngine || "").trim().toLowerCase();
@@ -336,9 +385,13 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
   // Select a random SFX tag from valid tags
   const tagIndex = Math.floor(hashString(`${inputSeed}:sfx:tag`) * validTags.length);
   const selectedTag = validTags[tagIndex];
-  const effectivePlacement = sfxPlacement === "random" && selectedTag === "burp"
-    ? "throughout"
-    : sfxPlacement;
+  // For burp we force "throughout" so it happens during speech, not as a leading "before" that sounds like it plays before the reply starts.
+  let effectivePlacement = sfxPlacement;
+  if (selectedTag === "burp") {
+    effectivePlacement = "throughout";
+  } else if (sfxPlacement === "random") {
+    effectivePlacement = "random";
+  }
 
   const sfxEvents = [];
   let output = text;
@@ -356,15 +409,21 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
       break;
 
     case "throughout": {
-      // Split into sentences and inject randomly throughout
+      // Split into sentences and inject randomly throughout.
+      // For burp (drunk Rick style) we use higher density so multiple burps can happen while speaking.
       const sentences = output.split(/(?<=[.!?])\s+/);
-      const injectCount = Math.max(1, Math.floor(sentences.length * 0.3));
+      const factor = (selectedTag === "burp") ? 0.6 : 0.3;
+      const injectCount = Math.max(1, Math.floor(sentences.length * factor));
       const injectIndices = new Set();
       const sentenceCharCounts = sentences.map((sentence) => String(sentence || "").length);
       const totalChars = sentenceCharCounts.reduce((sum, len) => sum + len, 0) || 1;
       
       while (injectIndices.size < Math.min(injectCount, sentences.length)) {
-        const idx = Math.floor(hashString(`${inputSeed}:sfx:throughout:${injectIndices.size}`) * sentences.length);
+        let idx = Math.floor(hashString(`${inputSeed}:sfx:throughout:${injectIndices.size}`) * sentences.length);
+        // For burps, try to avoid putting the very first one at sentence 0 so it doesn't always feel "at the beginning"
+        if (selectedTag === "burp" && idx === 0 && sentences.length > 2 && injectIndices.size === 0) {
+          idx = 1 + Math.floor(hashString(`${inputSeed}:sfx:throughout:shift`) * (sentences.length - 1));
+        }
         injectIndices.add(idx);
       }
 
@@ -374,7 +433,9 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
           const charOffset = sentenceCharCounts
             .slice(0, idx)
             .reduce((sum, len) => sum + len, 0);
-          const progress = Math.max(0, Math.min(0.98, (charOffset + (sentenceCharCounts[idx] * 0.25)) / totalChars));
+          // Slightly earlier insertion point within the sentence for more natural "interrupting" burps
+          // (prevents feeling like it always comes after the first 1-2 words).
+          const progress = Math.max(0, Math.min(0.98, (charOffset + (sentenceCharCounts[idx] * 0.12)) / totalChars));
           sfxEvents.push({
             tag: selectedTag,
             position: "throughout",
@@ -407,7 +468,8 @@ function injectSfxMarkers(text, personality, inputSeed, precisionMode) {
 }
 
 export function buildSpeechPacket(rawText, personality = {}, moodOverride = null, options = {}) {
-  const input = String(rawText || "").replace(/\s+/g, " ").trim();
+  const rawInput = String(rawText || "").replace(/\s+/g, " ").trim();
+  const input = normalizeExplicitSfxCues(rawInput);
   if (!input) {
     return {
       speech: "",
@@ -513,14 +575,35 @@ export function buildSpeechPacket(rawText, personality = {}, moodOverride = null
   // Backward compatibility: Rick personas without sfxTags configured get the old burp behavior
   const isRick = String(personality.name || "").toLowerCase().includes("rick");
   const hasSfxTags = Array.isArray(personality.vocalMannerisms?.sfxTags) && personality.vocalMannerisms.sfxTags.length > 0;
-  
-  if (!precisionMode && isRick && !hasSfxTags && shouldInject(`${input}:rick`, 0.28)) {
+
+  // Rick without sfxTags configured falls back to burp tag system so we get
+  // proper sfx timeline events (including "throughout" placement) and the new
+  // addon sound behavior instead of only the old [BURP] prefix hack.
+  const workingPersonality = (isRick && !hasSfxTags)
+    ? {
+        ...personality,
+        vocalMannerisms: {
+          ...(personality.vocalMannerisms || {}),
+          sfxTags: ["burp"],
+          sfxFrequency: 0.28,
+          sfxPlacement: "random", // becomes "throughout" inside inject for burp
+        },
+      }
+    : personality;
+
+  // Keep Rick's classic "I-uh-I" stutter as flavor, independent of SFX injection.
+  if (!precisionMode && isRick && shouldInject(`${rawInput}:rick-stutter`, 0.18)) {
     output = output.replace(/\bI\b/g, "I-uh-I");
-    output = `[BURP] ${output}`;  // marker stripped in ttsService before reaching TTS engine
   }
 
-  // New tag-based SFX system
-  const sfxInjection = injectSfxMarkers(output, personality, input, precisionMode);
+  // New tag-based SFX system (rick legacy now routes here via workingPersonality)
+  // If the input (after cue normalization) already contains an explicit SFX marker,
+  // honor it (LLM wanted the sound) and do not layer an additional random one on this
+  // utterance (prevents nesting like [SFX:[SFX:burp]] which breaks stripping).
+  const alreadyHasSfxMarker = /\[SFX:[^\]]+\]/i.test(output);
+  const sfxInjection = alreadyHasSfxMarker
+    ? { text: output, sfxEvents: [] }
+    : injectSfxMarkers(output, workingPersonality, rawInput, precisionMode);
   output = sfxInjection.text;
   const sfxEvents = sfxInjection.sfxEvents;
 
@@ -531,6 +614,10 @@ export function buildSpeechPacket(rawText, personality = {}, moodOverride = null
     .replace(/\.{4,}/g, "...")
     .replace(/!{2,}/g, "!")
     .trim();
+
+  // Sanitize: prevent nested or duplicate SFX markers (from cue normalize + spontaneous inject)
+  output = output.replace(/\[(?:SFX:)?\[SFX:([a-zA-Z0-9_-]+)\]\s*\]/gi, "[SFX:$1]");
+  output = output.replace(/\[SFX:([a-zA-Z0-9_-]+)\]\s*\[SFX:\1\]/gi, "[SFX:$1]");
 
   const emotion = detectEmotionLabel({ mood, signals });
 

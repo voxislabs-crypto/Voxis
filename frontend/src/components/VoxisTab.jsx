@@ -1728,7 +1728,11 @@ export default function VoxisTab({
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
-  const [echo, setEcho] = useState(null);
+  const [echo, setEcho] = useState({
+    name: "Voxis",
+    body: "Hi. I'm Voxis — your adaptive personality architect and cognitive companion. I can help you create entirely new personas through natural conversation, or modify existing ones (e.g. make Rick more sarcastic, add nervous habits, etc.). What would you like to build or evolve today?",
+    error: false
+  });
   const [echoStreaming, setEchoStreaming] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -2100,7 +2104,7 @@ export default function VoxisTab({
     echoAbortRef.current = controller;
 
     stopSpeaking();
-    setEcho({ name: personality.name, body: "", error: false });
+    setEcho({ name: "Voxis", body: "Hi. I'm Voxis — your personality architect and cognitive companion. I can help you create new personas from scratch through conversation, or modify existing ones (like making Rick more sarcastic). What would you like to build or change today?", error: false });
     setEchoStreaming(true);
     let finalReply = "";
     let finalRefinementSuggestions = [];
@@ -2110,11 +2114,13 @@ export default function VoxisTab({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          personalityId: personality.id,
+          personalityId: personality?.id || null,
           userId: userId ?? undefined,
           mode,
           message: text,
           streamDebug: true,
+          guideMode: true,           // Use the special Voxis guide meta-persona
+          useVoxisGuide: true,
         }),
         signal: controller.signal,
       });
@@ -2129,7 +2135,7 @@ export default function VoxisTab({
         } catch {
           /* ignore */
         }
-        setEcho({ name: personality.name, body: errMsg, error: true });
+        setEcho({ name: "Voxis", body: errMsg, error: true });
         setEchoStreaming(false);
         return;
       }
@@ -2162,17 +2168,17 @@ export default function VoxisTab({
             }
             if (eventName === "token" && typeof payload.delta === "string") {
               accumulated += payload.delta;
-              setEcho({ name: personality.name, body: accumulated, error: false });
+              setEcho({ name: "Voxis", body: accumulated, error: false });
             } else if (eventName === "final" && typeof payload.reply === "string") {
               accumulated = payload.reply;
               finalReply = payload.reply;
               if (Array.isArray(payload.refinementSuggestions)) {
                 finalRefinementSuggestions = payload.refinementSuggestions;
               }
-              setEcho({ name: personality.name, body: accumulated, error: false });
+              setEcho({ name: "Voxis", body: accumulated, error: false });
             } else if (eventName === "error") {
               setEcho({
-                name: personality.name,
+                name: "Voxis",
                 body: payload.error || "Forge link failed.",
                 error: true,
               });
@@ -2187,10 +2193,15 @@ export default function VoxisTab({
           finalRefinementSuggestions = data.refinementSuggestions;
         }
         setEcho({
-          name: personality.name,
+          name: "Voxis",
           body: data.reply || "(silence from the forge)",
           error: false,
         });
+      }
+
+      // Handle Voxis guide persona actions (create / modify) from special JSON blocks
+      if (finalReply) {
+        void handleVoxisGuideActions(finalReply);
       }
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -2231,6 +2242,114 @@ export default function VoxisTab({
       sendForgeMessage(
         `The forge just welded a new trait into you: "${refinement.label}". React in character — embody it.`,
       );
+    }
+  };
+
+  // Parse and execute persona create/update actions emitted by the Voxis guide
+  const handleVoxisGuideActions = async (text) => {
+    if (!text) return;
+    try {
+      // Look for ```json ... ``` blocks or raw { ... }
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/\{[\s\S]*"action"[\s\S]*\}/i);
+      if (!jsonMatch) return;
+
+      let actionData;
+      try {
+        actionData = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+      } catch {
+        return;
+      }
+
+      if (!actionData?.action) return;
+
+      if (actionData.action === "create_persona" && actionData.spec) {
+        const spec = actionData.spec;
+        // Basic validation
+        if (!spec.name || !spec.description) {
+          showToast("Voxis tried to create a persona but name or description was missing.", true);
+          return;
+        }
+        showToast("Voxis is forging the new persona...");
+
+        const res = await authFetch("/personality", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: spec.name,
+            description: spec.description,
+            traits: spec.traits || [],
+            behaviorRules: spec.behaviorRules || [],
+            quirks: spec.quirks || [],
+            speechStyle: spec.speechStyle || "",
+            creativeContext: spec.creativeContext || "default",
+            goals: spec.goals || [],
+            coreValues: spec.coreValues || [],
+          }),
+        });
+
+        if (res.ok) {
+          const created = await res.json();
+          showToast(`Persona "${created.name}" created successfully.`);
+          if (onPersonalityUpdated) onPersonalityUpdated(created);
+          // Optionally auto-select the new one
+          if (onSelectPersonality && created.id) {
+            setTimeout(() => onSelectPersonality(created.id), 800);
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.error || "Failed to create persona from Voxis guide.", true);
+        }
+      }
+
+      if (actionData.action === "update_persona" && actionData.changes) {
+        const targetId = actionData.targetId || (personality && personality.id);
+        if (!targetId) {
+          showToast("Voxis wants to update a persona but no target was selected.", true);
+          return;
+        }
+
+        showToast("Applying changes from Voxis...");
+
+        // Fetch current to merge
+        const currentRes = await authFetch(`/personality/${targetId}`);
+        if (!currentRes.ok) {
+          showToast("Could not load current persona for update.", true);
+          return;
+        }
+        const current = await currentRes.json();
+
+        const merged = { ...current };
+
+        if (actionData.changes.traits) {
+          merged.traits = [...new Set([...(current.traits || []), ...actionData.changes.traits])];
+        }
+        if (actionData.changes.behaviorRules) {
+          merged.behaviorRules = [...new Set([...(current.behaviorRules || []), ...actionData.changes.behaviorRules])];
+        }
+        if (actionData.changes.quirks) {
+          merged.quirks = [...new Set([...(current.quirks || []), ...actionData.changes.quirks])];
+        }
+        if (actionData.changes.speechStyle) merged.speechStyle = actionData.changes.speechStyle;
+        if (actionData.changes.description) merged.description = actionData.changes.description;
+
+        const updateRes = await authFetch(`/personality/${targetId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(merged),
+        });
+
+        if (updateRes.ok) {
+          const updated = await updateRes.json();
+          showToast(`Updated ${updated.name || "persona"} based on Voxis guidance.`);
+          if (onPersonalityUpdated) onPersonalityUpdated(updated);
+        } else {
+          const err = await updateRes.json().catch(() => ({}));
+          showToast(err.error || "Failed to apply persona changes.", true);
+        }
+      }
+    } catch (e) {
+      // Silent fail on action parsing - don't break normal chat
+      console.warn("[VoxisTab] Failed to parse/apply guide action:", e);
     }
   };
 

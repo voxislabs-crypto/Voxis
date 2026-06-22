@@ -95,6 +95,7 @@ import { detectMemoryConflicts } from "../services/memoryConflictService.js";
 import { regulateReplyCadence } from "../services/cadenceRegulator.js";
 import { buildUtterancePlan } from "../services/utterancePlanService.js";
 import { extractRefinementSuggestions } from "../services/refinementSuggestionService.js";
+import { buildVoxisPrompt } from "../prompts/voxisSystemPrompt.js";
 import {
   normalizeDriftState,
   applyEmotionDrift,
@@ -304,12 +305,27 @@ export async function personaOpenerHandler(req, res, next) {
       : [];
     const personaPreferences = getPersonaPreferences(personalityId);
 
-    const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, seed, {
-      currentMoodLabel: moodToLabel(personality?.moodState || moodFromLabel(personality?.mood || "neutral")),
-      conversationKey: `${personalityId}:${Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : "anon"}`,
-      userName: req.voxisUser?.displayName || "",
-      companionAliases: resolveCompanionAliasesForPrompt(),
-    });
+    let promptPackage;
+    const guideMode = Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
+
+    if (guideMode) {
+      // Special Voxis guide mode - use the meta architect prompt
+      const currentForContext = personality || null;
+      const available = getAllPersonalities ? getAllPersonalities().slice(0, 10) : [];
+      const voxisSys = buildVoxisPrompt(currentForContext, available, "");
+      promptPackage = {
+        prompt: voxisSys,
+        // minimal other fields for compatibility
+        directedText: "",
+      };
+    } else {
+      promptPackage = buildPersonaPromptPackage(personality, memoryFacts, seed, {
+        currentMoodLabel: moodToLabel(personality?.moodState || moodFromLabel(personality?.mood || "neutral")),
+        conversationKey: `${personalityId}:${Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : "anon"}`,
+        userName: req.voxisUser?.displayName || "",
+        companionAliases: resolveCompanionAliasesForPrompt(),
+      });
+    }
 
     const messages = [
       { role: "system", content: promptPackage.prompt },
@@ -1038,12 +1054,22 @@ export async function chatHandler(req, res, next) {
     const rawHistoryTurns = isPersonalQuery(message)
       ? await searchRawChatHistory(personalityId, message, 3).catch(() => [])
       : [];
-    const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message, {
-      currentMoodLabel: moodLabel,
-      conversationKey: `${personalityId}:${userScopedId ?? "anon"}`,
-      userName: req.voxisUser?.displayName || "",
-      companionAliases: resolveCompanionAliasesForPrompt(),
-    });
+    let promptPackage;
+    const guideMode = Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
+
+    if (guideMode) {
+      const currentForContext = personality || null;
+      const available = getAllPersonalities ? getAllPersonalities().slice(0, 10) : [];
+      const voxisSys = buildVoxisPrompt(currentForContext, available, "");
+      promptPackage = { prompt: voxisSys, directedText: "" };
+    } else {
+      promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message, {
+        currentMoodLabel: moodLabel,
+        conversationKey: `${personalityId}:${userScopedId ?? "anon"}`,
+        userName: req.voxisUser?.displayName || "",
+        companionAliases: resolveCompanionAliasesForPrompt(),
+      });
+    }
     const systemPrompt = promptPackage.prompt;
 
     console.log("[VOXIS DEBUG] Final prompt sent to LLM (first 500 chars):", systemPrompt.substring(0, 500));
