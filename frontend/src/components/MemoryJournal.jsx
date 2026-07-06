@@ -105,6 +105,51 @@ const journalStyles = `
     gap: 8px;
   }
 
+  .memory-group {
+    margin-bottom: 12px;
+    border: 1px solid rgba(0,180,255,0.1);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .memory-group-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: rgba(4,10,20,0.6);
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: background 150ms;
+  }
+
+  .memory-group-header:hover {
+    background: rgba(0,180,255,0.08);
+  }
+
+  .memory-group-header .chev {
+    font-size: 0.7rem;
+    margin-right: 6px;
+    transition: transform 140ms ease;
+  }
+
+  .memory-group-header.expanded .chev {
+    transform: rotate(90deg);
+  }
+
+  .memory-group-header .count {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    margin-left: auto;
+    padding-left: 8px;
+  }
+
   .memory-row {
     padding: 13px 16px;
     border-radius: 14px;
@@ -554,6 +599,8 @@ export default function MemoryJournal({ personality }) {
   const [statusMsg, setStatusMsg] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [showActiveOnly, setShowActiveOnly] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
 
   const load = useCallback(async () => {
     if (!personality) return;
@@ -678,7 +725,61 @@ export default function MemoryJournal({ personality }) {
   const conflictScan = detectConflicts(facts);
   const presentTypes = ["all", ...Array.from(new Set(facts.map((f) => f.memoryType)))];
   const typeScoped = typeFilter === "all" ? facts : facts.filter((f) => f.memoryType === typeFilter);
-  const visible = showActiveOnly ? typeScoped.filter((f) => Number(f.enabled ?? 1) !== 0) : typeScoped;
+  let visible = showActiveOnly ? typeScoped.filter((f) => Number(f.enabled ?? 1) !== 0) : typeScoped;
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase().trim();
+    visible = visible.filter((f) => (f.content || "").toLowerCase().includes(q));
+  }
+
+  // Group memories to avoid a long flat list. Groups by type, sorted internally by importance desc.
+  const groupedFacts = {};
+  visible.forEach((f) => {
+    const t = f.memoryType || "fact";
+    if (!groupedFacts[t]) groupedFacts[t] = [];
+    groupedFacts[t].push(f);
+  });
+  Object.keys(groupedFacts).forEach((t) => {
+    groupedFacts[t].sort((a, b) => (Number(b.importance) || 0) - (Number(a.importance) || 0));
+  });
+  const groupKeys = Object.keys(groupedFacts).sort((a, b) => {
+    const ia = MEMORY_TYPES.indexOf(a);
+    const ib = MEMORY_TYPES.indexOf(b);
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+  });
+
+  const toggleGroup = (type) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
+  const expandAll = () => setExpandedGroups(new Set(groupKeys));
+  const collapseAll = () => setExpandedGroups(new Set());
+
+  // Auto-expand the filtered group (placed after groupKeys definition)
+  useEffect(() => {
+    if (typeFilter !== "all" && groupKeys.includes(typeFilter)) {
+      setExpandedGroups((prev) => {
+        const next = new Set(prev);
+        next.add(typeFilter);
+        return next;
+      });
+    }
+  }, [typeFilter, groupKeys]);
+
+  // Default: expand first 2-3 groups or important ones when data arrives (prevents initial long flat view)
+  useEffect(() => {
+    if (facts.length > 0 && expandedGroups.size === 0) {
+      const preferred = ["anchor", "fact", "preference", "event", "relationship"];
+      let defaults = groupKeys.filter((k) => preferred.includes(k)).slice(0, 3);
+      if (defaults.length === 0) defaults = groupKeys.slice(0, Math.min(3, groupKeys.length));
+      if (typeFilter !== "all") defaults = [typeFilter];
+      setExpandedGroups(new Set(defaults));
+    }
+  }, [facts.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!personality) {
     return (
@@ -696,6 +797,13 @@ export default function MemoryJournal({ personality }) {
       <div className="journal-header">
         <h2>Memory Journal</h2>
         <div className="journal-header-actions">
+          <input
+            type="text"
+            placeholder="Search memories..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(0,180,255,0.2)", background: "rgba(0,0,0,0.3)", color: "inherit", fontSize: "0.8rem", minWidth: 160 }}
+          />
           <button type="button" className="btn-icon" onClick={handleBackfill} disabled={backfilling}>
             {backfilling ? "Backfilling…" : "Backfill embeddings"}
           </button>
@@ -749,19 +857,58 @@ export default function MemoryJournal({ personality }) {
             >
               {showActiveOnly ? "Active only" : "Show disabled"}
             </button>
+            <button type="button" className="filter-pill" onClick={expandAll} style={{ marginLeft: "auto" }}>Expand all</button>
+            <button type="button" className="filter-pill" onClick={collapseAll}>Collapse all</button>
           </div>
 
-          <div className="memory-list">
-            {visible.map((fact) => (
-              <MemoryRow
-                key={fact.id}
-                fact={fact}
-                onSave={handleSave}
-                onDelete={handleDelete}
-                isConflicting={conflictScan.conflictingIds.has(fact.id)}
-                onQuickPatch={handleQuickPatch}
-              />
-            ))}
+          {/* Grouped view to avoid long flat lists */}
+          <div className="memory-groups">
+            {groupKeys.length === 0 ? (
+              <p className="empty-journal">No memories match the current filters.</p>
+            ) : (
+              groupKeys.map((gType) => {
+                const items = groupedFacts[gType] || [];
+                const isExpanded = expandedGroups.has(gType) || typeFilter === gType;
+                const badgeColor = TYPE_COLORS[gType] || TYPE_COLORS.fact;
+                return (
+                  <div key={gType} className="memory-group">
+                    <button
+                      type="button"
+                      className={`memory-group-header ${isExpanded ? "expanded" : ""}`}
+                      onClick={() => toggleGroup(gType)}
+                    >
+                      <span>
+                        <span className="chev">▶</span>
+                        <span
+                          className="memory-type-badge"
+                          style={{ background: badgeColor, fontSize: "0.65rem", padding: "1px 6px", marginRight: 6, verticalAlign: "middle" }}
+                        >
+                          {gType.replace(/_/g, " ")}
+                        </span>
+                        {items.length} item{items.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="count">
+                        {isExpanded ? "−" : "+"}
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="memory-list" style={{ padding: "6px 8px 8px" }}>
+                        {items.map((fact) => (
+                          <MemoryRow
+                            key={fact.id}
+                            fact={fact}
+                            onSave={handleSave}
+                            onDelete={handleDelete}
+                            isConflicting={conflictScan.conflictingIds.has(fact.id)}
+                            onQuickPatch={handleQuickPatch}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </>
       )}

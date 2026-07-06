@@ -3,6 +3,7 @@ import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import MemoryJournal from "./MemoryJournal.jsx";
 import { usePersonaState } from "../state/PersonaStateContext.jsx";
+import ControlTree from "./ControlTree.jsx";
 
 const editorStyles = `
   .persona-sync-tree {
@@ -754,6 +755,7 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
   return (
     <>
       <style>{editorStyles}</style>
+      <div className="house-control-panel">
       <h2 className="section-heading">Persona Editor</h2>
       <p className="section-copy">
         Edit high-impact persona attributes in focused sections to speed up iterative tuning.
@@ -898,35 +900,29 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
         })}
       </div>
 
-      <div className="persona-section-tabs">
-        <button
-          type="button"
-          className={`persona-section-tab ${activeSection === "basic" ? "active" : ""}`}
-          onClick={() => handleSectionSwitch("basic")}
-        >
-          Basic{dirtySections.basic ? " *" : ""}
-        </button>
-        <button
-          type="button"
-          className={`persona-section-tab ${activeSection === "behavior" ? "active" : ""}`}
-          onClick={() => handleSectionSwitch("behavior")}
-        >
-          Behavior{dirtySections.behavior ? " *" : ""}
-        </button>
-        <button
-          type="button"
-          className={`persona-section-tab ${activeSection === "neural" ? "active" : ""}`}
-          onClick={() => handleSectionSwitch("neural")}
-        >
-          Neural{dirtySections.neural ? " *" : ""}
-        </button>
-        <button
-          type="button"
-          className={`persona-section-tab ${activeSection === "memory" ? "active" : ""}`}
-          onClick={() => handleSectionSwitch("memory")}
-        >
-          Memory
-        </button>
+      {/* House palette tree nav replacing old horizontal tabs */}
+      <div className="house-split" style={{ marginTop: "8px", minHeight: "auto" }}>
+        <div className="house-tree" style={{ width: "200px" }}>
+          <div className="house-tree-root">PERSONA SECTIONS</div>
+          {[
+            { id: "basic", label: "Basic" },
+            { id: "behavior", label: "Behavior" },
+            { id: "neural", label: "Neural / Mood" },
+            { id: "memory", label: "Memory Journal" },
+          ].map((sec) => (
+            <button
+              key={sec.id}
+              type="button"
+              className={`house-tree-child ${activeSection === sec.id ? "selected" : ""}`}
+              onClick={() => handleSectionSwitch(sec.id)}
+            >
+              {sec.label}{dirtySections[sec.id] ? " *" : ""}
+            </button>
+          ))}
+        </div>
+        <div className="house-content" style={{ padding: "8px 12px", minHeight: "auto" }}>
+          {/* main section content renders below */}
+        </div>
       </div>
 
       {activeSection === "basic" ? (
@@ -1615,6 +1611,7 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
           <MemoryJournal personality={personality} />
         </div>
       ) : null}
+      </div> {/* /house-control-panel */}
     </>
   );
 }

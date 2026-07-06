@@ -1455,12 +1455,16 @@ function OrbitalArray({
   speaking = false,
   mood = null,
   constellationMode = false,
+  isCreatingPersona = false,
 }) {
   const stageRef = useRef(null);
   const trailCanvasRef = useRef(null);
   const [size, setSize] = useState({ w: 360, h: 360 });
   const rotationRef = useRef(0);
   const [, forceUpdate] = useState(0);
+
+  // ensure the prop is available (defensive for scope during edits)
+  const creating = !!isCreatingPersona;
 
   useEffect(() => {
     if (!stageRef.current) return;
@@ -1653,23 +1657,25 @@ function OrbitalArray({
           pointerEvents: "none",
         }}
       />
-      <div
-        className="orbital-core"
-        style={{
-          "--core-rgb": mood ? mood.rgb : "255, 43, 214",
-          "--core-glow-max": mood ? mood.glowMax : "48px",
-          animationDuration: mood ? mood.duration : "3s",
-          background: mood ? mood.bg : undefined,
-        }}
-      >
-        <span className="core-label-text">{coreLabel}</span>
-        {mood && mood.key !== "forming" && (
-          <span className="core-mood-badge">{mood.label}</span>
-        )}
-      </div>
+      {!creating && (
+        <div
+          className="orbital-core"
+          style={{
+            "--core-rgb": mood ? mood.rgb : "255, 43, 214",
+            "--core-glow-max": mood ? mood.glowMax : "48px",
+            animationDuration: mood ? mood.duration : "3s",
+            background: mood ? mood.bg : undefined,
+          }}
+        >
+          <span className="core-label-text">{coreLabel}</span>
+          {mood && mood.key !== "forming" && (
+            <span className="core-mood-badge">{mood.label}</span>
+          )}
+        </div>
+      )}
       {positions.length === 0 ? (
         <div className="orbital-empty">
-          No traits yet — speak to the forge below to define this persona.
+          {creating ? "Building new persona — orbs will appear once created and selected." : "No traits yet — speak to the forge below to define this persona."}
         </div>
       ) : (
         positions.map((p) => {
@@ -1725,6 +1731,7 @@ export default function VoxisTab({
   const [refinePrompt, setRefinePrompt] = useState("");
   const [checkedRefinements, setCheckedRefinements] = useState(new Set());
   const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef(null);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1740,6 +1747,15 @@ export default function VoxisTab({
   const [constellationMode, setConstellationMode] = useState(false);
   const [pendingGuideAction, setPendingGuideAction] = useState(null);
   const [recentGuideActions, setRecentGuideActions] = useState([]);
+  const [isCreatingPersona, setIsCreatingPersona] = useState(false);
+  const [previewCreationSpec, setPreviewCreationSpec] = useState(null);
+
+  // Reset create mode when a persona is selected externally
+  useEffect(() => {
+    if (personality && isCreatingPersona) {
+      setIsCreatingPersona(false);
+    }
+  }, [personality]);
   const recognitionRef = useRef(null);
   const echoAbortRef = useRef(null);
   const ttsAbortRef = useRef(null);
@@ -1755,7 +1771,30 @@ export default function VoxisTab({
   const replyTextRef = useRef("");
   const lastSpokenIndexRef = useRef(0);
 
-  const traits = useMemo(() => selectOrbitalTraits(personality), [personality]);
+  const effectivePersonalityForOrbs = isCreatingPersona 
+    ? (previewCreationSpec ? { traits: previewCreationSpec.traits || [], coreValues: [] } : null) 
+    : personality;
+  const traits = useMemo(() => selectOrbitalTraits(effectivePersonalityForOrbs), [effectivePersonalityForOrbs, isCreatingPersona, previewCreationSpec]);
+
+  // Trait colors for waveform tags - show up as traits are added
+  const TRAIT_COLORS = [
+    [255, 43, 214],   // Dominance
+    [188, 82, 255],   // Obsession
+    [38, 255, 255],   // Loyalty
+    [255, 103, 103],  // Deviance
+    [255, 197, 78],   // Confidence
+  ];
+  const activeTraitColors = traits.length > 0 
+    ? TRAIT_COLORS.slice(0, Math.min(traits.length, 5))
+    : [[170, 176, 230]]; // default other
+
+  // Pass isCreatingPersona down so OrbitalArray can use it without scope error
+  const orbitalProps = {
+    isCreatingPersona: isCreatingPersona,
+  };
+
+  // When creating new, clear orbs visualization
+  const showOrbs = !isCreatingPersona && traits.length > 0;
 
   useEffect(() => {
     traitKeywordsRef.current = traits
@@ -2001,11 +2040,40 @@ export default function VoxisTab({
   };
 
   const speakText = async (text) => {
-    if (!personality?.id) return;
     const cleaned = (text || "").trim();
     if (!cleaned) return;
 
     stopSpeaking();
+
+    // Force cheap browser system voice for the entire guide tab (tinkering area)
+    // Later can pivot to Piper/Kokoro via /tts with a system profile
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(cleaned);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.volume = 0.85;
+      setIsSpeaking(true);
+      // ensure level pulses for the waveform visual during browser speech
+      const pulse = setInterval(() => {
+        audioLevelRef.current = 0.25 + Math.random() * 0.6;
+      }, 90);
+      utterance.onend = () => {
+        clearInterval(pulse);
+        setIsSpeaking(false);
+        stopLevelLoop();
+      };
+      utterance.onerror = () => {
+        clearInterval(pulse);
+        setIsSpeaking(false);
+        stopLevelLoop();
+      };
+      startLevelLoop();
+      window.speechSynthesis.speak(utterance);
+      return;
+    }
+
+    if (!personality?.id) return;
+
     const controller = new AbortController();
     ttsAbortRef.current = controller;
     setTtsBusy(true);
@@ -2091,9 +2159,9 @@ export default function VoxisTab({
   };
 
   const sendForgeMessage = async (message, options = {}) => {
-    if (!personality?.id) return;
     const text = message.trim();
     if (!text) return;
+    // Guide mode can work without a selected personality (for pure creation)
 
     if (echoAbortRef.current) {
       try {
@@ -2106,7 +2174,9 @@ export default function VoxisTab({
     echoAbortRef.current = controller;
 
     stopSpeaking();
-    setEcho({ name: "Voxis", body: "Hi. I'm Voxis — your personality architect and cognitive companion. I can help you create new personas from scratch through conversation, or modify existing ones (like making Rick more sarcastic). What would you like to build or change today?", error: false });
+    if (!isCreatingPersona) {
+      setEcho({ name: "Voxis", body: "Hi. I'm Voxis — your personality architect and cognitive companion. I can help you create new personas from scratch through conversation, or modify existing ones (like making Rick more sarcastic). What would you like to build or change today?", error: false });
+    }
     setEchoStreaming(true);
     let finalReply = "";
     let finalRefinementSuggestions = [];
@@ -2116,7 +2186,7 @@ export default function VoxisTab({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          personalityId: personality?.id || null,
+          personalityId: 'voxis-guide',  // Dedicated "persona" ID for the privileged Voxis architect/guide in this tab only
           userId: userId ?? undefined,
           mode,
           message: text,
@@ -2124,6 +2194,7 @@ export default function VoxisTab({
           guideMode: true,           // Use the special Voxis guide meta-persona
           useVoxisGuide: true,
           recentGuideActions: recentGuideActions.slice(-5),
+          createMode: isCreatingPersona,
           // Better context passing for the guide
           allPersonas: personalities.map(p => ({
             id: p.id,
@@ -2220,6 +2291,9 @@ export default function VoxisTab({
         const action = parseVoxisGuideAction(finalReply);
         if (action) {
           setPendingGuideAction(action);
+          if (action.action === "create_persona" && action.spec) {
+            setPreviewCreationSpec(action.spec);
+          }
         }
       }
     } catch (err) {
@@ -2316,6 +2390,8 @@ export default function VoxisTab({
           }
           setRecentGuideActions(prev => [...prev, { type: "create", name: created.name, time: Date.now() }].slice(-10));
           setPendingGuideAction(null);
+          setIsCreatingPersona(false);
+          setPreviewCreationSpec(null);
           // Tell Voxis it succeeded
           void sendForgeMessage(`The persona was created successfully.`);
         } else {
@@ -2561,21 +2637,109 @@ export default function VoxisTab({
         <span style={{ fontSize: "0.6rem", opacity: 0.5 }}>— home base for persona creation & evolution</span>
       </div>
 
+      {isCreatingPersona && (
+        <>
+          <div style={{
+            margin: "0 22px 12px",
+            padding: "10px 16px",
+            background: "linear-gradient(90deg, rgba(0,180,255,0.2), rgba(38,255,255,0.1))",
+            border: "2px solid #26ffff",
+            borderRadius: 10,
+            fontSize: "0.95rem",
+            color: "#26ffff",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            boxShadow: "0 0 12px rgba(38,255,255,0.3)",
+            fontWeight: 500
+          }}>
+            <span style={{ fontSize: "1.1rem" }}>🎨</span>
+            <div style={{ flex: 1 }}>
+              <strong>PERSONA CREATION MODE</strong><br />
+              <span style={{ fontSize: "0.75rem", opacity: 0.9 }}>Voxis is guiding you interactively — describe or answer to build the persona</span>
+            </div>
+            <button 
+              onClick={() => {
+                setIsCreatingPersona(false);
+                setPreviewCreationSpec(null);
+                setEcho({ name: "Voxis", body: "Exited creation mode. How else can I help with personas today?", error: false });
+              }}
+              style={{ 
+                padding: "4px 12px", 
+                fontSize: "0.7rem", 
+                borderRadius: 6, 
+                border: "1px solid #26ffff", 
+                background: "rgba(0,0,0,0.3)", 
+                color: "#26ffff", 
+                cursor: "pointer",
+                whiteSpace: "nowrap"
+              }}
+            >
+              Exit Mode
+            </button>
+          </div>
+
+          {/* Step indicators */}
+          <div style={{ margin: "0 22px 8px", display: 'flex', gap: 4, fontSize: '0.65rem' }}>
+            {['Concept', 'Traits', 'Quirks/Style', 'SFX/Voice', 'Finalize'].map((step, idx) => {
+              const done = (idx === 0 && previewCreationSpec?.name) ||
+                           (idx === 1 && (previewCreationSpec?.traits?.length || 0) > 0) ||
+                           (idx === 2 && (previewCreationSpec?.quirks?.length || 0) > 0) ||
+                           (idx === 3 && previewCreationSpec?.speechStyle) ||
+                           (idx === 4 && pendingGuideAction);
+              return (
+                <div key={idx} style={{
+                  padding: '2px 8px',
+                  background: done ? 'rgba(0,255,100,0.2)' : 'rgba(255,255,255,0.1)',
+                  border: done ? '1px solid #0f0' : '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 4,
+                  color: done ? '#0f0' : '#ccc'
+                }}>
+                  {idx+1}. {step}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* Voxis Guide Home Base controls */}
       <div style={{ margin: "0 22px 12px", display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button
           onClick={() => {
-            setEcho({ name: "Voxis", body: "Let's create a new persona from scratch. Tell me the core concept, vibe, or a starting point (e.g. 'a bitter ex-pirate who now runs a tea shop').", error: false });
+            setIsCreatingPersona(true);
+            clearRefinements();
             setPendingGuideAction(null);
+            // Clear orbs for new creation
+            // (the orbital will show empty because we use effectivePersonality below)
+            const starter = "Let's enter persona creation mode. I'm ready to build a brand new persona from scratch with you. Please confirm we are in create mode and ask me the first question: what kind of personality or vibe are we going for?";
+            setEcho({ name: "Voxis", body: starter, error: false });
+            // Kick off the actual interactive conversation
+            sendForgeMessage(starter);
+            // Focus input for back-and-forth
+            setTimeout(() => inputRef.current?.focus(), 100);
+            // Make sure Voxis acknowledges create mode in its first response
+            // (the starter message and createMode flag + prompt will encourage it)
           }}
           style={{ padding: "6px 12px", borderRadius: 8, background: "rgba(0,180,255,0.2)", color: "#26ffff", border: "1px solid #26ffff", cursor: "pointer", fontSize: "0.75rem" }}
         >
           + Create New Persona
         </button>
+        {isCreatingPersona && (
+          <button
+            onClick={() => {
+              sendForgeMessage("I'm ready to lock this in. Please output the final JSON action spec for my confirmation.");
+            }}
+            style={{ padding: "6px 12px", borderRadius: 8, background: "rgba(0,255,100,0.2)", color: "#0f0", border: "1px solid #0f0", cursor: "pointer", fontSize: "0.75rem" }}
+          >
+            I'm ready to lock this in
+          </button>
+        )}
         <button
           onClick={() => {
             if (personality) {
               setEcho({ name: "Voxis", body: `What would you like to change about ${personality.name}? (e.g. "make them more sarcastic", "add a dark secret", "tone down the aggression")`, error: false });
+              sendForgeMessage(`I want to modify ${personality.name}. Let's discuss changes interactively.`);
             } else {
               setEcho({ name: "Voxis", body: "Select or name a persona first, then tell me what to tweak.", error: false });
             }
@@ -2651,6 +2815,7 @@ export default function VoxisTab({
             <button
               onClick={() => {
                 setPendingGuideAction(null);
+                setPreviewCreationSpec(null);
                 void sendForgeMessage("I decided not to apply that action yet. Let's discuss it more or adjust the details.");
               }}
               style={{
@@ -2668,6 +2833,81 @@ export default function VoxisTab({
           <div style={{ fontSize: "0.65rem", opacity: 0.65, marginTop: 6 }}>
             This is a preview. Voxis will be notified of your decision.
           </div>
+        </div>
+      )}
+
+      {/* Live spec editor - sidebar-like when creating */}
+      {isCreatingPersona && (
+        <div style={{
+          margin: "0 22px 12px",
+          padding: 12,
+          background: "rgba(0,255,100,0.08)",
+          border: "1px solid #0f0",
+          borderRadius: 8,
+          fontSize: "0.8rem"
+        }}>
+          <div style={{ color: "#0f0", fontWeight: 600, marginBottom: 6 }}>Live Spec Editor (edit to refine)</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <input 
+              placeholder="Name" 
+              value={previewCreationSpec?.name || ''} 
+              onChange={(e) => {
+                const newSpec = { ...(previewCreationSpec || {}), name: e.target.value };
+                setPreviewCreationSpec(newSpec);
+              }}
+              style={{ background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #0f0', padding: 4, borderRadius: 4 }}
+            />
+            <textarea 
+              placeholder="Description" 
+              value={previewCreationSpec?.description || ''} 
+              onChange={(e) => {
+                const newSpec = { ...(previewCreationSpec || {}), description: e.target.value };
+                setPreviewCreationSpec(newSpec);
+              }}
+              style={{ background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #0f0', padding: 4, borderRadius: 4, minHeight: 40 }}
+            />
+            <input 
+              placeholder="Traits (comma separated)" 
+              value={(previewCreationSpec?.traits || []).join(', ')} 
+              onChange={(e) => {
+                const newTraits = e.target.value.split(',').map(t => t.trim()).filter(Boolean);
+                const newSpec = { ...(previewCreationSpec || {}), traits: newTraits };
+                setPreviewCreationSpec(newSpec);
+              }}
+              style={{ background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #0f0', padding: 4, borderRadius: 4 }}
+            />
+            <input 
+              placeholder="Behavior Rules (comma separated)" 
+              value={(previewCreationSpec?.behaviorRules || []).join(', ')} 
+              onChange={(e) => {
+                const newRules = e.target.value.split(',').map(t => t.trim()).filter(Boolean);
+                const newSpec = { ...(previewCreationSpec || {}), behaviorRules: newRules };
+                setPreviewCreationSpec(newSpec);
+              }}
+              style={{ background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid #0f0', padding: 4, borderRadius: 4 }}
+            />
+          </div>
+          <div style={{ fontSize: '0.65rem', marginTop: 4, opacity: 0.7 }}>
+            Edits here update the preview. Click "I'm ready to lock this in" to send to Voxis.
+          </div>
+        </div>
+      )}
+
+      {/* Surface current creation spec */}
+      {isCreatingPersona && previewCreationSpec && !true && ( // hidden now, integrated above
+        <div style={{
+          margin: "0 22px 12px",
+          padding: 12,
+          background: "rgba(0,255,100,0.08)",
+          border: "1px solid #0f0",
+          borderRadius: 8,
+          fontSize: "0.8rem"
+        }}>
+          <div style={{ color: "#0f0", fontWeight: 600, marginBottom: 6 }}>Current Proposed Spec (from Voxis)</div>
+          <div><strong>Name:</strong> {previewCreationSpec.name}</div>
+          <div><strong>Traits:</strong> {(previewCreationSpec.traits || []).join(", ") || "—"}</div>
+          <div><strong>Behavior:</strong> {(previewCreationSpec.behaviorRules || []).join(" | ") || "—"}</div>
+          {previewCreationSpec.speechStyle && <div><strong>Speech:</strong> {previewCreationSpec.speechStyle}</div>}
         </div>
       )}
 
@@ -2690,6 +2930,48 @@ export default function VoxisTab({
           ))}
         </div>
       )}
+
+      <div className="forge-footer">
+        <div className="footer-wave">
+          <FooterMiniWave listening={listening} />
+        </div>
+        <form className="speak-row" onSubmit={handleSpeakSubmit}>
+          <div className="speak-row-status">
+            {activeTrait ? (
+              <>
+                Focus Trait <strong>{activeTrait}</strong>
+              </>
+            ) : (
+              <>Speak a trait, mood, or behavior to seed the forge.</>
+            )}
+          </div>
+          <button
+            type="button"
+            className={`mic-button ${listening ? "is-listening" : ""}`}
+            onClick={startListening}
+            aria-label="Speak to the Forge"
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 14c1.66 0 3-1.34 3-3V5a3 3 0 1 0-6 0v6c0 1.66 1.34 3 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <input
+            className="speak-input"
+            type="text"
+            placeholder={isCreatingPersona ? "Tell Voxis about the new persona or answer its questions..." : "Speak to the Forge…"}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            disabled={busy}
+            ref={inputRef}
+          />
+          <button type="submit" className="speak-submit" disabled={busy || !inputValue.trim()}>
+            Forge
+          </button>
+        </form>
+      </div>
 
       <div className="forge-body">
         <section className={`forge-panel refine-panel ${refinements.length === 0 ? "is-hidden" : ""}`}>
@@ -2741,8 +3023,18 @@ export default function VoxisTab({
         <section className="forge-panel center-panel">
           <h3 className="forge-panel-title">Voice Synapse Matrix</h3>
           <div className="waveform-frame">
-            <div className="waveform-tag">Live Input</div>
-            <div className="waveform-tag-right">Cortex Feed</div>
+            <div 
+              className="waveform-tag" 
+              style={{ color: `rgb(${activeTraitColors[0 % activeTraitColors.length].join(',')})` }}
+            >
+              Live Input
+            </div>
+            <div 
+              className="waveform-tag-right" 
+              style={{ color: `rgb(${activeTraitColors[1 % activeTraitColors.length].join(',')})` }}
+            >
+              Cortex Feed
+            </div>
             <Waveform
               intensity={intensity}
               listening={listening}
@@ -2826,49 +3118,9 @@ export default function VoxisTab({
             speaking={isSpeaking}
             mood={mood}
             constellationMode={constellationMode}
+            isCreatingPersona={isCreatingPersona}
           />
         </section>
-      </div>
-
-      <div className="forge-footer">
-        <div className="footer-wave">
-          <FooterMiniWave listening={listening} />
-        </div>
-        <form className="speak-row" onSubmit={handleSpeakSubmit}>
-          <div className="speak-row-status">
-            {activeTrait ? (
-              <>
-                Focus Trait <strong>{activeTrait}</strong>
-              </>
-            ) : (
-              <>Speak a trait, mood, or behavior to seed the forge.</>
-            )}
-          </div>
-          <button
-            type="button"
-            className={`mic-button ${listening ? "is-listening" : ""}`}
-            onClick={startListening}
-            aria-label="Speak to the Forge"
-          >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 14c1.66 0 3-1.34 3-3V5a3 3 0 1 0-6 0v6c0 1.66 1.34 3 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-          <input
-            className="speak-input"
-            type="text"
-            placeholder="Speak to the Forge…"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            disabled={busy}
-          />
-          <button type="submit" className="speak-submit" disabled={busy || !inputValue.trim()}>
-            Forge
-          </button>
-        </form>
       </div>
 
       <div className="forge-status-bar">

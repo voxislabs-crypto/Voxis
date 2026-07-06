@@ -19,6 +19,20 @@
 	--fx-shadow-soft: 0 16px 36px rgba(0, 0, 0, 0.42);
 	--fx-shadow-neon: 0 0 28px rgba(0, 245, 255, 0.2);
 	--fx-ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+	/* House-inspired palette (from exterior photo) */
+	--house-siding: #4f6373;
+	--house-siding-dark: #3f515f;
+	--house-brick: #8c5f4a;
+	--house-brick-light: #a06e57;
+	--house-pink: #d96a8c;
+	--house-pink-light: #e58aa8;
+	--house-wood: #6f5a4a;
+	--house-trim: #e6e2d8;
+	--house-trim-dark: #c9c3b3;
+	--house-dark: #0c1118;
+	--house-panel: #11181f;
+	--house-border: #2f3f4f;
 }
 
 .voxis-futuristic-root {
@@ -1003,4 +1017,198 @@
 
 .voxis-futuristic-root ::-webkit-scrollbar-thumb:hover {
 	background: rgba(0, 245, 255, 0.5);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HOUSE PALETTE + CONTROL TREE (Persona Editor, Voice Lab, Settings, Eval)
+   Colors from house photo: blue-gray siding, brick red, pink flowers, wood, cream trim
+═══════════════════════════════════════════════════════════════ */
+
+.house-control-panel {
+  --panel-bg: var(--house-panel);
+  --panel-border: var(--house-border);
+  --accent: var(--house-brick);
+  --accent-light: var(--house-brick-light);
+  --highlight: var(--house-pink);
+  --highlight-light: var(--house-pink-light);
+  --siding: var(--house-siding);
+  --text-main: var(--house-trim);
+  --text-muted: #9aa9b8;
+  --wood: var(--house-wood);
+}
+
+.house-control-panel .glass-panel,
+.house-control-panel .panel,
+.house-control-panel .holographic-border {
+  background: var(--panel-bg) !important;
+  border-color: var(--panel-border) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3) !important;
+}
+
+.house-control-panel .section-heading {
+  color: var(--text-main) !important;
+}
+
+.house-control-panel .section-copy {
+  color: var(--text-muted) !important;
+}
+
+/* Tree navigation */
+.house-tree {
+  width: 240px;
+  min-width: 200px;
+  max-width: 260px;
+  background: var(--house-dark);
+  border-right: 1px solid var(--panel-border);
+  padding: 12px 0;
+  overflow-y: auto;
+  flex-shrink: 0;
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  font-size: 0.78rem;
+}
+
+.house-tree-root {
+  padding: 6px 16px 8px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-main);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 4px;
+}
+
+.house-tree-parent {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #a8b9c8;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.house-tree-parent:hover {
+  background: rgba(79, 99, 116, 0.15);
+  color: var(--text-main);
+}
+
+.house-tree-parent .chev {
+  font-size: 0.7rem;
+  color: #5f7285;
+  transition: transform 140ms ease;
+}
+
+.house-tree-parent.expanded .chev {
+  transform: rotate(90deg);
+}
+
+.house-tree-parent.active-parent {
+  color: var(--text-main);
+  background: rgba(79, 99, 116, 0.1);
+}
+
+.house-tree-children {
+  padding-left: 22px;
+  padding-bottom: 2px;
+}
+
+.house-tree-child {
+  display: block;
+  width: 100%;
+  padding: 4px 10px 4px 8px;
+  font-size: 0.7rem;
+  color: #8a9aa9;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 100ms ease;
+}
+
+.house-tree-child:hover {
+  background: rgba(60, 72, 84, 0.3);
+  color: #b7c8d9;
+}
+
+.house-tree-child.selected {
+  font-weight: 800;
+  color: var(--house-trim);
+  background: rgba(140, 95, 74, 0.25);
+  border-left: 3px solid var(--house-brick);
+  padding-left: 5px;
+}
+
+/* Split layout */
+.house-split {
+  display: flex;
+  gap: 0;
+  min-height: 520px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--house-dark);
+  border: 1px solid var(--panel-border);
+}
+
+.house-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  background: #0b121b;
+}
+
+.house-content-header {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #a8b9c9;
+  margin-bottom: 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+/* Gentle permanent status bar */
+.house-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  background: #0f1721;
+  border-bottom: 1px solid var(--panel-border);
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  color: #8fa4b8;
+}
+
+.house-status-bar .pill {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(79, 99, 116, 0.2);
+  border: 1px solid rgba(79, 99, 116, 0.35);
+  color: #a8b9c9;
+  font-weight: 600;
+}
+
+.house-status-bar .pill.on,
+.house-status-bar .pill.active {
+  background: rgba(140, 95, 74, 0.18);
+  border-color: var(--house-brick);
+  color: #d9b8a8;
+}
+
+.house-status-bar .pill.pink {
+  background: rgba(217, 106, 140, 0.12);
+  border-color: var(--house-pink);
+  color: #e8b8c8;
 }

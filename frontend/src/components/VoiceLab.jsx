@@ -852,6 +852,166 @@ const voiceLabStyles = `
     border-color: rgba(0, 234, 255, 0.16);
     background: linear-gradient(180deg, rgba(3, 10, 22, 0.95), rgba(4, 8, 18, 0.92));
   }
+
+  /* ─────────────────────────────────────────────────────────────
+     NEW HOUSE-INSPIRED TREE NAV (blue-gray siding, brick, pink)
+  ───────────────────────────────────────────────────────────── */
+  .vlab-split {
+    display: flex;
+    gap: 0;
+    min-height: 520px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0a111a;
+    border: 1px solid #3f4f5f;
+  }
+
+  .vlab-tree {
+    width: 260px;
+    min-width: 220px;
+    max-width: 280px;
+    background: #0e1620;
+    border-right: 1px solid #2f3f4f;
+    padding: 14px 0;
+    overflow-y: auto;
+    flex-shrink: 0;
+    font-family: "JetBrains Mono", "Courier New", monospace;
+  }
+
+  .vlab-tree-root {
+    padding: 8px 18px 10px;
+    font-size: 0.95rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #b8c9d9;
+    text-transform: uppercase;
+    border-bottom: 1px solid #2a3747;
+    margin-bottom: 6px;
+  }
+
+  .vlab-tree-parent {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 18px 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #9fb4c8;
+    background: none;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .vlab-tree-parent:hover {
+    background: rgba(79, 99, 116, 0.12);
+    color: #c6d6e4;
+  }
+
+  .vlab-tree-parent .chev {
+    width: 14px;
+    display: inline-block;
+    transition: transform 140ms ease;
+    color: #5f7285;
+  }
+
+  .vlab-tree-parent.expanded .chev {
+    transform: rotate(90deg);
+  }
+
+  .vlab-tree-parent.active-parent {
+    color: #d2e1ee;
+    background: rgba(79, 99, 116, 0.08);
+  }
+
+  .vlab-tree-children {
+    padding-left: 26px;
+    padding-bottom: 4px;
+  }
+
+  .vlab-tree-child {
+    display: block;
+    width: 100%;
+    padding: 5px 12px 5px 10px;
+    font-size: 0.73rem;
+    color: #8a9aa9;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 120ms ease;
+  }
+
+  .vlab-tree-child:hover {
+    background: rgba(60, 72, 84, 0.25);
+    color: #b7c8d9;
+  }
+
+  .vlab-tree-child.selected {
+    font-weight: 800;
+    color: #e6e4dc;
+    background: rgba(140, 95, 74, 0.22); /* brick accent */
+    border-left: 3px solid #b36b55;
+    padding-left: 7px;
+  }
+
+  .vlab-content {
+    flex: 1;
+    padding: 18px 22px;
+    overflow-y: auto;
+    background: #0b121b;
+  }
+
+  .vlab-section-header {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #a8b9c9;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #2f3f4f;
+  }
+
+  /* Permanent gentle status bar (house trim + subtle) */
+  .vlab-permanent-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: #0f1721;
+    border-bottom: 1px solid #2a3747;
+    font-family: "JetBrains Mono", "Courier New", monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.07em;
+    color: #8fa4b8;
+  }
+
+  .vlab-status-pill {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(79, 99, 116, 0.2);
+    border: 1px solid rgba(79, 99, 116, 0.35);
+    color: #a8b9c9;
+    font-weight: 600;
+  }
+
+  .vlab-status-pill.on {
+    background: rgba(140, 95, 74, 0.18);
+    border-color: rgba(179, 107, 85, 0.4);
+    color: #d9b8a8;
+  }
+
+  .vlab-status-pill.accent {
+    background: rgba(217, 106, 140, 0.12);
+    border-color: rgba(217, 106, 140, 0.35);
+    color: #e8b8c8;
+  }
 `;
 
 const ELEVENLABS_VOICE_PRESETS = [
@@ -1020,6 +1180,281 @@ export default function VoiceLab({
   });
   const [isPrefetchingSfx, setIsPrefetchingSfx] = useState(false);
   const [vlabTab, setVlabTab] = useState("config"); // "config" | "clone"
+
+  // New tree navigation state for the requested split UI
+  const [selectedVoiceSection, setSelectedVoiceSection] = useState("engine-main");
+  const [expandedVoiceSections, setExpandedVoiceSections] = useState(() => new Set(["engine", "synthesis", "flags"]));
+
+  // File-system style tree definition for Voice Lab
+  const voiceTree = [
+    {
+      id: "engine",
+      label: "ENGINE CONFIG",
+      children: [
+        { id: "engine-main", label: "Engine Selection" },
+        { id: "provider-voices", label: "Provider Voices" },
+        { id: "models", label: "Models" },
+        { id: "provider-auth", label: "Provider Credentials" },
+      ],
+    },
+    {
+      id: "synthesis",
+      label: "SYNTHESIS PARAMETERS",
+      children: [
+        { id: "pitch-rate", label: "Pitch & Rate" },
+        { id: "sfx-volume", label: "SFX Volume" },
+        { id: "realism", label: "Realism Post-Processing" },
+      ],
+    },
+    {
+      id: "flags",
+      label: "VOICE FLAGS",
+      children: [
+        { id: "voice-toggle", label: "Voice Enable" },
+        { id: "autoplay-flag", label: "Autoplay" },
+      ],
+    },
+    {
+      id: "testing",
+      label: "TESTING & PROSODY",
+      children: [
+        { id: "signal-tester", label: "Signal Tester" },
+        { id: "waveform", label: "Waveform Monitor" },
+        { id: "sample-preview", label: "Sample Preview" },
+      ],
+    },
+    {
+      id: "profiles",
+      label: "SAVED PROFILES",
+      children: [
+        { id: "voice-maps", label: "Voice Maps" },
+        { id: "save-apply", label: "Save & Apply" },
+      ],
+    },
+  ];
+
+  function toggleVoiceParent(parentId) {
+    setExpandedVoiceSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) {
+        next.delete(parentId);
+      } else {
+        next.add(parentId);
+      }
+      return next;
+    });
+  }
+
+  function selectVoiceSection(sectionId, parentId) {
+    setSelectedVoiceSection(sectionId);
+    if (parentId && !expandedVoiceSections.has(parentId)) {
+      setExpandedVoiceSections((prev) => new Set(prev).add(parentId));
+    }
+  }
+
+  // Render the right-hand content based on selected tree leaf
+  function renderVoiceContent(sectionId) {
+    const sectionTitleMap = {
+      "engine-main": "ENGINE CONFIG — Engine Selection",
+      "provider-voices": "ENGINE CONFIG — Provider Voices",
+      "models": "ENGINE CONFIG — Models",
+      "provider-auth": "ENGINE CONFIG — Provider Credentials",
+      "pitch-rate": "SYNTHESIS PARAMETERS — Pitch & Rate",
+      "sfx-volume": "SYNTHESIS PARAMETERS — SFX Volume",
+      "realism": "SYNTHESIS PARAMETERS — Realism",
+      "voice-toggle": "VOICE FLAGS — Enable",
+      "autoplay-flag": "VOICE FLAGS — Autoplay",
+      "signal-tester": "TESTING & PROSODY — Signal Tester",
+      "waveform": "TESTING & PROSODY — Waveform",
+      "sample-preview": "TESTING & PROSODY — Sample Preview",
+      "voice-maps": "SAVED PROFILES — Voice Maps",
+      "save-apply": "SAVED PROFILES — Save & Apply",
+    };
+
+    const title = sectionTitleMap[sectionId] || "CONFIGURATION";
+
+    return (
+      <div>
+        <div className="house-content-header">{title}</div>
+
+        {/* ENGINE SELECTION */}
+        {(sectionId === "engine-main" || sectionId === "provider-voices" || sectionId === "models") && (
+          <>
+            <div className="vlab-field" style={{ marginBottom: 16 }}>
+              <label htmlFor="vlab-engine">TTS Engine</label>
+              <select
+                id="vlab-engine"
+                className="vlab-select"
+                value={voiceProfile.engine}
+                onChange={(e) => updateVoiceField("engine", normalizeVoiceEngineForDebug(e.target.value))}
+                style={{ width: "100%", padding: "8px 10px" }}
+              >
+                {TTS_DEBUG_PROVIDER_LOCK ? (
+                  <>
+                    <option value="auto">auto (cartesia → kokoro)</option>
+                    <option value="kokoro">kokoro (free local)</option>
+                    <option value="openvoice">openvoice (voice clone)</option>
+                    <option value="kokoro-rvc">kokoro + rvc</option>
+                    <option value="cartesia">cartesia (saved key)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="auto">auto</option>
+                    <option value="cloud">cloud</option>
+                    <option value="elevenlabs">elevenlabs</option>
+                    <option value="cartesia">cartesia</option>
+                    <option value="kokoro">kokoro</option>
+                    <option value="piper">piper</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            {/* Provider voice selection simplified for tree view */}
+            {sectionId === "provider-voices" && (
+              <div style={{ marginTop: 12 }}>
+                <label style={{ fontSize: "0.72rem", textTransform: "uppercase", color: "#8fa4b8" }}>Voice (provider)</label>
+                <div style={{ marginTop: 6, fontSize: "0.8rem", color: "#a8b9c9" }}>
+                  (Full voice selector available in legacy mode or advanced panels)
+                </div>
+              </div>
+            )}
+
+            {sectionId === "models" && (
+              <div style={{ marginTop: 12 }}>
+                <label style={{ fontSize: "0.72rem", textTransform: "uppercase", color: "#8fa4b8" }}>Model</label>
+                <div style={{ marginTop: 6, fontSize: "0.8rem", color: "#a8b9c9" }}>
+                  Choose model in the expanded form if needed.
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SYNTHESIS */}
+        {sectionId === "pitch-rate" && (
+          <div className="vlab-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="vlab-field">
+              <label>Pitch Modifier</label>
+              <input
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.01"
+                value={voiceProfile.pitch}
+                onChange={(e) => updateVoiceField("pitch", parseFloat(e.target.value))}
+              />
+              <div style={{ fontSize: "0.7rem", color: "#7a95af" }}>{Number(voiceProfile.pitch).toFixed(2)}</div>
+            </div>
+            <div className="vlab-field">
+              <label>Rate Modifier</label>
+              <input
+                type="range"
+                min="0.6"
+                max="1.8"
+                step="0.01"
+                value={voiceProfile.rate}
+                onChange={(e) => updateVoiceField("rate", parseFloat(e.target.value))}
+              />
+              <div style={{ fontSize: "0.7rem", color: "#7a95af" }}>{Number(voiceProfile.rate).toFixed(2)}</div>
+            </div>
+          </div>
+        )}
+
+        {sectionId === "sfx-volume" && (
+          <div className="vlab-field">
+            <label>SFX Volume</label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={voiceProfile.sfxVolume}
+              onChange={(e) => updateVoiceField("sfxVolume", parseFloat(e.target.value))}
+            />
+            <div style={{ fontSize: "0.7rem" }}>{Number(voiceProfile.sfxVolume).toFixed(2)}</div>
+          </div>
+        )}
+
+        {sectionId === "realism" && (
+          <>
+            <label className="vlab-toggle" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={!!voiceProfile.realismEnabled}
+                onChange={(e) => updateVoiceField("realismEnabled", e.target.checked)}
+              />
+              Enable Realism Post-Processing
+            </label>
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: "0.72rem" }}>Realism Preset</label>
+              <select
+                value={voiceProfile.realismPreset}
+                onChange={(e) => updateVoiceField("realismPreset", e.target.value)}
+                style={{ marginTop: 4, width: "100%" }}
+              >
+                {["conversational", "dramatic", "intimate", "energetic", "whisper"].map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+
+        {/* VOICE FLAGS */}
+        {(sectionId === "voice-toggle" || sectionId === "autoplay-flag") && (
+          <div>
+            <label className="vlab-toggle" style={{ marginBottom: 12, display: "block" }}>
+              <input
+                type="checkbox"
+                checked={voiceProfile.enabled}
+                onChange={(e) => updateVoiceField("enabled", e.target.checked)}
+              />
+              Voice Enabled
+            </label>
+
+            <label className="vlab-toggle" style={{ display: "block" }}>
+              <input
+                type="checkbox"
+                checked={!!voiceProfile.autoplay}
+                onChange={(e) => updateVoiceField("autoplay", e.target.checked)}
+              />
+              Autoplay responses
+            </label>
+          </div>
+        )}
+
+        {/* TESTING */}
+        {["signal-tester", "waveform", "sample-preview"].includes(sectionId) && (
+          <div style={{ fontSize: "0.85rem", color: "#9fb4c8", lineHeight: 1.5 }}>
+            {sectionId === "signal-tester" && "Prosody URL + extraction controls live here."}
+            {sectionId === "waveform" && "Live frequency monitor and generated audio preview."}
+            {sectionId === "sample-preview" && "Send test text and audition current settings."}
+            <div style={{ marginTop: 12, fontSize: "0.7rem", opacity: 0.7 }}>
+              (Detailed controls still available in the full config view if needed)
+            </div>
+          </div>
+        )}
+
+        {/* PROFILES */}
+        {["voice-maps", "save-apply"].includes(sectionId) && (
+          <div>
+            <div style={{ marginBottom: 12 }}>Voice Maps &amp; Saved Profiles</div>
+            <button className="vlab-btn" style={{ padding: "8px 14px" }} onClick={() => void saveVoiceMap()}>
+              Save Current Voice Profile
+            </button>
+            <div style={{ marginTop: 10, fontSize: "0.7rem", color: "#7a95af" }}>
+              Load from saved maps in the full editor.
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 24, fontSize: "0.65rem", color: "#5f7285", borderTop: "1px solid #2a3747", paddingTop: 10 }}>
+          Select different leaves on the left to focus this panel. Full legacy controls remain available under the hood.
+        </div>
+      </div>
+    );
+  }
   const [sampleText, setSampleText] = useState("");
   const [prosodyUrl, setProsodyUrl] = useState("");
   const [prosodyFile, setProsodyFile] = useState(null);
@@ -2208,7 +2643,7 @@ export default function VoiceLab({
     return (
       <>
         <style>{voiceLabStyles}</style>
-        <div className="vlab-shell">
+        <div className="vlab-shell house-control-panel">
           <div className="vlab-empty">
             Select a saved personality or create a new one before opening Voice Lab.
             <div>
@@ -2225,7 +2660,7 @@ export default function VoiceLab({
   return (
     <>
       <style>{voiceLabStyles}</style>
-      <div className="vlab-shell">
+      <div className="vlab-shell house-control-panel">
 
         {/* ── Header ── */}
         <div className="vlab-header">
@@ -2234,20 +2669,7 @@ export default function VoiceLab({
             VOICE SYNTHESIS MODULE
           </div>
           <h3 className="vlab-title">{personality.name} // VOICE LAB</h3>
-          <div className="vlab-header-meta">
-            <span className={`vlab-meta-pill ${voiceProfile.enabled ? "on" : ""}`}>
-              {voiceProfile.enabled ? "● VOICE ON" : "○ VOICE OFF"}
-            </span>
-            <span className="vlab-meta-pill">ENG:{voiceProfile.engine.toUpperCase()}</span>
-            <span className="vlab-meta-pill">PITCH:{Number(voiceProfile.pitch).toFixed(2)}</span>
-            <span className="vlab-meta-pill">RATE:{Number(voiceProfile.rate).toFixed(2)}</span>
-            {voiceProfile.realismEnabled ? (
-              <span className="vlab-meta-pill on">REALISM:{String(voiceProfile.realismPreset || "conversational").toUpperCase()}</span>
-            ) : (
-              <span className="vlab-meta-pill">REALISM:OFF</span>
-            )}
-            {voiceProfile.autoplay && <span className="vlab-meta-pill on">AUTOPLAY</span>}
-          </div>
+          {/* Meta pills moved to always-visible gentle bar above the tree */}
         </div>
 
         {/* ── Tab Bar ── */}
@@ -2268,13 +2690,82 @@ export default function VoiceLab({
           </button>
         </div>
 
+        {/* ── Permanent gentle status bar (house palette) ── */}
+        <div className="house-status-bar">
+          <span className={`pill ${voiceProfile.enabled ? "on" : ""}`}>
+            {voiceProfile.enabled ? "● VOICE ON" : "○ VOICE OFF"}
+          </span>
+          <span className="pill">ENG:{voiceProfile.engine.toUpperCase()}</span>
+          <span className="pill">PITCH:{Number(voiceProfile.pitch).toFixed(2)}</span>
+          <span className="pill">RATE:{Number(voiceProfile.rate).toFixed(2)}</span>
+          {voiceProfile.realismEnabled ? (
+            <span className="pill pink">REALISM:{String(voiceProfile.realismPreset || "conversational").toUpperCase()}</span>
+          ) : (
+            <span className="pill">REALISM:OFF</span>
+          )}
+          {voiceProfile.autoplay && <span className="pill pink">AUTOPLAY</span>}
+        </div>
+
         {/* ── Voice Clone Tab ── */}
         {vlabTab === "clone" && (
           <VoiceCloneTab personality={personality} onStatus={onStatus} />
         )}
 
-        {/* ── Voice Config Body (existing content) ── */}
-        <div className="vlab-body" style={vlabTab !== "config" ? { display: "none" } : {}}>
+        {/* ── NEW TREE + SPLIT for CONFIG (house colors + requested layout) ── */}
+        {vlabTab === "config" && (
+          <div className="house-split">
+            {/* LEFT: Tree navigation */}
+            <div className="house-tree">
+              <div className="house-tree-root">VOICE LAB</div>
+
+              {voiceTree.map((parent) => {
+                const isExpanded = expandedVoiceSections.has(parent.id);
+                const isActiveParent = voiceTree
+                  .find((p) => p.children?.some((c) => c.id === selectedVoiceSection))
+                  ?.id === parent.id;
+
+                return (
+                  <div key={parent.id}>
+                    <button
+                      type="button"
+                      className={`house-tree-parent ${isExpanded ? "expanded" : ""} ${isActiveParent ? "active-parent" : ""}`}
+                      onClick={() => toggleVoiceParent(parent.id)}
+                    >
+                      <span className="chev">▶</span>
+                      {parent.label}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="house-tree-children">
+                        {parent.children.map((child) => {
+                          const isSelected = selectedVoiceSection === child.id;
+                          return (
+                            <button
+                              key={child.id}
+                              type="button"
+                              className={`house-tree-child ${isSelected ? "selected" : ""}`}
+                              onClick={() => selectVoiceSection(child.id, parent.id)}
+                            >
+                              {child.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* RIGHT: Content for selected section */}
+            <div className="house-content">
+              {renderVoiceContent(selectedVoiceSection)}
+            </div>
+          </div>
+        )}
+
+        {/* ── Voice Config Body (existing linear content hidden in favor of tree for now) ── */}
+        <div className="vlab-body" style={{ display: "none" }}>
 
           {/* ── Engine Config ── */}
           <div className="vlab-section">

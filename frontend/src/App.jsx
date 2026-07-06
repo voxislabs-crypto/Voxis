@@ -19,6 +19,7 @@ import ExpressionSamplingSettings from "./components/ExpressionSamplingSettings.
 import CognitionLoopSettings from "./components/CognitionLoopSettings.jsx";
 import ProfaneFilterSettings from "./components/ProfaneFilterSettings.jsx";
 import CompanionAliasSettings from "./components/CompanionAliasSettings.jsx";
+import ControlTree from "./components/ControlTree.jsx";
 import ApiDiagnosticsPanel from "./components/ApiDiagnosticsPanel.jsx";
 import BrainTab from "./components/BrainTab.jsx";
 import { PersonaStateProvider } from "./state/PersonaStateContext.jsx";
@@ -1005,6 +1006,7 @@ export default function App() {
     storedLastPersonaId != null ? Number(storedLastPersonaId) : null,
   );
   const [activeView, setActiveView] = useState("chat");
+  const [settingsTreeSelection, setSettingsTreeSelection] = useState("visual");
   const [personaEditorTarget, setPersonaEditorTarget] = useState(null);
   const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
@@ -2789,7 +2791,7 @@ export default function App() {
                 onExportPersonas={handleExportPersonas}
                 onImportPersonas={(event) => handleImportPersonas(event, personaImportMode)}
                 onSelect={handleSelectPersonality}
-                onOpenChat={() => setActiveView("chat")}
+                onOpenChat={() => { if (activeView !== "voxis") setActiveView("chat"); }}
                 onResetPersona={handleResetPersonality}
                 onDeletePersona={handleDeletePersonality}
               />
@@ -2949,11 +2951,6 @@ export default function App() {
                 />
               ) : activeView === "voice" ? (
                 <>
-                  <h2 className="section-heading">Tune voice in Voice Lab</h2>
-                  <p className="section-copy">
-                    Keep quick playback controls in chat while using this tab for full TTS profile tuning,
-                    sample generation, and voice profile saves.
-                  </p>
                   <VoiceLab
                     personality={selectedPersonality}
                     messages={chatLogs[selectedId] || []}
@@ -2989,20 +2986,68 @@ export default function App() {
                   />
                 </>
               ) : activeView === "eval" ? (
-                <>
+                <div className="house-control-panel">
                   <h2 className="section-heading">Pressure-test the active character</h2>
                   <p className="section-copy">
                     Run adversarial scenarios against the active personality and inspect transcript,
                     heuristic scoring, prompt-budget telemetry, and judge commentary without mutating chat history.
                   </p>
-                  <HarnessReport personality={selectedPersonality} onStatus={setStatus} />
-                </>
+
+                  <div className="house-split">
+                    <div className="house-tree">
+                      <div className="house-tree-root">ADVERSARIAL EVAL</div>
+                      {[
+                        { id: "scenarios", label: "Scenarios" },
+                        { id: "run", label: "Run & Controls" },
+                        { id: "results", label: "Results & Scores" },
+                        { id: "transcript", label: "Transcript" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="house-tree-child"
+                          onClick={() => {}}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="house-content">
+                      <HarnessReport personality={selectedPersonality} onStatus={setStatus} />
+                    </div>
+                  </div>
+                </div>
               ) : activeView === "settings" ? (
-                <>
+                <div className="house-control-panel">
                   <h2 className="section-heading">Runtime Settings</h2>
                   <p className="section-copy">
                     Manage platform options, runtime providers, global voice routing, and voice provider credentials in one place.
                   </p>
+
+                  {/* Simple house palette tree for navigation */}
+                  <div className="house-tree" style={{ width: "100%", maxWidth: "100%", borderRight: "none", borderBottom: "1px solid var(--panel-border)", marginBottom: "12px", display: "flex", flexWrap: "wrap", padding: "8px" }}>
+                    {[
+                      { id: "visual", label: "Visual Effects" },
+                      { id: "policy", label: "User Policy" },
+                      { id: "llm", label: "LLM / Providers" },
+                      { id: "emotion", label: "Emotion Engine" },
+                      { id: "expression", label: "Expression Sampling" },
+                      { id: "cognition", label: "Cognition Loop" },
+                      { id: "filter", label: "Profane Filter" },
+                      { id: "aliases", label: "Companion Aliases" },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`house-tree-child ${settingsTreeSelection === item.id ? "selected" : ""}`}
+                        style={{ display: "inline-block", width: "auto", margin: "2px 4px" }}
+                        onClick={() => setSettingsTreeSelection(item.id)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="panel glass-panel holographic-border" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0 }}>Visual Effects</h3>
                     <p className="section-copy" style={{ marginBottom: 12 }}>
@@ -3195,8 +3240,8 @@ export default function App() {
                     </p>
                   </div>
                   <CompanionAliasSettings onStatus={setStatus} />
-                </>
-              ) : (
+                </div>
+          ) : (
                 <>
                   <h2 className="section-heading">Talk to the active character</h2>
                   <p className="section-copy">

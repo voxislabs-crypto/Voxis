@@ -288,7 +288,6 @@ export async function personaOpenerHandler(req, res, next) {
 
     const { policy } = resolvePolicyContext({ userId, requestedMode });
     const personality = getPersonalityById(personalityId);
-
     if (!personality) {
       return res.status(404).json({ error: "Personality not found." });
     }
@@ -307,7 +306,11 @@ export async function personaOpenerHandler(req, res, next) {
     const personaPreferences = getPersonaPreferences(personalityId);
 
     let promptPackage;
-    const guideMode = Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
+    const guideMode = Boolean(
+      req.body?.guideMode || 
+      req.body?.useVoxisGuide || 
+      req.body?.personalityId === 'voxis-guide'
+    );
 
     if (guideMode) {
       // Special Voxis guide mode - use the meta architect prompt + neural handshake
@@ -318,7 +321,10 @@ export async function personaOpenerHandler(req, res, next) {
         ? passedPersonas 
         : (getAllPersonalities ? getAllPersonalities().slice(0, 15) : []);
       const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
-      const contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+      let contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+      if (req.body?.createMode) {
+        contextStr += " User is currently in interactive persona creation mode with you. Confirm you are in creation mode and ask engaging questions.";
+      }
 
       // Run lightweight Perception → Emotion hook (first layer of neural handshake)
       const handshake = runPerceptionEmotionHook(message || seed, {
@@ -779,15 +785,18 @@ export async function chatHandler(req, res, next) {
   const streamBrain = req.body.streamBrain === true;
 
   try {
-    const personalityId = Number(req.body.personalityId);
+    const rawPersonalityId = req.body.personalityId;
+    const isVoxisGuide = rawPersonalityId === 'voxis-guide' || 
+                        Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
+    const personalityId = isVoxisGuide ? null : Number(rawPersonalityId);
     const message = String(req.body.message || "").trim();
     const userId = req.body.userId;
     const requestedMode = String(req.body.mode || "").trim().toLowerCase();
     const forceWebSearch = req.body.enableSearch === true;
 
-    console.log("[VOXIS DEBUG] Backend received - personalityId:", personalityId);
+    console.log("[VOXIS DEBUG] Backend received - personalityId:", rawPersonalityId, "isVoxisGuide:", isVoxisGuide);
 
-    if (!Number.isInteger(personalityId)) {
+    if (!isVoxisGuide && !Number.isInteger(personalityId)) {
       return res.status(400).json({ error: "A valid personalityId is required." });
     }
 
@@ -803,16 +812,20 @@ export async function chatHandler(req, res, next) {
       },
     };
 
-    const personality = getPersonalityById(personalityId);
-
-    if (!personality) {
-      return res.status(404).json({ error: "Personality not found." });
+    let personality = null;
+    if (isVoxisGuide) {
+      personality = { id: 'voxis-guide', name: 'Voxis' };
+    } else {
+      personality = getPersonalityById(personalityId);
+      if (!personality) {
+        return res.status(404).json({ error: "Personality not found." });
+      }
     }
 
     const sessionId = generateSessionId();
-    observePersonalityLoad(sessionId, personality);
+    if (personality) observePersonalityLoad(sessionId, personality);
 
-    const totalMessages = getChatMessageCount(personalityId);
+    const totalMessages = isVoxisGuide ? 0 : getChatMessageCount(personalityId);
 
     const stateFlawRuntime = getStateRuntimeConfig();
     const stateFlawStep = stepStateFlaws({
@@ -1075,13 +1088,20 @@ export async function chatHandler(req, res, next) {
       ? await searchRawChatHistory(personalityId, message, 3).catch(() => [])
       : [];
     let promptPackage;
-    const guideMode = Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
+    const guideMode = Boolean(
+      req.body?.guideMode || 
+      req.body?.useVoxisGuide || 
+      req.body?.personalityId === 'voxis-guide'
+    );
 
     if (guideMode) {
       const currentForContext = personality || null;
       const available = getAllPersonalities ? getAllPersonalities().slice(0, 15) : [];
       const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
-      const contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+      let contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
+      if (req.body?.createMode) {
+        contextStr += " User is currently in interactive persona creation mode with you. Confirm you are in creation mode and ask engaging questions.";
+      }
 
       const handshake = runPerceptionEmotionHook(message, {
         selectedPersona: currentForContext,
@@ -1928,7 +1948,6 @@ export function chatHistoryHandler(req, res, next) {
     }
 
     const personality = getPersonalityById(personalityId);
-
     if (!personality) {
       return res.status(404).json({ error: "Personality not found." });
     }
