@@ -3,8 +3,9 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 const backendUrl = "http://localhost:3101";
+const clerkMockPath = path.resolve(__dirname, "./src/mocks/clerk.jsx");
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
   resolve: {
     // Force a single copy of three + R3F packages — prevents
@@ -15,9 +16,14 @@ export default defineConfig({
       "@react-three/drei",
       "@react-three/postprocessing",
     ],
-    alias: {
-      "@clerk/react": path.resolve(__dirname, "./src/mocks/clerk.jsx"),
-    },
+    // Local dev uses a mock Clerk provider so the app runs without OAuth setup.
+    // Production builds must use the real @clerk/react package for Google sign-in.
+    alias:
+      command === "serve"
+        ? {
+            "@clerk/react": clerkMockPath,
+          }
+        : {},
   },
   server: {
     port: 3100,
@@ -115,4 +121,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

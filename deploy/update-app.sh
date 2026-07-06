@@ -78,12 +78,36 @@ if ! command -v yt-dlp >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1 ||
   sudo apt-get install -y yt-dlp ffmpeg
 fi
 
-if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$APP_DIR/frontend/.env" 2>/dev/null; then
+FRONTEND_ENV="$APP_DIR/frontend/.env"
+if [[ ! -f "$FRONTEND_ENV" ]]; then
+  cp "$APP_DIR/frontend/.env.example" "$FRONTEND_ENV"
+fi
+
+# Keep frontend publishable key aligned with backend when only backend/.env was updated.
+if grep -q '^CLERK_PUBLISHABLE_KEY=pk_' "$BACKEND_DIR/.env" 2>/dev/null; then
+  backend_pk="$(grep '^CLERK_PUBLISHABLE_KEY=' "$BACKEND_DIR/.env" | head -n1 | cut -d= -f2-)"
+  if [[ -n "$backend_pk" ]]; then
+    if grep -q '^VITE_CLERK_PUBLISHABLE_KEY=' "$FRONTEND_ENV" 2>/dev/null; then
+      sed -i "s|^VITE_CLERK_PUBLISHABLE_KEY=.*|VITE_CLERK_PUBLISHABLE_KEY=${backend_pk}|" "$FRONTEND_ENV"
+    else
+      echo "VITE_CLERK_PUBLISHABLE_KEY=${backend_pk}" >> "$FRONTEND_ENV"
+    fi
+  fi
+fi
+
+if ! grep -q '^VITE_CLERK_PUBLISHABLE_KEY=pk_' "$FRONTEND_ENV" 2>/dev/null; then
   echo
-  echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set in $APP_DIR/frontend/.env"
-  echo "Edit the file and add your Clerk publishable key, then re-run this script."
-  echo "  nano $APP_DIR/frontend/.env"
+  echo "ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set in $FRONTEND_ENV"
+  echo "Edit backend/.env (CLERK_PUBLISHABLE_KEY + CLERK_SECRET_KEY) or frontend/.env, then re-run."
+  echo "  nano $BACKEND_DIR/.env"
+  echo "  nano $FRONTEND_ENV"
   exit 1
+fi
+
+if grep -q '^ALLOW_MISSING_CLERK_KEYS=true' "$BACKEND_DIR/.env" 2>/dev/null; then
+  echo
+  echo "WARNING: ALLOW_MISSING_CLERK_KEYS=true is set in backend/.env."
+  echo "Remove it (or set false) in production so friends must sign in with Clerk/Google."
 fi
 
 echo "[5/6] Building frontend"

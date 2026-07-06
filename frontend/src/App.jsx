@@ -965,6 +965,21 @@ const appStyles = `
   }
 `;
 
+const clerkAppearance = {
+  variables: {
+    colorPrimary: "#00f5ff",
+    colorBackground: "rgba(10, 16, 32, 0.96)",
+    colorText: "#cfe6ff",
+    colorInputBackground: "rgba(14, 22, 38, 0.8)",
+    colorInputText: "#cfe6ff",
+    borderRadius: "12px",
+  },
+  layout: {
+    socialButtonsPlacement: "top",
+    socialButtonsVariant: "blockButton",
+  },
+};
+
 export default function App() {
   const BACKGROUND_VIDEO_SRC = "/cyberpunk-bg.mp4?v=20260407";
 
@@ -2679,12 +2694,14 @@ export default function App() {
               routing="virtual"
               signInUrl="/sign-in"
               forceRedirectUrl="/"
+              appearance={clerkAppearance}
             />
           ) : (
             <SignIn
               routing="virtual"
               signUpUrl="/sign-up"
               forceRedirectUrl="/"
+              appearance={clerkAppearance}
             />
           )}
         </div>
