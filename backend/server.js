@@ -17,6 +17,7 @@ process.on("uncaughtException", (err) => {
 import personalityRoutes from "./routes/personalityRoutes.js";
 import councilRoutes from "./routes/councilRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import internalChatRoutes from "./routes/internalChatRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import loopRoutes from "./routes/loopRoutes.js";
@@ -40,6 +41,7 @@ try {
 
 const app = express();
 const basePort = Number(process.env.PORT || 3101);
+const listenHost = String(process.env.HOST || "127.0.0.1").trim() || "127.0.0.1";
 const PORT_FILE = path.join(process.cwd(), "..", "shared", "ports.json");
 
 function getReleaseInfo() {
@@ -119,6 +121,7 @@ app.get("/voxis-config.js", (req, res) => {
 
 app.use(personalityRoutes);
 app.use(chatRoutes);
+app.use("/api/internal", internalChatRoutes);
 app.use(settingsRoutes);
 app.use(userRoutes);
 app.use(loopRoutes);
@@ -199,10 +202,10 @@ async function startServer() {
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.writeFileSync(PORT_FILE, JSON.stringify({ backend: port }, null, 2));
 
-  app.listen(port, () => {
+  app.listen(port, listenHost, () => {
     const release = getReleaseInfo();
     console.log(
-      `Voxis backend listening on port ${port} (branch=${release.branch || "unknown"}, sha=${release.gitSha || "unknown"})`,
+      `Voxis backend listening on http://${listenHost}:${port} (branch=${release.branch || "unknown"}, sha=${release.gitSha || "unknown"})`,
     );
     // Non-blocking SFX pre-fetch on startup
     initSfxCache().catch((err) => console.warn("[SFX Cache] init error:", err.message));

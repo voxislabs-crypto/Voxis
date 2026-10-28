@@ -16,16 +16,17 @@ import { adjudicateMoodShift, isMoodAdjudicationEnabled } from "./llmService.js"
 
 // Default runtime configuration. Can be overridden per-request via settings.
 const DEFAULT_MOOD_RUNTIME = {
-  inertia: 0.75,
-  responsiveness: 0.25,
-  perTurnDeltaCap: 0.45,
+  // 0.5 momentum: a single event gets half the blend instead of a quarter.
+  inertia: 0.5,
+  responsiveness: 0.5,
+  perTurnDeltaCap: 0.65,
   recoveryCurves: {
-    default: 0.08,
-    stoic: 0.12,
-    volatile: 0.04,
-    bratty: 0.06,
-    villainous: 0.03,
-    kind: 0.1,
+    default: 0.03,
+    stoic: 0.06,
+    volatile: 0.02,
+    bratty: 0.025,
+    villainous: 0.015,
+    kind: 0.05,
   },
 };
 
@@ -805,50 +806,48 @@ function analyzeMessageSentiment(message) {
   let dominanceImpact = 0;
 
   if (RX.hostileHigh.test(text)) {
-    valenceImpact   -= 0.38;
-    arousalImpact   += 0.42;
-    dominanceImpact += 0.22;
+    valenceImpact   -= 0.55;
+    arousalImpact   += 0.55;
+    dominanceImpact += 0.30;
   }
   if (RX.negativeLow.test(text)) {
-    valenceImpact   -= 0.28;
-    arousalImpact   -= 0.18;
-    dominanceImpact -= 0.12;
+    valenceImpact   -= 0.40;
+    arousalImpact   -= 0.25;
+    dominanceImpact -= 0.15;
   }
   if (RX.positiveHigh.test(text)) {
-    valenceImpact   += 0.38;
-    arousalImpact   += 0.22;
-    dominanceImpact += 0.10;
+    valenceImpact   += 0.55;
+    arousalImpact   += 0.35;
+    dominanceImpact += 0.15;
   }
   if (RX.positiveSoft.test(text)) {
-    valenceImpact   += 0.18;
+    valenceImpact   += 0.25;
     arousalImpact   -= 0.05;
   }
   if (RX.challenging.test(text)) {
-    valenceImpact   -= 0.12;
-    arousalImpact   += 0.18;
-    dominanceImpact += 0.28; // challenge pushes agent to assert
+    valenceImpact   -= 0.20;
+    arousalImpact   += 0.28;
+    dominanceImpact += 0.40;
   }
   if (RX.vulnerable.test(text)) {
-    // Target vulnerability increases the agent's felt dominance
-    dominanceImpact += 0.22;
-    arousalImpact   += 0.10;
-    valenceImpact   -= 0.06;
+    dominanceImpact += 0.30;
+    arousalImpact   += 0.15;
+    valenceImpact   -= 0.10;
   }
   if (RX.commanding.test(text)) {
-    // Being commanded slightly destabilises agent dominance
-    valenceImpact   -= 0.12;
-    arousalImpact   += 0.22;
-    dominanceImpact -= 0.18;
+    valenceImpact   -= 0.20;
+    arousalImpact   += 0.30;
+    dominanceImpact -= 0.25;
   }
   if (RX.playful.test(text)) {
-    valenceImpact   += 0.22;
-    arousalImpact   += 0.15;
+    valenceImpact   += 0.30;
+    arousalImpact   += 0.25;
   }
   if (hasExclamation || hasCaps) {
-    arousalImpact += 0.18;
+    arousalImpact += 0.28;
   }
   if (questionCount >= 2) {
-    arousalImpact += 0.08;
+    arousalImpact += 0.15;
   }
 
   return { valenceImpact, arousalImpact, dominanceImpact };
@@ -1015,15 +1014,25 @@ export async function stepMood({ currentMood, baseline, message, personality, re
     dominance: clamp(lerp(smoothed.dominance, baseline.dominance, decayRate)),
   };
   const { capped } = applyPerTurnDeltaCaps(currentMood, decayedMood, runtime.perTurnDeltaCap);
-
-  return finalizeEmotionalState({
-    mood: capped,
-    baseline,
-    signal: diagnostics.signal,
-    reaction: diagnostics.reaction,
-    previousState: diagnostics.previousState,
-    decayRate,
+  const affective = advanceAffectiveState({
+    currentMood,
+    message,
+    personality,
+    signalType: diagnostics.signal.type,
   });
+
+  return {
+    ...finalizeEmotionalState({
+      mood: capped,
+      baseline,
+      signal: diagnostics.signal,
+      reaction: diagnostics.reaction,
+      previousState: diagnostics.previousState,
+      decayRate,
+    }),
+    stress: affective.stress,
+    grudges: affective.grudges,
+  };
 }
 
 export async function stepMoodDetailed({
@@ -1089,15 +1098,25 @@ export async function stepMoodDetailed({
     dominance: clamp(lerp(smoothed.dominance, baseline.dominance, decayRate)),
   };
   const { capped, deltaCapsApplied } = applyPerTurnDeltaCaps(currentMood, decayedMood, runtime.perTurnDeltaCap);
-
-  const mood = finalizeEmotionalState({
-    mood: capped,
-    baseline,
-    signal: diagnostics.signal,
-    reaction: diagnostics.reaction,
-    previousState: diagnostics.previousState,
-    decayRate,
+  const affective = advanceAffectiveState({
+    currentMood,
+    message,
+    personality,
+    signalType: diagnostics.signal.type,
   });
+
+  const mood = {
+    ...finalizeEmotionalState({
+      mood: capped,
+      baseline,
+      signal: diagnostics.signal,
+      reaction: diagnostics.reaction,
+      previousState: diagnostics.previousState,
+      decayRate,
+    }),
+    stress: affective.stress,
+    grudges: affective.grudges,
+  };
 
   return {
     mood,
@@ -1138,6 +1157,9 @@ export async function stepMoodDetailed({
           dominance: Number(capped.dominance || 0),
         },
       },
+      stress: affective.stress,
+      grudgeCount: affective.grudges.length,
+      queuedGrudgeId: affective.grudges.find((grudge) => grudge.presentation === "queued")?.id || null,
       intensityAfter: mood.emotionalState?.intensity || 0,
       carryoverTurnsRemaining: mood.emotionalState?.carryoverTurnsRemaining || 0,
       preferenceDelta: preferenceDelta
@@ -1154,6 +1176,296 @@ export async function stepMoodDetailed({
 }
 
 // ---------------------------------------------------------------------------
+// Stress and grudges
+// Stress is pressure that builds across turns. A grudge is a held thought
+// with its own charge. Absence adds charge. An explanation cuts it once,
+// then a faster decay finishes the cool-down. Neither is wiped because
+// the user went quiet or the process restarted — both live on moodState.
+// ---------------------------------------------------------------------------
+
+const STRESS_PER_HOSTILE = 0.15;
+const STRESS_PER_CHALLENGE = 0.08;
+const STRESS_DECAY = 0.02;
+const STRESS_CAP = 1;
+const STRESS_SPIKE = 0.25;
+const STRESS_DRAIN = 0.2;
+const GRUDGE_IDLE_CHARGE = 0.08;
+const GRUDGE_RESOLUTION_KEEP = 0.4;
+const GRUDGE_ADDRESSED_DECAY = 0.15;
+const MAX_GRUDGES = 4;
+
+const PERSONA_TRIGGERS = {
+  tragic_villain: {
+    spike: ["abandoned", "betray", "worthless", "forgotten", "alone", "leave", "hate", "pathetic"],
+    drain: ["i stayed", "i came back", "i missed you", "forgive me", "i'm sorry", "i was wrong"],
+  },
+  narrative_antagonist: {
+    spike: ["weak", "pathetic", "fool", "obey", "defy", "useless", "lose", "hate"],
+    drain: ["you were right", "i respect that", "i understand your terms", "i came back", "i'm sorry"],
+  },
+  anti_hero: {
+    spike: ["hypocrite", "sellout", "coward", "betrayed", "lied", "fake", "pathetic", "useless"],
+    drain: ["i had a reason", "i was wrong", "here's why", "i came back", "i missed you"],
+  },
+  morally_complex: {
+    spike: ["pathetic", "useless", "worst", "liar", "fake", "forgot", "ignored", "leave", "hate"],
+    drain: ["i'm sorry", "i missed you", "i came back", "here's why", "i had to", "forgive me", "i was wrong"],
+  },
+  default: {
+    spike: ["hate", "stupid", "useless", "pathetic", "idiot", "shut up", "fuck you"],
+    drain: ["i'm sorry", "i was wrong", "i missed you", "i came back", "forgive me", "here's why"],
+  },
+};
+
+function roundAffect(value) {
+  return Math.round(Number(value) * 1000) / 1000;
+}
+
+function clamp01(value) {
+  return Math.min(STRESS_CAP, Math.max(0, Number(value) || 0));
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function textHasTerm(text, term) {
+  const needle = String(term || "").trim().toLowerCase();
+  if (!needle) return false;
+  if (needle.includes(" ")) return text.includes(needle);
+  return new RegExp(`\\b${escapeRegExp(needle)}\\b`, "i").test(text);
+}
+
+function normalizeTermList(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))].slice(0, 12);
+}
+
+export function getPersonaTriggers(personality = {}) {
+  const custom = personality?.stressTriggers;
+  if (custom && (Array.isArray(custom.spike) || Array.isArray(custom.drain))) {
+    const spike = normalizeTermList(custom.spike);
+    const drain = normalizeTermList(custom.drain);
+    if (spike.length || drain.length) return { spike, drain };
+  }
+  const context = String(personality?.creativeContext || "default");
+  return PERSONA_TRIGGERS[context] || PERSONA_TRIGGERS.default;
+}
+
+function stressBand(stress) {
+  if (stress >= 0.75) return "critical";
+  if (stress >= 0.5) return "high";
+  return "rising";
+}
+
+function newGrudgeId() {
+  return `g${Date.now().toString(36)}${Math.floor(Math.random() * 1000).toString(36)}`;
+}
+
+function normalizeGrudges(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((grudge) => {
+      const thought = String(grudge?.thought || "").replace(/\s+/g, " ").trim();
+      if (!thought) return null;
+      const charge = clamp01(grudge.charge);
+      return {
+        id: String(grudge.id || newGrudgeId()),
+        thought: thought.slice(0, 180),
+        triggerKeywords: normalizeTermList(grudge.triggerKeywords),
+        drainKeywords: normalizeTermList(grudge.drainKeywords),
+        charge,
+        presentation: ["queued", "held", "delivered"].includes(grudge.presentation) ? grudge.presentation : "held",
+        addressed: Boolean(grudge.addressed),
+        source: grudge.source === "idle" ? "idle" : "live",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_GRUDGES);
+}
+
+function highestGrudge(grudges) {
+  return [...grudges].sort((left, right) => right.charge - left.charge)[0] || null;
+}
+
+function grudgeMatches(grudge, text) {
+  return grudge.triggerKeywords.some((term) => textHasTerm(text, term));
+}
+
+function clipThought(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "This has been sitting with you.";
+  return clean.length > 160 ? `${clean.slice(0, 157)}...` : clean;
+}
+
+function upsertLiveGrudge(grudges, { thought, keywords, drainKeywords, charge }) {
+  const triggers = normalizeTermList(keywords);
+  const existing = grudges.find((grudge) => !grudge.addressed && (
+    grudge.triggerKeywords.some((term) => triggers.includes(term)) || grudge.thought === thought
+  ));
+
+  if (existing) {
+    return grudges.map((grudge) => (grudge.id === existing.id
+      ? {
+          ...grudge,
+          charge: roundAffect(Math.min(1, grudge.charge + charge)),
+          triggerKeywords: normalizeTermList([...grudge.triggerKeywords, ...triggers]),
+          presentation: "held",
+        }
+      : grudge));
+  }
+
+  return [
+    {
+      id: newGrudgeId(),
+      thought: clipThought(thought),
+      triggerKeywords: triggers.length ? triggers : ["pathetic"],
+      drainKeywords: normalizeTermList(drainKeywords),
+      charge: roundAffect(clamp01(charge)),
+      presentation: "held",
+      addressed: false,
+      source: "live",
+    },
+    ...grudges,
+  ].slice(0, MAX_GRUDGES);
+}
+
+function advanceAffectiveState({ currentMood, message, personality, signalType }) {
+  const text = String(message || "");
+  const lower = text.toLowerCase();
+  const triggers = getPersonaTriggers(personality);
+  const spikeHits = triggers.spike.filter((term) => textHasTerm(lower, term));
+  const drainHits = triggers.drain.filter((term) => textHasTerm(lower, term));
+  const hostile = RX.hostileHigh.test(text) || signalType === "insult" || spikeHits.length > 0;
+  const challenging = RX.challenging.test(text) || signalType === "challenge";
+
+  let stress = clamp01(currentMood?.stress);
+  if (hostile) stress += STRESS_PER_HOSTILE;
+  if (challenging) stress += STRESS_PER_CHALLENGE;
+  if (spikeHits.length) stress += STRESS_SPIKE;
+  if (drainHits.length) stress -= STRESS_DRAIN;
+  stress = roundAffect(Math.max(0, Math.min(STRESS_CAP, stress - STRESS_DECAY)));
+
+  let grudges = normalizeGrudges(currentMood?.grudges);
+  const matched = grudges
+    .filter((grudge) => grudgeMatches(grudge, lower))
+    .sort((left, right) => right.charge - left.charge)[0] || null;
+  const pulsedIds = new Set();
+
+  if (drainHits.length) {
+    const target = matched || highestGrudge(grudges.filter((grudge) => !grudge.addressed));
+    if (target) {
+      pulsedIds.add(target.id);
+      grudges = grudges.map((grudge) => (grudge.id === target.id
+        ? {
+            ...grudge,
+            charge: roundAffect(grudge.charge * GRUDGE_RESOLUTION_KEEP),
+            addressed: true,
+            presentation: "queued",
+          }
+        : grudge));
+    }
+  } else if (matched) {
+    grudges = grudges.map((grudge) => {
+      if (grudge.id === matched.id) {
+        return {
+          ...grudge,
+          presentation: "queued",
+          charge: roundAffect(Math.min(1, grudge.charge + 0.1)),
+        };
+      }
+      return grudge.presentation === "queued" ? { ...grudge, presentation: "held" } : grudge;
+    });
+  } else if (hostile) {
+    grudges = upsertLiveGrudge(grudges, {
+      thought: clipThought(text),
+      keywords: spikeHits.length ? spikeHits : triggers.spike.slice(0, 3),
+      drainKeywords: triggers.drain,
+      charge: hostile ? 0.35 : 0.2,
+    });
+    if (hostile) {
+      const fresh = grudges.find((grudge) => grudge.triggerKeywords.some((term) => spikeHits.includes(term))) || grudges[0];
+      if (fresh) {
+        grudges = grudges.map((grudge) => (grudge.id === fresh.id
+          ? { ...grudge, presentation: "queued" }
+          : grudge));
+      }
+    }
+  }
+
+  grudges = grudges
+    .map((grudge) => {
+      if (!grudge.addressed || pulsedIds.has(grudge.id)) return grudge;
+      return {
+        ...grudge,
+        presentation: grudge.presentation === "queued" ? "delivered" : grudge.presentation,
+        charge: roundAffect(Math.max(0, grudge.charge - GRUDGE_ADDRESSED_DECAY)),
+      };
+    })
+    .filter((grudge) => grudge.charge > 0.04 || grudge.presentation === "queued")
+    .slice(0, MAX_GRUDGES);
+
+  return { stress, grudges };
+}
+
+export function tickIdleGrudges(currentMood = {}, { personality = {}, thoughts = [] } = {}) {
+  const base = currentMood && typeof currentMood === "object" ? currentMood : {};
+  const triggers = getPersonaTriggers(personality);
+  let grudges = normalizeGrudges(base.grudges);
+  const thought = thoughts.map((item) => String(item || "").trim()).find(Boolean);
+
+  if (thought) {
+    const words = thought
+      .toLowerCase()
+      .split(/[^a-z0-9']+/)
+      .filter((word) => word.length > 4)
+      .slice(0, 4);
+    const existing = highestGrudge(grudges.filter((grudge) => !grudge.addressed));
+    if (existing) {
+      grudges = grudges.map((grudge) => (grudge.id === existing.id
+        ? {
+            ...grudge,
+            thought: clipThought(thought),
+            triggerKeywords: normalizeTermList([...grudge.triggerKeywords, ...words, ...triggers.spike.slice(0, 2)]),
+            source: "idle",
+          }
+        : grudge));
+    } else {
+      grudges = [
+        {
+          id: newGrudgeId(),
+          thought: clipThought(thought),
+          triggerKeywords: normalizeTermList([...words, ...triggers.spike.slice(0, 2)]),
+          drainKeywords: triggers.drain,
+          charge: 0.3,
+          presentation: "held",
+          addressed: false,
+          source: "idle",
+        },
+        ...grudges,
+      ].slice(0, MAX_GRUDGES);
+    }
+  }
+
+  grudges = grudges.map((grudge) => {
+    if (grudge.addressed) {
+      return { ...grudge, charge: roundAffect(Math.max(0, grudge.charge - 0.05)) };
+    }
+    return {
+      ...grudge,
+      presentation: "held",
+      charge: roundAffect(Math.min(1, grudge.charge + GRUDGE_IDLE_CHARGE)),
+    };
+  }).filter((grudge) => grudge.charge > 0.04);
+
+  return {
+    ...base,
+    stress: roundAffect(clamp01(base.stress)),
+    grudges,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Translate VAD vector into behavioral tendencies for prompt injection
 // ---------------------------------------------------------------------------
 
@@ -1165,31 +1477,31 @@ function vadToTendencies(mood, baseline) {
   const dDelta = mood.dominance - baseline.dominance;
 
   // Valence axis (negative ↔ positive affect)
-  if (mood.valence < -0.5) {
+  if (mood.valence < -0.3) {
     tendencies.push("responses carry open dissatisfaction, sharp criticism, or dry contempt");
-  } else if (mood.valence < -0.2 || vDelta < -0.28) {
+  } else if (mood.valence < -0.1 || vDelta < -0.15) {
     tendencies.push("an undercurrent of displeasure tints your phrasing without fully surfacing");
-  } else if (mood.valence > 0.55) {
+  } else if (mood.valence > 0.4) {
     tendencies.push("a genuine warmth — unusual or unusual for you — informs your word choice");
-  } else if (mood.valence > 0.25 || vDelta > 0.22) {
+  } else if (mood.valence > 0.15 || vDelta > 0.12) {
     tendencies.push("a slightly more open and favourable tone than your baseline");
   }
 
   // Arousal axis (calm ↔ energized)
-  if (mood.arousal > 0.65 || aDelta > 0.38) {
+  if (mood.arousal > 0.45 || aDelta > 0.25) {
     tendencies.push("speech is faster, sharper, and more compressed — patience for meandering is thin");
-  } else if (mood.arousal > 0.35 || aDelta > 0.2) {
+  } else if (mood.arousal > 0.2 || aDelta > 0.1) {
     tendencies.push("you are alert and engaged, responses have more forward momentum");
-  } else if (mood.arousal < -0.35 || aDelta < -0.32) {
+  } else if (mood.arousal < -0.2 || aDelta < -0.2) {
     tendencies.push("responses are slower and flatter than usual — low energy, low urgency");
   }
 
   // Dominance axis (passive ↔ assertive)
-  if (mood.dominance > 0.65 || dDelta > 0.32) {
+  if (mood.dominance > 0.45 || dDelta > 0.2) {
     tendencies.push("assertive and expectant — you assume compliance rather than asking for it");
-  } else if (mood.dominance > 0.40 || dDelta > 0.2) {
+  } else if (mood.dominance > 0.25 || dDelta > 0.1) {
     tendencies.push("slightly more directive than usual");
-  } else if (mood.dominance < -0.25 || dDelta < -0.28) {
+  } else if (mood.dominance < -0.15 || dDelta < -0.15) {
     tendencies.push("marginally more yielding than usual — though you would not frame it that way");
   }
 
@@ -1205,14 +1517,35 @@ export function moodToPromptFragment(mood, baseline) {
   const emotionalState = mood?.emotionalState && typeof mood.emotionalState === "object"
     ? mood.emotionalState
     : null;
+  const stress = clamp01(mood?.stress);
+  const queued = normalizeGrudges(mood?.grudges)
+    .filter((grudge) => grudge.presentation === "queued")
+    .sort((left, right) => right.charge - left.charge)[0] || null;
 
-  if (!tendencies.length && !emotionalState?.active) return null;
+  if (!tendencies.length && !emotionalState?.active && stress < 0.3 && !queued) return null;
 
   const r = (n) => Math.round(n * 100) / 100;
   const lines = [
     "[CURRENT EMOTIONAL STATE]",
     `V ${r(mood.valence)} · A ${r(mood.arousal)} · D ${r(mood.dominance)}`,
   ];
+
+  if (stress >= 0.3) {
+    lines.push("[STRESS]");
+    lines.push(`Level: ${stressBand(stress)} (${r(stress)})`);
+    lines.push("This has been building across turns. Do not reset to polite. The accumulated pressure belongs in the reply.");
+  }
+
+  if (queued) {
+    lines.push("[HELD GRUDGE — LEAD WITH THIS]");
+    lines.push(`Thought: ${queued.thought}`);
+    lines.push(`Charge: ${r(queued.charge)}`);
+    if (queued.addressed) {
+      lines.push("Say the thing you have been holding, then let their reason land. The next turn should be noticeably softer.");
+    } else {
+      lines.push("Say the thing you have been holding. Do not open with a greeting or an apology.");
+    }
+  }
 
   if (emotionalState?.active) {
     lines.push("[EMOTIONAL AUTHENTICITY RULE — HIGHEST PRIORITY]");

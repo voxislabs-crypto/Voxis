@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
-import { buildTtsCacheKey, getTtsCache, setTtsCache } from "../utils/ttsCache.js";
+import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
+import { createLiveKitVoiceSession } from "../../../backend/services/livekitVoiceSession.js";
 
 const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 const TTS_DISABLE_KOKORO = String(import.meta.env.VITE_TTS_DISABLE_KOKORO ?? "false").trim().toLowerCase() === "true";
@@ -2059,6 +2060,25 @@ function getResponseLensSummary(debug) {
   };
 }
 
+function isElevenLabsCreditError(error) {
+  const provider = String(error?.ttsProvider || "").trim().toLowerCase();
+  if (provider === "cartesia") {
+    return false;
+  }
+  const code = String(error?.ttsProviderCode || "").trim().toLowerCase();
+  const httpStatus = Number(error?.httpStatus || 0);
+  const providerStatus = Number(error?.ttsProviderStatus || 0);
+  const quotaCode = code === "quota_exceeded"
+    || code === "too_many_concurrent_requests"
+    || code === "concurrent_limit_exceeded"
+    || code.includes("quota");
+  const limited = httpStatus === 402 || httpStatus === 429 || providerStatus === 402 || providerStatus === 429;
+  if (provider === "elevenlabs" && (quotaCode || limited)) {
+    return true;
+  }
+  return !provider && (httpStatus === 402 || code === "quota_exceeded");
+}
+
 function buildTtsErrorMessage(error) {
   const base = String(error?.message || "Failed to generate speech.").trim();
   const provider = String(error?.ttsProvider || "").trim().toLowerCase();
@@ -2131,9 +2151,11 @@ function buildTtsErrorMessage(error) {
             ? "Cartesia rejected the voice/model combo. Verify voice ID (UUID) and model."
             : "Cartesia request failed. Verify provider credentials and voice/model settings."
     : provider === "elevenlabs"
-      ? providerStatus === 429
-        ? "ElevenLabs is rate limited. Retry shortly or use another engine."
-        : "ElevenLabs request failed. Verify API key and selected voice."
+      ? providerCode === "quota_exceeded" || httpStatus === 402
+        ? "ElevenLabs quota is used up. The rest of this reply can continue on Cartesia."
+        : providerStatus === 429 || httpStatus === 429
+          ? "ElevenLabs is rate limited. Retry shortly or use another engine."
+          : "ElevenLabs request failed. Verify API key and selected voice."
       : provider === "cloud"
         ? providerStatus === 401 || providerStatus === 403
           ? "Cloud TTS auth failed. Verify TTS/OpenAI API key configuration."
@@ -2368,6 +2390,8 @@ export default function ChatWindow({
   const [attachedFile, setAttachedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveCallActive, setIsLiveCallActive] = useState(false);
+  const [phonePhase, setPhonePhase] = useState("idle");
+  const [phoneCaption, setPhoneCaption] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
@@ -2416,6 +2440,7 @@ export default function ChatWindow({
   const zoneShiftTimerRef = useRef(null);
   const personalityEventsTimerRef = useRef(null);
   const streamAutoplaySessionRef = useRef(null);
+  const streamEngineOverrideRef = useRef(null);
   const streamSentenceCursorRef = useRef(0);
   const streamQueuedSentenceKeysRef = useRef(new Set());
   const streamPendingSentenceQueueRef = useRef([]);
@@ -2426,7 +2451,14 @@ export default function ChatWindow({
   const recognitionRestartTimerRef = useRef(null);
   const recognitionInactivityTimerRef = useRef(null);
   const recordingRequestedRef = useRef(false);
-  const recognitionModeRef = useRef("dictation");
+  const phoneSessionRef = useRef(null);
+  const phoneRecognitionRef = useRef(null);
+  const phoneRestartTimerRef = useRef(null);
+  const phoneActiveRef = useRef(false);
+  const phonePlaybackRef = useRef(false);
+  const phonePlayTokenRef = useRef(null);
+  const personalityIdRef = useRef(personality?.id ?? null);
+  personalityIdRef.current = personality?.id ?? null;
   const micAudioContextRef = useRef(null);
   const micAnalyserRef = useRef(null);
   const micDataArrayRef = useRef(null);
@@ -3308,6 +3340,7 @@ export default function ChatWindow({
     streamSentenceCursorRef.current = 0;
     streamAutoplayUsedRef.current = false;
     streamPlaybackActiveRef.current = false;
+    streamEngineOverrideRef.current = null;
 
     if (revokeQueuedAudio) {
       for (const item of streamReadyAudioQueueRef.current) {
@@ -3653,8 +3686,10 @@ export default function ChatWindow({
 
   async function requestSpeechAudio(text, controller, meta = {}) {
     const requestStartedAt = performance.now();
-    const cacheKey = buildTtsCacheKey(personality.id, text, voiceProfile);
-    const cachedEntry = getTtsCache(cacheKey);
+    const effectiveProfile = meta?.voiceProfileOverride
+      ? { ...voiceProfile, ...meta.voiceProfileOverride }
+      : voiceProfile;
+    const cachedEntry = readReusableTtsClip(personality.id, text, effectiveProfile);
     if (cachedEntry?.blob instanceof Blob) {
       return {
         url: URL.createObjectURL(cachedEntry.blob),
@@ -3672,7 +3707,7 @@ export default function ChatWindow({
       body: JSON.stringify({
         text,
         voiceProfile: {
-          ...voiceProfile,
+          ...effectiveProfile,
           // Merge emotion-graph voice adjustments so Cartesia receives speed/emotion controls
           voiceAdjustments: pendingVoiceAdjustmentsRef.current || undefined,
           singingActive: pendingSingingActiveRef.current || false,
@@ -3716,6 +3751,7 @@ export default function ChatWindow({
     }
 
     const ttsTelemetryHeader = response.headers.get("X-Voxis-Tts-Telemetry");
+    const engineHeader = String(response.headers.get("X-Voxis-Tts-Engine") || "").trim().toLowerCase();
     let parsedTelemetry = null;
     if (ttsTelemetryHeader) {
       try {
@@ -3762,15 +3798,25 @@ export default function ChatWindow({
     const telemetry = parsedTelemetry
       ? {
           ...parsedTelemetry,
+          chosenEngine: parsedTelemetry.chosenEngine || engineHeader || undefined,
           requestMs,
           sentenceChars: String(text || "").length,
           segmentIndex: Number(meta?.segmentIndex ?? -1),
           queueDepthAtRequest: Number(meta?.queueDepthAtRequest ?? 0),
           streamingSegment: Boolean(meta?.streamingSegment),
         }
-      : parsedTelemetry;
+      : (engineHeader
+        ? {
+            chosenEngine: engineHeader,
+            requestMs,
+            sentenceChars: String(text || "").length,
+            segmentIndex: Number(meta?.segmentIndex ?? -1),
+            queueDepthAtRequest: Number(meta?.queueDepthAtRequest ?? 0),
+            streamingSegment: Boolean(meta?.streamingSegment),
+          }
+        : parsedTelemetry);
 
-    setTtsCache(cacheKey, {
+    rememberTtsClip(personality.id, text, effectiveProfile, {
       blob,
       telemetry,
       sfxTimeline: parsedSfxTimeline,
@@ -3873,12 +3919,40 @@ export default function ChatWindow({
 
         const controller = new AbortController();
         ttsRequestAbortRef.current = controller;
+        const queuedOverride = streamEngineOverrideRef.current
+          ? { engine: streamEngineOverrideRef.current }
+          : null;
 
-        const audioResult = await requestSpeechAudio(normalized, controller, {
-          segmentIndex: nextSentence.segmentIndex,
-          queueDepthAtRequest: getStreamQueueDepth(),
-          streamingSegment: true,
-        });
+        let audioResult;
+        try {
+          audioResult = await requestSpeechAudio(normalized, controller, {
+            segmentIndex: nextSentence.segmentIndex,
+            queueDepthAtRequest: getStreamQueueDepth(),
+            streamingSegment: true,
+            voiceProfileOverride: queuedOverride,
+          });
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            throw error;
+          }
+          const activeEngine = String(queuedOverride?.engine || voiceProfile?.engine || "").toLowerCase();
+          if (activeEngine === "cartesia" || !isElevenLabsCreditError(error)) {
+            throw error;
+          }
+          streamEngineOverrideRef.current = "cartesia";
+          onStatus?.({
+            type: "info",
+            message: "ElevenLabs quota is used up. Continuing the rest of this reply on Cartesia.",
+          });
+          const retryController = new AbortController();
+          ttsRequestAbortRef.current = retryController;
+          audioResult = await requestSpeechAudio(normalized, retryController, {
+            segmentIndex: nextSentence.segmentIndex,
+            queueDepthAtRequest: getStreamQueueDepth(),
+            streamingSegment: true,
+            voiceProfileOverride: { engine: "cartesia" },
+          });
+        }
         streamReadyAudioQueueRef.current.push(audioResult);
 
         if (!streamPlaybackActiveRef.current && !isAudioPlaying) {
@@ -3975,10 +4049,9 @@ export default function ChatWindow({
     streamAutoplaySessionRef.current = null;
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
 
-    // We intentionally do NOT force a fresh generation here.
-    // requestSpeechAudio() will serve from the in-memory client cache
-    // if the exact text + voiceProfile combination was seen before.
-    // This keeps costs to zero on the backend for repeated replays.
+    // Replay reuses a saved clip for the same text, engine, and voice.
+    // A clip spoken by a different engine does not count, so Cartesia is
+    // generated once and then replayed without another provider call.
     setIsGeneratingAudio(true);
     const controller = new AbortController();
     ttsRequestAbortRef.current = controller;
@@ -4077,6 +4150,10 @@ export default function ChatWindow({
 
   function handleAudioEnded() {
     setIsAudioPlaying(false);
+    if (phonePlaybackRef.current) {
+      phonePlaybackRef.current = false;
+      phoneSessionRef.current?.notifyPlaybackEnded();
+    }
 
     // play after SFX using the precomputed after list
     const afters = sfxAfterRef.current;
@@ -4244,18 +4321,6 @@ export default function ChatWindow({
     }
   }
 
-  const submitDraftFromVoiceCapture = useCallback(async () => {
-    const message = String(draftRef.current || "").trim();
-    if (!message || isSending) {
-      return false;
-    }
-
-    setDraft("");
-    setAttachedFile(null);
-    await onSend(message);
-    return true;
-  }, [isSending, onSend]);
-
   const stopMicEnergyTracking = useCallback(() => {
     if (micEnergyTimerRef.current) {
       window.clearInterval(micEnergyTimerRef.current);
@@ -4313,7 +4378,6 @@ export default function ChatWindow({
   const stopRecognitionSession = useCallback((clearRequested = false) => {
     if (clearRequested) {
       recordingRequestedRef.current = false;
-      recognitionModeRef.current = "dictation";
     }
     clearRecognitionTimers();
 
@@ -4331,7 +4395,6 @@ export default function ChatWindow({
 
     if (clearRequested) {
       setIsRecording(false);
-      setIsLiveCallActive(false);
     }
   }, [clearRecognitionTimers, stopMicEnergyTracking]);
 
@@ -4340,24 +4403,9 @@ export default function ChatWindow({
       return false;
     }
 
-    const isLiveCallMode = recognitionModeRef.current === "live-call";
-    const pendingMessage = String(draftRef.current || "").trim();
-
-    if (isLiveCallMode && pendingMessage && !isSending && !isAudioPlaying && !isGeneratingAudio) {
-      stopRecognitionSession(false);
-      void submitDraftFromVoiceCapture().catch((error) => {
-        onStatus?.({ type: "error", message: error?.message || "Live call send failed." });
-      });
-      return false;
-    }
-
-    if (isLiveCallMode) {
-      return true;
-    }
-
     stopRecognitionSession(true);
     return false;
-  }, [isAudioPlaying, isGeneratingAudio, isSending, onStatus, stopRecognitionSession, submitDraftFromVoiceCapture]);
+  }, [stopRecognitionSession]);
 
   const resetRecognitionInactivityTimer = useCallback(() => {
     if (recognitionInactivityTimerRef.current) {
@@ -4381,9 +4429,7 @@ export default function ChatWindow({
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       recordingRequestedRef.current = false;
-      recognitionModeRef.current = "dictation";
       setIsRecording(false);
-      setIsLiveCallActive(false);
       onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
       return;
     }
@@ -4423,9 +4469,7 @@ export default function ChatWindow({
       const code = String(event?.error || "").toLowerCase();
       if (["not-allowed", "service-not-allowed"].includes(code)) {
         recordingRequestedRef.current = false;
-        recognitionModeRef.current = "dictation";
         setIsRecording(false);
-        setIsLiveCallActive(false);
         onStatus?.({
           type: "error",
           message: "Microphone access is blocked. Allow mic permission in your browser and try again.",
@@ -4435,9 +4479,7 @@ export default function ChatWindow({
 
       if (code === "audio-capture") {
         recordingRequestedRef.current = false;
-        recognitionModeRef.current = "dictation";
         setIsRecording(false);
-        setIsLiveCallActive(false);
         onStatus?.({
           type: "error",
           message: "No usable microphone was found. Check your input device and try again.",
@@ -4455,9 +4497,7 @@ export default function ChatWindow({
       clearRecognitionTimers();
 
       if (!recordingRequestedRef.current) {
-        recognitionModeRef.current = "dictation";
         setIsRecording(false);
-        setIsLiveCallActive(false);
         return;
       }
 
@@ -4478,9 +4518,7 @@ export default function ChatWindow({
     } catch {
       recognitionRef.current = null;
       recordingRequestedRef.current = false;
-      recognitionModeRef.current = "dictation";
       setIsRecording(false);
-      setIsLiveCallActive(false);
       onStatus?.({ type: "error", message: "Unable to start microphone capture in this browser." });
     }
   }, [clearRecognitionTimers, isAudioPlaying, isGeneratingAudio, isSending, onStatus, resetRecognitionInactivityTimer, startMicEnergyTracking]);
@@ -4501,6 +4539,22 @@ export default function ChatWindow({
   useEffect(() => {
     return () => {
       recordingRequestedRef.current = false;
+      phoneActiveRef.current = false;
+      phonePlayTokenRef.current = null;
+      if (phoneRestartTimerRef.current) {
+        window.clearTimeout(phoneRestartTimerRef.current);
+        phoneRestartTimerRef.current = null;
+      }
+      phoneSessionRef.current?.stop();
+      phoneSessionRef.current = null;
+      if (phoneRecognitionRef.current) {
+        try {
+          phoneRecognitionRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+        phoneRecognitionRef.current = null;
+      }
       stopRecognitionSession(true);
       stopMicEnergyTracking();
 
@@ -4531,12 +4585,10 @@ export default function ChatWindow({
       return;
     }
 
-    if (isLiveCallActive) {
-      stopRecognitionSession(true);
+    if (isLiveCallActive || phoneActiveRef.current) {
+      stopPhoneSession();
       return;
     }
-
-    recognitionModeRef.current = "dictation";
 
     if (recordingRequestedRef.current) {
       stopRecognitionSession(true);
@@ -4546,26 +4598,197 @@ export default function ChatWindow({
     }
   }
 
-  function toggleLiveCall() {
+  function stopPhoneSession() {
+    phoneActiveRef.current = false;
+    phonePlaybackRef.current = false;
+    phonePlayTokenRef.current = null;
+    if (phoneRestartTimerRef.current) {
+      window.clearTimeout(phoneRestartTimerRef.current);
+      phoneRestartTimerRef.current = null;
+    }
+    const session = phoneSessionRef.current;
+    phoneSessionRef.current = null;
+    session?.stop();
+    const recognition = phoneRecognitionRef.current;
+    phoneRecognitionRef.current = null;
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    setIsLiveCallActive(false);
+    setPhonePhase("idle");
+    setPhoneCaption("");
+  }
+
+  function startPhoneRecognition() {
+    if (!phoneActiveRef.current || phoneRecognitionRef.current) {
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      stopPhoneSession();
+      onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+      const latest = event.results?.[event.results.length - 1];
+      const text = String(latest?.[0]?.transcript || "").trim();
+      if (!text) {
+        return;
+      }
+      phoneSessionRef.current?.noteTranscript({
+        text,
+        final: Boolean(latest?.isFinal),
+      });
+    };
+
+    recognition.onerror = (event) => {
+      const code = String(event?.error || "").toLowerCase();
+      if (code === "not-allowed" || code === "service-not-allowed" || code === "audio-capture") {
+        stopPhoneSession();
+        onStatus?.({
+          type: "error",
+          message: code === "audio-capture"
+            ? "No usable microphone was found. Check your input device and try again."
+            : "Microphone access is blocked. Allow mic permission in your browser and try again.",
+        });
+      }
+    };
+
+    recognition.onend = () => {
+      if (phoneRecognitionRef.current === recognition) {
+        phoneRecognitionRef.current = null;
+      }
+      if (!phoneActiveRef.current) {
+        return;
+      }
+      phoneRestartTimerRef.current = window.setTimeout(() => {
+        startPhoneRecognition();
+      }, 50);
+    };
+
+    phoneRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      phoneRecognitionRef.current = null;
+      stopPhoneSession();
+      onStatus?.({ type: "error", message: "Unable to start microphone capture in this browser." });
+    }
+  }
+
+  function playPhoneAudio(url) {
+    const playToken = {};
+    phonePlayTokenRef.current = playToken;
+    phonePlaybackRef.current = true;
+    setAudioUrl(url);
+    const startPlayback = () => {
+      if (phonePlayTokenRef.current !== playToken || !phonePlaybackRef.current) {
+        return;
+      }
+      const audioElement = audioRef.current;
+      if (!(audioElement instanceof HTMLAudioElement)) {
+        return;
+      }
+      audioElement.src = url;
+      audioElement.muted = false;
+      audioElement.volume = 1;
+      audioElement.playbackRate = speechPlaybackRateRef.current;
+      void audioElement.play().catch((playError) => {
+        if (phonePlayTokenRef.current !== playToken) {
+          return;
+        }
+        onStatus?.({
+          type: "info",
+          message: `Audio ready — press play on the audio control below. ${playError?.message ? `(${playError.message})` : ""}`.trim(),
+        });
+      });
+    };
+    requestAnimationFrame(() => {
+      if (audioRef.current instanceof HTMLAudioElement) {
+        startPlayback();
+        return;
+      }
+      requestAnimationFrame(startPlayback);
+    });
+  }
+
+  function startPhoneSession() {
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
       onStatus?.({ type: "error", message: "Speech recognition is not supported in this browser." });
       return;
     }
 
-    if (isLiveCallActive) {
-      stopRecognitionSession(true);
+    stopRecognitionSession(true);
+    phoneActiveRef.current = true;
+    setIsLiveCallActive(true);
+    setPhoneCaption("");
+    phoneSessionRef.current = createLiveKitVoiceSession({
+      turn: async ({ transcript, messages }) => {
+        const response = await authFetch("/api/internal/voice-turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            personalityId: personalityIdRef.current,
+            transcript,
+            messages,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.error || "Voice turn failed.");
+        }
+        if (phoneActiveRef.current) {
+          setPhoneCaption(String(payload.text || ""));
+        }
+        return payload;
+      },
+      onPhase: (phase) => {
+        if (phoneActiveRef.current) {
+          setPhonePhase(phase);
+        }
+      },
+      onPlayback: ({ audioUrl }) => {
+        if (audioUrl) {
+          playPhoneAudio(audioUrl);
+        }
+      },
+      onInterrupt: () => {
+        phonePlaybackRef.current = false;
+        phonePlayTokenRef.current = null;
+        const audioElement = audioRef.current;
+        if (audioElement instanceof HTMLAudioElement) {
+          audioElement.pause();
+        }
+        setIsAudioPlaying(false);
+      },
+      onError: (error) => {
+        onStatus?.({ type: "error", message: error?.message || "Voice turn failed." });
+      },
+    });
+    startPhoneRecognition();
+    onStatus?.({
+      type: "info",
+      message: "Live call started. Say hey voxis, then talk. You can interrupt while the reply plays.",
+    });
+  }
+
+  function toggleLiveCall() {
+    if (phoneActiveRef.current || isLiveCallActive) {
+      stopPhoneSession();
       return;
     }
-
-    if (recordingRequestedRef.current) {
-      stopRecognitionSession(true);
-    }
-
-    recognitionModeRef.current = "live-call";
-    recordingRequestedRef.current = true;
-    setIsLiveCallActive(true);
-    startRecognitionSession();
-    onStatus?.({ type: "info", message: "Live call started. I will send your speech automatically after short pauses." });
+    startPhoneSession();
   }
 
   if (!personality) {
@@ -4589,25 +4812,25 @@ export default function ChatWindow({
   const isVoiceInputActive = isRecording && !isLiveCallActive;
   const liveCallStatusLabel = !isLiveCallActive
     ? ""
-    : isAudioPlaying || isGeneratingAudio
-    ? "Speaking"
-    : isSending
-    ? "Thinking"
-    : isRecording
-    ? "Listening"
-    : "Reconnecting";
+    : phonePhase === "speaking"
+      ? "Speaking"
+      : phonePhase === "thinking"
+        ? "Thinking"
+        : phonePhase === "listening"
+          ? "Listening"
+          : "Waiting";
   const liveCallStateClass = String(liveCallStatusLabel || "idle").toLowerCase().replace(/\s+/g, "-");
   const liveCallReactorLevel = isLiveCallActive ? Math.max(0, Math.min(1, Number(speechEnergy || 0))) : 0;
   const liveCallModeLabel = isLiveCallActive ? "Neural Link Live Call" : isVoiceInputActive ? "Voice Input" : "";
   const liveCallStatusCopy = !isLiveCallActive
     ? ""
-    : liveCallStatusLabel === "Listening"
-    ? "Listening for your next phrase."
-    : liveCallStatusLabel === "Thinking"
-    ? "Generating reply and preparing response context."
-    : liveCallStatusLabel === "Speaking"
-    ? "Avatar is speaking. Mic resumes automatically after playback."
-    : "Re-arming microphone session.";
+    : phonePhase === "speaking"
+      ? (phoneCaption ? phoneCaption.slice(0, 180) : "Speaking. Talk to interrupt.")
+      : phonePhase === "thinking"
+        ? "Working on a reply."
+        : phonePhase === "listening"
+          ? "Listening. Talk to interrupt while a reply plays."
+          : "Say hey voxis to open the call.";
 
   return (
     <>

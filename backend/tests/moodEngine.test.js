@@ -17,6 +17,7 @@ import {
   moodToPromptFragment,
   shouldRegenerateEmotionalResponse,
   buildEmotionalRepairPrompt,
+  tickIdleGrudges,
 } from "../services/moodEngine.js";
 
 // ── Personality fixtures ─────────────────────────────────────────────────────
@@ -488,7 +489,7 @@ describe("stepMoodDetailed diagnostics", () => {
     expect(mood.emotionalState?.active).toBe(true);
   });
 
-  it("adaptive decay is slower than DECAY_RATE (0.08) under reinforcing hostile signal", async () => {
+  it("adaptive decay stays under the loosened base rate during a repeated insult", async () => {
     const baseline = moodFromLabel("pleasantly dangerous");
     // Prime once
     const primedMood = await stepMood({
@@ -504,7 +505,104 @@ describe("stepMoodDetailed diagnostics", () => {
       message: INSULT_MESSAGE,
       personality: VILLAIN,
     });
-    // Reinforcing signal should use reduced decay
-    expect(diagnostics.decayRate).toBeLessThan(0.08);
+    expect(diagnostics.decayRate).toBeLessThan(0.05);
+  });
+});
+
+describe("stress and grudges", () => {
+  const baseline = { valence: 0.2, arousal: 0.1, dominance: 0.3 };
+
+  it("builds stress across hostile turns and keeps it on a quiet turn", async () => {
+    const first = await stepMood({
+      currentMood: { ...baseline },
+      baseline,
+      message: INSULT_MESSAGE,
+      personality: BRATTY,
+    });
+    const second = await stepMood({
+      currentMood: first,
+      baseline,
+      message: INSULT_MESSAGE,
+      personality: BRATTY,
+    });
+    const quiet = await stepMood({
+      currentMood: second,
+      baseline,
+      message: NEUTRAL_MESSAGE,
+      personality: BRATTY,
+    });
+
+    expect(second.stress).toBeGreaterThan(first.stress);
+    expect(quiet.stress).toBeGreaterThan(0.3);
+    expect(quiet.stress).toBeLessThan(second.stress);
+    expect(quiet.grudges.length).toBeGreaterThan(0);
+    expect(quiet.grudges[0].charge).toBeGreaterThan(0.3);
+  });
+
+  it("queues the held grudge in the prompt and cuts it when the user explains", async () => {
+    const armed = await stepMood({
+      currentMood: { ...baseline, stress: 0.4, grudges: [{
+        id: "g-absence",
+        thought: "You disappeared and left me holding it.",
+        triggerKeywords: ["pathetic", "where were you"],
+        drainKeywords: ["i'm sorry", "i had to"],
+        charge: 0.8,
+        presentation: "held",
+        addressed: false,
+        source: "idle",
+      }] },
+      baseline,
+      message: "That was pathetic. Where were you?",
+      personality: BRATTY,
+    });
+
+    const fragment = moodToPromptFragment(armed, baseline);
+    expect(fragment).toContain("HELD GRUDGE");
+    expect(fragment).toContain("Do not open with a greeting or an apology");
+    expect(fragment).toContain("You disappeared");
+
+    const explained = await stepMood({
+      currentMood: armed,
+      baseline,
+      message: "I'm sorry, I had to leave town.",
+      personality: BRATTY,
+    });
+    const explainedGrudge = explained.grudges.find((grudge) => grudge.id === "g-absence");
+    expect(explainedGrudge.addressed).toBe(true);
+    expect(explainedGrudge.charge).toBeLessThan(0.4);
+
+    const later = await stepMood({
+      currentMood: explained,
+      baseline,
+      message: NEUTRAL_MESSAGE,
+      personality: BRATTY,
+    });
+    const laterGrudge = later.grudges.find((grudge) => grudge.id === "g-absence");
+    expect(laterGrudge.charge).toBeLessThan(explainedGrudge.charge - 0.1);
+  });
+
+  it("loads a grudge while the user is away and does not clear it", () => {
+    const away = tickIdleGrudges({
+      ...baseline,
+      stress: 0.6,
+      grudges: [{
+        id: "g-idle",
+        thought: "They still have not called.",
+        triggerKeywords: ["called"],
+        drainKeywords: ["i'm sorry"],
+        charge: 0.5,
+        presentation: "held",
+        addressed: false,
+        source: "live",
+      }],
+    }, {
+      personality: BRATTY,
+      thoughts: ["I keep the silence. It is starting to feel personal."],
+    });
+
+    expect(away.stress).toBe(0.6);
+    expect(away.grudges[0].charge).toBeGreaterThan(0.5);
+    expect(away.grudges[0].thought).toContain("silence");
+    expect(away.grudges[0].presentation).toBe("held");
   });
 });

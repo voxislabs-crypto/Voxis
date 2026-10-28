@@ -9,6 +9,7 @@ const mockUpdateMemoryFact = vi.fn();
 
 const mockGetAllPersonalities = vi.fn();
 const mockUpdatePersonality = vi.fn();
+const mockUpdateMoodState = vi.fn();
 
 const mockGetCognitionLoopConfig = vi.fn();
 
@@ -30,6 +31,7 @@ vi.mock("../models/memoryModel.js", () => ({
 vi.mock("../models/personalityModel.js", () => ({
   getAllPersonalities: mockGetAllPersonalities,
   updatePersonality: mockUpdatePersonality,
+  updateMoodState: mockUpdateMoodState,
 }));
 
 vi.mock("../models/settingsModel.js", () => ({
@@ -94,6 +96,7 @@ describe("cognitionLoopService", () => {
 
     mockGetAllPersonalities.mockReset();
     mockUpdatePersonality.mockReset();
+    mockUpdateMoodState.mockReset();
 
     mockGetCognitionLoopConfig.mockReset();
 

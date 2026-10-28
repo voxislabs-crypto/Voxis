@@ -157,6 +157,8 @@ db.exec(`
     importance INTEGER NOT NULL DEFAULT 5,
     createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lastAccessedAt TEXT,
+    accessCount INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (personalityId) REFERENCES personalities(id)
   )
 `);
@@ -164,10 +166,34 @@ db.exec(`
 ensureColumn("personality_memory", "embedding", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personality_memory", "embeddingModel", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("personality_memory", "enabled", "INTEGER NOT NULL DEFAULT 1");
+// Existing databases already have createdAt. These two are new. ensureColumn
+// checks PRAGMA table_info first, so a fresh database that just created the
+// columns does not throw on ALTER TABLE.
+ensureColumn("personality_memory", "lastAccessedAt", "TEXT");
+ensureColumn("personality_memory", "accessCount", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_personality_memory_personality_id
   ON personality_memory (personalityId, importance DESC, id DESC)
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS memory_keyword_index (
+    keyword TEXT NOT NULL,
+    memoryId INTEGER NOT NULL,
+    personalityId INTEGER NOT NULL,
+    PRIMARY KEY (keyword, memoryId)
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_memory_keyword_personality
+  ON memory_keyword_index (personalityId, keyword)
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_memory_keyword_memory
+  ON memory_keyword_index (memoryId)
 `);
 
 db.exec(`

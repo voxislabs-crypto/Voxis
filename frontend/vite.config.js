@@ -27,7 +27,15 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 3100,
+    fs: {
+      allow: [path.resolve(__dirname, "..")],
+    },
     proxy: {
+      "/api/internal": {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: false,
+      },
       "/api/voxis": {
         target: backendUrl,
         changeOrigin: true,

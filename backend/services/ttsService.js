@@ -269,12 +269,12 @@ function getCartesiaTimeoutMs(text = "") {
     ? DEFAULT_CARTESIA_TIMEOUT_MS
     : Math.min(MAX_CARTESIA_TIMEOUT_MS, DEFAULT_CARTESIA_TIMEOUT_MS + ((textLength - 120) * 55));
 
-  // Reserve explicit fallback headroom so Cartesia stalls cannot consume the
-  // whole request budget and force an outer backend timeout.
+  // Leave headroom under the outer request budget, but do not hard-cap near
+  // 22s. A full-reply replay needs the longer Cartesia window to finish.
   const outerBudget = Number(process.env.TTS_REQUEST_TIMEOUT_MS) || 60000;
-  const reservedFallbackMs = 12000;
-  const budgetCap = Math.max(8000, outerBudget - reservedFallbackMs);
-  const cap = Math.max(10000, Math.min(22000, budgetCap));
+  const headroomMs = 8000;
+  const budgetCap = Math.max(10000, outerBudget - headroomMs);
+  const cap = Math.min(MAX_CARTESIA_TIMEOUT_MS, budgetCap);
   return Math.min(scaledTimeout, cap);
 }
 
@@ -1969,7 +1969,12 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  return { buffer: Buffer.from(arrayBuffer), contentType: "audio/mpeg", engine: "elevenlabs" };
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    contentType: "audio/mpeg",
+    engine: "elevenlabs",
+    voiceId,
+  };
 }
 
 // === CARTESIA TTS ===
@@ -2152,11 +2157,114 @@ async function generateCartesiaSpeechAudio({ text, voiceProfile }) {
     buffer: Buffer.from(arrayBuffer),
     contentType: "audio/mpeg",
     engine: "cartesia",
+    voiceId,
     engineControls: {
       experimentalControls,
       effectiveRate: Number(effectiveRate.toFixed(3)),
     },
   };
+}
+
+function resolveRequestedVoiceId(engine, voiceProfile = {}) {
+  const eng = String(engine || "").trim().toLowerCase();
+  if (eng === "cartesia") {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const providerVoiceCandidate = String(voiceProfile?.providerVoice || "").trim();
+    const rawVoiceId = String(voiceProfile?.cartesiaVoiceId || providerVoiceCandidate || "").trim();
+    if (uuidPattern.test(rawVoiceId)) {
+      return rawVoiceId;
+    }
+    return String(getCartesiaConfig().voiceId || "").trim();
+  }
+  if (eng === "elevenlabs") {
+    return String(voiceProfile?.elevenLabsVoiceId || getElevenLabsConfig().voiceId || "").trim();
+  }
+  return String(voiceProfile?.providerVoice || voiceProfile?.preferredVoice || voiceProfile?.kokoroVoice || "").trim();
+}
+
+function resolveRequestedVoiceModel(engine, voiceProfile = {}) {
+  const eng = String(engine || "").trim().toLowerCase();
+  if (eng === "cartesia") {
+    return String(voiceProfile?.cartesiaModel || getCartesiaConfig().model || "").trim();
+  }
+  if (eng === "elevenlabs") {
+    return String(voiceProfile?.elevenLabsModel || getElevenLabsConfig().model || "").trim();
+  }
+  return String(voiceProfile?.providerModel || "").trim();
+}
+
+function buildSpeechAliasCacheKey({ personality, text, engine, voiceId, model }) {
+  return JSON.stringify({
+    alias: "chosen-engine",
+    personalityId: Number(personality?.id || 0),
+    engine: String(engine || "").trim().toLowerCase(),
+    voiceId: String(voiceId || ""),
+    model: String(model || ""),
+    text: String(text || "").trim(),
+  });
+}
+
+function cachedSpeechMatchesRequest(requested, cached) {
+  if (!cached?.buffer) {
+    return false;
+  }
+  const chosen = String(cached?.telemetry?.chosenEngine || cached?.engine || "").trim().toLowerCase();
+  const asked = String(requested || "auto").trim().toLowerCase();
+  if (!chosen || asked === "auto") {
+    return true;
+  }
+  if (chosen === asked) {
+    return true;
+  }
+  // Explicit Cartesia must not replay another provider's audio.
+  if (asked === "cartesia") {
+    return false;
+  }
+  // ElevenLabs quota → Cartesia stays replayable for that same request.
+  return Boolean(cached?.telemetry?.fallbackUsed);
+}
+
+function rememberServerSpeech(cacheKey, requested, response, personality, text) {
+  if (cachedSpeechMatchesRequest(requested, response)) {
+    setCachedTtsResponse(cacheKey, response);
+  } else if (cacheKey && ttsResponseCache.has(cacheKey)) {
+    ttsResponseCache.delete(cacheKey);
+  }
+
+  const chosen = String(response?.telemetry?.chosenEngine || response?.engine || "").trim().toLowerCase();
+  if (!chosen || chosen === "auto") {
+    return;
+  }
+
+  // Alias by the engine that spoke so a later selection of that engine is free.
+  const profile = response?.effectiveVoiceProfile || response?.adjustedVoiceProfile || {};
+  const aliasKey = buildSpeechAliasCacheKey({
+    personality,
+    text,
+    engine: chosen,
+    voiceId: String(response?.telemetry?.chosenVoiceId || resolveRequestedVoiceId(chosen, profile) || ""),
+    model: resolveRequestedVoiceModel(chosen, profile),
+  });
+  setCachedTtsResponse(aliasKey, response);
+}
+
+function isElevenLabsQuotaFailure(error) {
+  const provider = String(error?.ttsProvider || "").toLowerCase();
+  if (provider !== "elevenlabs") {
+    return false;
+  }
+  const providerStatus = String(error?.ttsProviderStatus || "").toLowerCase();
+  const statusCode = Number(error?.statusCode || 0);
+  const upstreamStatus = Number(error?.providerStatus || 0);
+  return (
+    statusCode === 402 ||
+    statusCode === 429 ||
+    upstreamStatus === 402 ||
+    upstreamStatus === 429 ||
+    providerStatus === "too_many_concurrent_requests" ||
+    providerStatus === "concurrent_limit_exceeded" ||
+    providerStatus === "quota_exceeded"
+  );
 }
 
 export async function generateSpeechAudio({ personality, text, voiceProfile, speechHint }) {
@@ -2189,11 +2297,30 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     adjustedVoiceProfile,
   });
   const cachedResponse = getCachedTtsResponse(cacheKey);
-  if (cachedResponse?.buffer) {
+  if (cachedSpeechMatchesRequest(requested, cachedResponse)) {
     return {
       ...cachedResponse,
       cached: true,
     };
+  }
+  if (cachedResponse?.buffer && requested === "cartesia") {
+    ttsResponseCache.delete(cacheKey);
+  }
+  if (requested && requested !== "auto") {
+    const aliasKey = buildSpeechAliasCacheKey({
+      personality,
+      text,
+      engine: requested,
+      voiceId: resolveRequestedVoiceId(requested, adjustedVoiceProfile || voiceProfile),
+      model: resolveRequestedVoiceModel(requested, adjustedVoiceProfile || voiceProfile),
+    });
+    const aliasHit = getCachedTtsResponse(aliasKey);
+    if (cachedSpeechMatchesRequest(requested, aliasHit)) {
+      return {
+        ...aliasHit,
+        cached: true,
+      };
+    }
   }
   const emotionFrame = interpretEmotionSpectrum(resolveMood(personality));
   const attemptedEngines = [];
@@ -2207,7 +2334,9 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
 
     if (provider === "elevenlabs") {
       return (
+        statusCode === 402 ||
         statusCode === 429 ||
+        upstreamStatus === 402 ||
         upstreamStatus === 429 ||
         providerStatus === "too_many_concurrent_requests" ||
         providerStatus === "concurrent_limit_exceeded" ||
@@ -2228,27 +2357,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       );
     }
 
-    // Explicit Cartesia mode is common in production. When Cartesia has
-    // timeout/network/upstream instability, degrade to another configured
-    // engine instead of surfacing opaque gateway failures.
-    if (requested === "cartesia" || provider === "cartesia") {
-      if (isTtsDebugProviderLockEnabled()) {
-        return false;
-      }
-
-      return (
-        statusCode === 400 ||  // invalid voice ID / model — degrade rather than hard-fail
-        statusCode === 502 ||
-        statusCode === 503 ||
-        statusCode === 504 ||
-        upstreamStatus === 400 ||
-        upstreamStatus === 502 ||
-        upstreamStatus === 503 ||
-        upstreamStatus === 504 ||
-        providerCode === "timeout" ||
-        providerCode === "network_error" ||
-        providerCode === "backend_timeout"
-      );
+    // Explicit Cartesia must not spend another provider. Failures surface
+    // and are not cached. Auto mode can still move on after a Cartesia miss.
+    if (requested === "cartesia") {
+      return false;
     }
 
     // Piper process failures (binary missing, model not found, timeout) should
@@ -2355,6 +2467,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
         requestedRaw,
         requestedCoerced: requested !== requestedRaw,
         chosenEngine: audio.engine || engine,
+        chosenVoiceId: String(audio?.voiceId || resolveRequestedVoiceId(audio.engine || engine, audio.effectiveVoiceProfile) || ""),
         attemptedEngines,
         fallbackUsed: false,
         synthesisText: String(audio?.synthesisText || directedText),
@@ -2388,7 +2501,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       sfx,
       cached: false,
     };
-    setCachedTtsResponse(cacheKey, response);
+    rememberServerSpeech(cacheKey, requested, response, personality, text);
     return response;
   } catch (primaryError) {
     // For explicit engine requests, we normally avoid silent fallback.
@@ -2398,8 +2511,11 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       throw primaryError;
     }
 
-    // Auto fallback chain: try remaining engines in priority order.
-    const fallbackOrder = getAutoEngineOrder(voiceProfile).filter((candidate) => candidate !== engine);
+    // ElevenLabs quota spends Cartesia once. It does not continue into cloud,
+    // Piper, or back into ElevenLabs. Other auto failures keep the full chain.
+    const quotaFallback = isElevenLabsQuotaFailure(primaryError);
+    const fallbackOrder = (quotaFallback ? ["cartesia"] : getAutoEngineOrder(voiceProfile))
+      .filter((candidate) => candidate !== engine && (candidate !== "cartesia" || isCartesiaConfigured()));
 
     for (const fallbackEngine of fallbackOrder) {
       try {
@@ -2416,6 +2532,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
             requestedRaw,
             requestedCoerced: requested !== requestedRaw,
             chosenEngine: audio.engine || fallbackEngine,
+            chosenVoiceId: String(audio?.voiceId || resolveRequestedVoiceId(audio.engine || fallbackEngine, audio.effectiveVoiceProfile) || ""),
             attemptedEngines,
             fallbackUsed: true,
             fallbackFrom: engine,
@@ -2448,7 +2565,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
           sfx,
           cached: false,
         };
-        setCachedTtsResponse(cacheKey, response);
+        rememberServerSpeech(cacheKey, requested, response, personality, text);
         return response;
       } catch {
         // Continue to next fallback.

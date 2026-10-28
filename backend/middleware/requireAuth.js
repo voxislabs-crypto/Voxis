@@ -28,11 +28,17 @@ const clerkPublishableKey = clerkPublishableKeyFrom
   : "";
 
 const clerkSecretKey = process.env.CLERK_SECRET_KEY || "";
-const allowMissingClerkKeys = String(process.env.ALLOW_MISSING_CLERK_KEYS || "")
-  .trim()
-  .toLowerCase() === "true";
 
-if ((!clerkPublishableKey || !clerkSecretKey) && !allowMissingClerkKeys && process.env.NODE_ENV !== "test") {
+function envFlag(name) {
+  const value = String(process.env[name] ?? "").trim().toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
+
+function isVoxisLocal() {
+  return envFlag("VOXIS_LOCAL");
+}
+
+if ((!clerkPublishableKey || !clerkSecretKey) && !envFlag("ALLOW_MISSING_CLERK_KEYS") && !isVoxisLocal() && process.env.NODE_ENV !== "test") {
   const missing = [
     !clerkPublishableKey ? "publishable key (CLERK_PUBLISHABLE_KEY preferred)" : null,
     !clerkSecretKey ? "CLERK_SECRET_KEY" : null,
@@ -44,7 +50,7 @@ if ((!clerkPublishableKey || !clerkSecretKey) && !allowMissingClerkKeys && proce
     `[Auth] Missing Clerk configuration: ${missing}. ` +
       "Set keys in backend/.env and restart with: " +
       "pm2 startOrReload ecosystem.config.cjs --only voxis-backend --update-env. " +
-      "To bypass in local-only debugging, set ALLOW_MISSING_CLERK_KEYS=true.",
+      "To bypass in local-only debugging, set ALLOW_MISSING_CLERK_KEYS=true or VOXIS_LOCAL=true.",
   );
 }
 
@@ -78,13 +84,20 @@ console.info("[Auth] Clerk env", {
       ? "sk_test"
       : "sk_unknown"
     : "missing",
+  localMode: isVoxisLocal(),
 });
+
+if (isVoxisLocal()) {
+  console.info("[Auth] VOXIS_LOCAL is set; Clerk session checks are skipped.");
+}
 
 // Authenticate each request by verifying the Clerk session token when present.
 // On success, attaches req.auth = { userId } so downstream requireAuth() can use it.
 // Errors are always non-fatal here — protected routes gate separately via requireAuth().
+// VOXIS_LOCAL skips verification on every route. Deployed instances leave it unset.
 export const clerkVerify = async (req, res, next) => {
   req.auth = null;
+  if (isVoxisLocal()) return next();
   if (!clerkSecretKey) return next();
 
   try {
@@ -115,8 +128,9 @@ export const clerkVerify = async (req, res, next) => {
 
 export async function requireAuth(req, res, next) {
   try {
-    // Development bypass when ALLOW_MISSING_CLERK_KEYS is set
-    if (allowMissingClerkKeys) {
+    // Local sidecar and the explicit dev bypass share the same provisioned user.
+    // VOXIS_LOCAL is read per request so production stays on the Clerk path.
+    if (envFlag("ALLOW_MISSING_CLERK_KEYS") || isVoxisLocal()) {
       const devUserId = "1"; // Match mock Clerk userId
       req.clerkUserId = devUserId;
       

@@ -295,7 +295,7 @@ describe("ttsService Piper voice discovery", () => {
           moodState: { arousal: 0.1, dominance: 0.2 },
           expressionStyle: { energy: "medium", sentenceStyle: "balanced", rules: [] },
         },
-        text: "Keep the pacing deliberate.",
+        text: "Keep the pacing deliberate while this request must time out.",
         voiceProfile: {
           engine: "cartesia",
           providerVoice: "voice-from-provider-field",
@@ -311,7 +311,7 @@ describe("ttsService Piper voice discovery", () => {
         ttsProviderCode: "timeout",
       });
 
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(17_000);
       await assertion;
     } finally {
       vi.useRealTimers();
@@ -448,6 +448,223 @@ describe("ttsService Piper voice discovery", () => {
 
       if (previousApiKey === undefined) delete process.env.CARTESIA_API_KEY;
       else process.env.CARTESIA_API_KEY = previousApiKey;
+    }
+  });
+});
+
+describe("tts credit-safe engine selection", () => {
+  const voiceId = "694f9389-aac1-45b6-b726-9d9369183238";
+
+  function restoreEnv(previous) {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  it("does not spend ElevenLabs when an explicit Cartesia request fails", async () => {
+    const previous = {
+      CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
+      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+    };
+    const urls = [];
+    const originalFetch = global.fetch;
+
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    process.env.TTS_ENGINE = "auto";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    global.fetch = async (url) => {
+      const href = String(url);
+      urls.push(href);
+      if (href.includes("elevenlabs")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": "audio/mpeg" }),
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        };
+      }
+      return {
+        ok: false,
+        status: 400,
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => JSON.stringify({ error: { code: "invalid_voice", message: "bad voice" } }),
+      };
+    };
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      await expect(generateSpeechAudio({
+        personality: { id: 77, name: "Cartesia Persona", moodState: { arousal: 0.1, dominance: 0.2 } },
+        text: "Explicit cartesia must not call elevenlabs 9043.",
+        voiceProfile: {
+          engine: "cartesia",
+          cartesiaVoiceId: voiceId,
+          cartesiaModel: "sonic-3",
+          rate: 1,
+          pitch: 1,
+        },
+      })).rejects.toMatchObject({ ttsProvider: "cartesia" });
+
+      expect(urls.some((url) => url.includes("elevenlabs"))).toBe(false);
+      expect(urls.some((url) => url.includes("cartesia"))).toBe(true);
+    } finally {
+      global.fetch = originalFetch;
+      restoreEnv(previous);
+    }
+  });
+
+  it("falls forward to Cartesia once on an ElevenLabs quota error and replays from cache", async () => {
+    const previous = {
+      CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
+      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+    };
+    const urls = [];
+    const originalFetch = global.fetch;
+    const text = "Quota fallback cache check alpha 9042.";
+
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    process.env.TTS_ENGINE = "auto";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    global.fetch = async (url) => {
+      const href = String(url);
+      urls.push(href);
+      if (href.includes("elevenlabs")) {
+        return {
+          ok: false,
+          status: 401,
+          headers: new Headers({ "content-type": "application/json" }),
+          text: async () => JSON.stringify({ detail: { status: "quota_exceeded", message: "quota" } }),
+        };
+      }
+      if (href.includes("cartesia")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": "audio/mpeg" }),
+          arrayBuffer: async () => new Uint8Array([4, 5, 6]).buffer,
+        };
+      }
+      throw new Error(`Unexpected TTS host ${href}`);
+    };
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      const personality = { id: 78, name: "Quota Persona", moodState: { arousal: 0.1, dominance: 0.2 } };
+      const sharedVoice = {
+        cartesiaVoiceId: voiceId,
+        cartesiaModel: "sonic-3",
+        elevenLabsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+        elevenLabsModel: "eleven_multilingual_v2",
+        rate: 1,
+        pitch: 1,
+      };
+
+      const first = await generateSpeechAudio({
+        personality,
+        text,
+        voiceProfile: { ...sharedVoice, engine: "elevenlabs" },
+      });
+      expect(first.engine).toBe("cartesia");
+      expect(first.telemetry?.fallbackUsed).toBe(true);
+      expect(first.telemetry?.chosenVoiceId).toBe(voiceId);
+      expect(urls.filter((url) => url.includes("elevenlabs"))).toHaveLength(1);
+      expect(urls.filter((url) => url.includes("cartesia"))).toHaveLength(1);
+      expect(urls.some((url) => url.includes("openai.com") || url.includes("piper"))).toBe(false);
+
+      const replay = await generateSpeechAudio({
+        personality,
+        text,
+        voiceProfile: { ...sharedVoice, engine: "elevenlabs" },
+      });
+      expect(replay.cached).toBe(true);
+      expect(replay.engine).toBe("cartesia");
+      expect(urls).toHaveLength(2);
+
+      const switched = await generateSpeechAudio({
+        personality,
+        text,
+        voiceProfile: { ...sharedVoice, engine: "cartesia" },
+      });
+      expect(switched.cached).toBe(true);
+      expect(switched.engine).toBe("cartesia");
+      expect(urls).toHaveLength(2);
+    } finally {
+      global.fetch = originalFetch;
+      restoreEnv(previous);
+    }
+  });
+
+  it("gives a long Cartesia replay more than the old 22 second cap", async () => {
+    const previous = {
+      CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
+      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+      TTS_REQUEST_TIMEOUT_MS: process.env.TTS_REQUEST_TIMEOUT_MS,
+    };
+    const urls = [];
+    const originalFetch = global.fetch;
+
+    vi.useFakeTimers();
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    process.env.TTS_ENGINE = "auto";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    process.env.TTS_REQUEST_TIMEOUT_MS = "60000";
+    global.fetch = async (url) => {
+      const href = String(url);
+      urls.push(href);
+      if (href.includes("elevenlabs")) {
+        return {
+          ok: false,
+          status: 503,
+          headers: new Headers(),
+          text: async () => "down",
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "audio/mpeg" }),
+        arrayBuffer: () => new Promise(() => {}),
+      };
+    };
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      let settled = "";
+      const pending = generateSpeechAudio({
+        personality: { id: 79, name: "Long Replay", moodState: { arousal: 0.1, dominance: 0.2 } },
+        text: "This is a longer replay sentence that should stay above the old cap. ".repeat(8),
+        voiceProfile: {
+          engine: "cartesia",
+          cartesiaVoiceId: voiceId,
+          cartesiaModel: "sonic-3",
+          rate: 1,
+          pitch: 1,
+        },
+      }).then(
+        () => { settled = "ok"; },
+        () => { settled = "err"; },
+      );
+
+      await vi.advanceTimersByTimeAsync(23_000);
+      expect(settled).toBe("");
+      await vi.advanceTimersByTimeAsync(30_000);
+      await pending;
+      expect(settled).toBe("err");
+      expect(urls.some((url) => url.includes("elevenlabs"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      global.fetch = originalFetch;
+      restoreEnv(previous);
     }
   });
 });

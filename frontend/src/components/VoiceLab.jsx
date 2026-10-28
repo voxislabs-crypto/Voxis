@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
-import { buildTtsCacheKey, getTtsCache, setTtsCache } from "../utils/ttsCache.js";
+import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
 import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
 import VoiceSampleSelector from "./VoiceSampleSelector.jsx";
 import VoiceCloneTab from "./VoiceCloneTab.jsx";
@@ -2189,10 +2189,9 @@ export default function VoiceLab({
     setIsGeneratingAudio(true);
 
     const effectiveVoiceProfile = voiceOverride ? { ...voiceProfile, ...voiceOverride } : voiceProfile;
-    const cacheKey = buildTtsCacheKey(personality.id, text, effectiveVoiceProfile);
 
     try {
-      const cachedEntry = getTtsCache(cacheKey);
+      const cachedEntry = readReusableTtsClip(personality.id, text, effectiveVoiceProfile);
       if (cachedEntry?.blob instanceof Blob) {
         const next = URL.createObjectURL(cachedEntry.blob);
         if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -2322,9 +2321,13 @@ export default function VoiceLab({
       }
 
       const blob = await response.blob();
-      setTtsCache(cacheKey, {
+      const telemetryForCache = {
+        ...(ttsTelemetry || {}),
+        chosenEngine: ttsTelemetry?.chosenEngine || String(engineHeader || "").trim().toLowerCase() || undefined,
+      };
+      rememberTtsClip(personality.id, text, effectiveVoiceProfile, {
         blob,
-        telemetry: ttsTelemetry,
+        telemetry: telemetryForCache,
         sfxTimeline: ttsSfx,
       });
       const next = URL.createObjectURL(blob);

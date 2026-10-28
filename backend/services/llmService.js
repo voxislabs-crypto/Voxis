@@ -1197,8 +1197,10 @@ export async function generateChatCompletion(messages) {
   return requestChatCompletion({ messages, temperature: 0.85 });
 }
 
-export async function generateChatCompletionWithMeta(messages) {
-  return requestChatCompletion({ messages, temperature: 0.85, includeMeta: true });
+export async function generateChatCompletionWithMeta(messages, options = {}) {
+  const requested = Number(options?.temperature);
+  const temperature = Number.isFinite(requested) ? requested : 0.85;
+  return requestChatCompletion({ messages, temperature, includeMeta: true });
 }
 
 export async function generateChatCompletionStream(messages, onToken) {

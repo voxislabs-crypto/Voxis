@@ -54,6 +54,102 @@ function tokenize(text) {
   );
 }
 
+const INDEX_PLACEHOLDER = "*";
+const MAX_INDEX_HITS = 40;
+const MAX_TOPIC_TOKENS = 32;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const NORMAL_HALF_LIFE_DAYS = 30;
+const ANCHOR_HALF_LIFE_DAYS = 300;
+const ANCHOR_IMPORTANCE = 9;
+const RECENCY_WINDOW_DAYS = 7;
+const RECENCY_LIFT = 1.15;
+const MMR_LAMBDA = 0.7;
+const PRUNE_KEEP = 50;
+
+let deleteKeywordsStmt;
+let insertKeywordStmt;
+
+function keywordStatements() {
+  deleteKeywordsStmt ||= db.prepare(`DELETE FROM memory_keyword_index WHERE memoryId = ?`);
+  insertKeywordStmt ||= db.prepare(
+    `INSERT OR IGNORE INTO memory_keyword_index (keyword, memoryId, personalityId) VALUES (?, ?, ?)`,
+  );
+  return { deleteKeywordsStmt, insertKeywordStmt };
+}
+
+function memoryKeywords(content, memoryType) {
+  const tokens = tokenize(`${content || ""} ${memoryType || ""}`);
+  if (tokens.size === 0) tokens.add(INDEX_PLACEHOLDER);
+  return tokens;
+}
+
+function indexMemoryKeywords(memoryId, personalityId, content, memoryType) {
+  const { deleteKeywordsStmt: remove, insertKeywordStmt: insert } = keywordStatements();
+  remove.run(memoryId);
+  for (const keyword of memoryKeywords(content, memoryType)) {
+    insert.run(keyword, memoryId, personalityId);
+  }
+}
+
+function deleteMemoryKeywords(memoryId) {
+  keywordStatements().deleteKeywordsStmt.run(memoryId);
+}
+
+function deletePersonalityKeywords(personalityId) {
+  db.prepare(`DELETE FROM memory_keyword_index WHERE personalityId = ?`).run(personalityId);
+}
+
+function deleteOrphanKeywords(personalityId) {
+  db.prepare(
+    `DELETE FROM memory_keyword_index
+     WHERE personalityId = ?
+       AND memoryId NOT IN (
+         SELECT id FROM personality_memory WHERE personalityId = ?
+       )`,
+  ).run(personalityId, personalityId);
+}
+
+function hasUnindexedMemories(personalityId) {
+  return Boolean(
+    db.prepare(
+      `SELECT 1 AS ok
+       FROM personality_memory m
+       WHERE m.personalityId = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM memory_keyword_index i WHERE i.memoryId = m.id
+         )
+       LIMIT 1`,
+    ).get(personalityId),
+  );
+}
+
+export function backfillPersonalityKeywordIndex(personalityId) {
+  const rows = db
+    .prepare(
+      `SELECT id, personalityId, memoryType, content
+       FROM personality_memory m
+       WHERE personalityId = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM memory_keyword_index i WHERE i.memoryId = m.id
+         )`,
+    )
+    .all(personalityId);
+
+  if (!rows.length) return 0;
+
+  const { deleteKeywordsStmt: remove, insertKeywordStmt: insert } = keywordStatements();
+  const write = db.transaction((items) => {
+    for (const row of items) {
+      remove.run(row.id);
+      for (const keyword of memoryKeywords(row.content, row.memoryType)) {
+        insert.run(keyword, row.id, row.personalityId);
+      }
+    }
+  });
+  write(rows);
+  return rows.length;
+}
+
 function lexicalSimilarity(query, content) {
   const queryTokens = tokenize(query);
   const contentTokens = tokenize(content);
@@ -107,10 +203,95 @@ function getScoredMemory(memory, query, queryEmbedding) {
   return lexicalScore * 0.65 + importanceScore * 0.35;
 }
 
+function timestampMs(value) {
+  if (value == null || value === "") return null;
+  const raw = String(value).trim();
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`;
+  const ms = Date.parse(withZone);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function ageDays(fromMs, nowMs) {
+  if (!Number.isFinite(fromMs)) return 0;
+  return Math.max(0, (nowMs - fromMs) / MS_PER_DAY);
+}
+
+function temporalDecay(memory, nowMs) {
+  const created = timestampMs(memory?.createdAt);
+  const halfLife = Number(memory?.importance) >= ANCHOR_IMPORTANCE
+    ? ANCHOR_HALF_LIFE_DAYS
+    : NORMAL_HALF_LIFE_DAYS;
+  const decay = 0.5 ** (ageDays(created, nowMs) / halfLife);
+  const accessed = timestampMs(memory?.lastAccessedAt);
+  const touchedRecently = accessed != null && ageDays(accessed, nowMs) <= RECENCY_WINDOW_DAYS;
+  return decay * (touchedRecently ? RECENCY_LIFT : 1);
+}
+
+function contentSimilarity(left, right) {
+  const leftEmbedding = left?.embedding;
+  const rightEmbedding = right?.embedding;
+  if (
+    Array.isArray(leftEmbedding) && leftEmbedding.length > 0
+    && Array.isArray(rightEmbedding) && rightEmbedding.length === leftEmbedding.length
+  ) {
+    const cosine = cosineSimilarity(leftEmbedding, rightEmbedding);
+    if (cosine !== null) return Math.max(0, cosine);
+  }
+  return lexicalSimilarity(left?.content, right?.content);
+}
+
+function selectWithMmr(scored, limit) {
+  const pool = [...scored].sort(
+    (left, right) => right.score - left.score || right.memory.id - left.memory.id,
+  );
+  const selected = [];
+  const slots = Math.max(0, Number(limit) || 0);
+
+  while (selected.length < slots && pool.length > 0) {
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let index = 0; index < pool.length; index += 1) {
+      let redundancy = 0;
+      for (const chosen of selected) {
+        redundancy = Math.max(redundancy, contentSimilarity(pool[index].memory, chosen.memory));
+      }
+      const mmr = selected.length === 0
+        ? pool[index].score
+        : (MMR_LAMBDA * pool[index].score) - ((1 - MMR_LAMBDA) * redundancy);
+      if (mmr > bestScore) {
+        bestScore = mmr;
+        bestIndex = index;
+      }
+    }
+    selected.push(pool.splice(bestIndex, 1)[0]);
+  }
+
+  return selected;
+}
+
+function stampMemoryAccess(ids) {
+  if (!ids.length) return;
+  const update = db.prepare(
+    `UPDATE personality_memory
+     SET lastAccessedAt = CURRENT_TIMESTAMP,
+         accessCount = COALESCE(accessCount, 0) + 1
+     WHERE id = ?`,
+  );
+  db.transaction((memoryIds) => {
+    for (const id of memoryIds) update.run(id);
+  })(ids);
+}
+
 function listPersonalityMemoryRows(personalityId) {
   return db
     .prepare(
-      `SELECT id, personalityId, memoryType, content, importance, createdAt, updatedAt, embedding, embeddingModel, enabled
+      `SELECT id, personalityId, memoryType, content, importance, createdAt, updatedAt,
+              lastAccessedAt, accessCount, embedding, embeddingModel, enabled
        FROM personality_memory
        WHERE personalityId = ?
        ORDER BY importance DESC, id DESC`,
@@ -162,6 +343,70 @@ export function getPersonalityMemory(personalityId, limit = 20) {
        LIMIT ?`,
     )
     .all(personalityId, limit);
+}
+
+function unionMemories(left, right) {
+  const byId = new Map();
+  for (const row of left) byId.set(row.id, row);
+  for (const row of right) byId.set(row.id, row);
+  return [...byId.values()];
+}
+
+export function loadContextCandidateMemories(personalityId, topic) {
+  if (hasUnindexedMemories(personalityId)) {
+    backfillPersonalityKeywordIndex(personalityId);
+    return {
+      memories: getPersonalityMemory(personalityId, 40),
+      retrieval: "scan",
+    };
+  }
+
+  const keywords = [...tokenize(topic)]
+    .filter((keyword) => keyword !== INDEX_PLACEHOLDER)
+    .slice(0, MAX_TOPIC_TOKENS);
+
+  if (!keywords.length) {
+    return {
+      memories: getPersonalityMemory(personalityId, 40),
+      retrieval: "scan",
+    };
+  }
+
+  const placeholders = keywords.map(() => "?").join(", ");
+  const hits = db
+    .prepare(
+      `SELECT DISTINCT m.id, m.personalityId, m.memoryType, m.content, m.importance, m.createdAt, m.enabled
+       FROM memory_keyword_index i
+       JOIN personality_memory m ON m.id = i.memoryId
+       WHERE i.personalityId = ?
+         AND i.keyword IN (${placeholders})
+         AND m.enabled = 1
+       ORDER BY m.importance DESC, m.id DESC
+       LIMIT ?`,
+    )
+    .all(personalityId, ...keywords, MAX_INDEX_HITS);
+
+  if (!hits.length) {
+    return {
+      memories: getPersonalityMemory(personalityId, 40),
+      retrieval: "scan",
+    };
+  }
+
+  const anchors = db
+    .prepare(
+      `SELECT id, personalityId, memoryType, content, importance, createdAt, enabled
+       FROM personality_memory
+       WHERE personalityId = ? AND enabled = 1 AND importance >= 8
+       ORDER BY importance DESC, id DESC
+       LIMIT 40`,
+    )
+    .all(personalityId);
+
+  return {
+    memories: unionMemories(anchors, hits),
+    retrieval: "index",
+  };
 }
 
 export function getPersonalityMemoryByType(
@@ -228,10 +473,92 @@ export async function getRelevantPersonalityMemory(personalityId, query, limit =
   return [...anchorFacts, ...rankedFacts];
 }
 
+export async function retrieveMemories(personalityId, query, limit = 5, options = {}) {
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  const normalizedQuery = String(query || "").trim();
+  const memories = listPersonalityMemoryRows(personalityId).filter(isMemoryEnabled);
+  if (!memories.length || limit <= 0) return [];
+
+  const embeddingProvided = Object.prototype.hasOwnProperty.call(options, "queryEmbedding");
+  let queryEmbedding = embeddingProvided && Array.isArray(options.queryEmbedding)
+    ? options.queryEmbedding
+    : null;
+  if (!embeddingProvided && normalizedQuery && isEmbeddingConfigured()) {
+    try {
+      queryEmbedding = await generateEmbedding(normalizedQuery);
+    } catch {
+      queryEmbedding = null;
+    }
+  }
+
+  const scored = memories.map((memory) => {
+    const blend = normalizedQuery
+      ? getScoredMemory(memory, normalizedQuery, queryEmbedding)
+      : Math.min(1, Math.max(0, Number(memory.importance || 0) / 10));
+    return {
+      memory,
+      score: blend * temporalDecay(memory, nowMs),
+    };
+  });
+
+  const picked = selectWithMmr(scored, limit);
+  stampMemoryAccess(picked.map((item) => item.memory.id));
+  const readAccess = db.prepare(
+    `SELECT lastAccessedAt, accessCount FROM personality_memory WHERE id = ?`,
+  );
+  const accessById = new Map(
+    picked.map((item) => [item.memory.id, readAccess.get(item.memory.id)]),
+  );
+
+  return picked.map(({ memory, score }) => {
+    const access = accessById.get(memory.id);
+    return {
+      ...stripEmbedding(memory),
+      lastAccessedAt: access?.lastAccessedAt || memory.lastAccessedAt || null,
+      accessCount: Number(access?.accessCount ?? memory.accessCount ?? 0),
+      _relevanceScore: score,
+    };
+  });
+}
+
+export function pruneMemories(personalityId, maxEntries = PRUNE_KEEP, options = {}) {
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  const keep = Math.max(0, Number(maxEntries) || 0);
+  const rows = db
+    .prepare(
+      `SELECT id, importance, createdAt, lastAccessedAt
+       FROM personality_memory
+       WHERE personalityId = ?`,
+    )
+    .all(personalityId);
+
+  if (rows.length <= keep) return 0;
+
+  const removeIds = rows
+    .map((row) => ({
+      id: row.id,
+      rank: Number(row.importance || 0) * temporalDecay(row, nowMs),
+    }))
+    .sort((left, right) => right.rank - left.rank || right.id - left.id)
+    .slice(keep)
+    .map((row) => row.id);
+
+  const dropMemory = db.prepare(`DELETE FROM personality_memory WHERE id = ?`);
+  const dropKeywords = db.prepare(`DELETE FROM memory_keyword_index WHERE memoryId = ?`);
+  db.transaction((ids) => {
+    for (const id of ids) {
+      dropKeywords.run(id);
+      dropMemory.run(id);
+    }
+  })(removeIds);
+
+  return removeIds.length;
+}
+
 export function upsertMemoryFact(personalityId, content, memoryType = "note", importance = 5) {
   const existing = db
     .prepare(
-      `SELECT id, importance, embedding, embeddingModel FROM personality_memory
+      `SELECT id, importance, memoryType, embedding, embeddingModel FROM personality_memory
        WHERE personalityId = ? AND content = ?`,
     )
     .get(personalityId, content);
@@ -251,6 +578,7 @@ export function upsertMemoryFact(personalityId, content, memoryType = "note", im
       ).run(existing.id);
     }
 
+    indexMemoryKeywords(existing.id, personalityId, content, existing.memoryType || memoryType);
     return existing.id;
   }
 
@@ -259,6 +587,7 @@ export function upsertMemoryFact(personalityId, content, memoryType = "note", im
      VALUES (?, ?, ?, ?)`,
   ).run(personalityId, memoryType, content, importance);
 
+  indexMemoryKeywords(result.lastInsertRowid, personalityId, content, memoryType);
   return result.lastInsertRowid;
 }
 
@@ -299,6 +628,7 @@ export function pruneMemory(personalityId, maxEntries = 50) {
          LIMIT ?
        )`,
     ).run(personalityId, personalityId, maxEntries);
+    deleteOrphanKeywords(personalityId);
   }
 }
 
@@ -309,9 +639,9 @@ export function updateMemoryFact(id, { content, memoryType, importance, enabled 
      SET content = ?, memoryType = ?, importance = ?, enabled = ?, embedding = '', embeddingModel = '', updatedAt = CURRENT_TIMESTAMP
      WHERE id = ?`,
   ).run(content, memoryType, importance, normalizedEnabled, id);
-  return stripEmbedding(
-    normalizeMemoryRow(db.prepare(`SELECT * FROM personality_memory WHERE id = ?`).get(id)),
-  );
+  const row = db.prepare(`SELECT * FROM personality_memory WHERE id = ?`).get(id);
+  if (row) indexMemoryKeywords(row.id, row.personalityId, row.content, row.memoryType);
+  return stripEmbedding(normalizeMemoryRow(row));
 }
 
 export async function refreshMemoryEmbedding(id) {
@@ -406,6 +736,7 @@ export async function backfillAllMissingMemoryEmbeddings(limitPerPersonality = 1
 }
 
 export function deleteMemoryFact(id) {
+  deleteMemoryKeywords(id);
   db.prepare(`DELETE FROM personality_memory WHERE id = ?`).run(id);
 }
 
@@ -415,5 +746,6 @@ export function getAllPersonalityMemory(personalityId) {
 }
 
 export function clearPersonalityMemory(personalityId) {
+  deletePersonalityKeywords(personalityId);
   db.prepare(`DELETE FROM personality_memory WHERE personalityId = ?`).run(personalityId);
 }

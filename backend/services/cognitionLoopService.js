@@ -6,9 +6,10 @@ import {
   updateMemoryFact,
   upsertMemoryFactWithEmbedding,
 } from "../models/memoryModel.js";
-import { getAllPersonalities, updatePersonality } from "../models/personalityModel.js";
+import { getAllPersonalities, updateMoodState, updatePersonality } from "../models/personalityModel.js";
 import { getCognitionLoopConfig } from "../models/settingsModel.js";
 import { generateChatCompletion, isLlmConfigured } from "./llmService.js";
+import { tickIdleGrudges } from "./moodEngine.js";
 import { getAllUserMemory } from "../models/userMemoryModel.js";
 
 const DEFAULT_STATUS = {
@@ -436,6 +437,28 @@ function buildMemorySnapshot(memoryFacts) {
     .join("\n");
 }
 
+function formatHeldGrudges(personality) {
+  const grudges = Array.isArray(personality?.moodState?.grudges) ? personality.moodState.grudges : [];
+  const lines = grudges
+    .filter((grudge) => Number(grudge?.charge) > 0.2 && grudge?.thought)
+    .slice(0, 3)
+    .map((grudge) => `- (${Number(grudge.charge).toFixed(2)}) ${grudge.thought}`);
+  return lines.length ? lines.join("\n") : "none";
+}
+
+function settleIdleGrudges(personality, thoughts) {
+  const nextMood = tickIdleGrudges(personality.moodState || {}, {
+    personality,
+    thoughts,
+  });
+  const before = JSON.stringify(personality.moodState?.grudges || []);
+  const after = JSON.stringify(nextMood.grudges || []);
+  if (before !== after) {
+    updateMoodState(personality.id, nextMood);
+  }
+  return nextMood.grudges?.length || 0;
+}
+
 function buildReflectionMessages({ personality, messages, memoryFacts, feedbackSnapshot, config, userName = "user" }) {
   const recentChat = messages
     .slice(-8)
@@ -450,6 +473,8 @@ function buildReflectionMessages({ personality, messages, memoryFacts, feedbackS
   const prompt = `You are ${personality.name}. You are thinking privately about ${userName}.
 
 Current mood: ${personality.mood || "neutral"}
+Grudges still held:
+${formatHeldGrudges(personality)}
 Time since last spoke: ${Math.floor(Math.random()*25 + 10)} minutes ago
 
 Recent conversation:
@@ -780,6 +805,7 @@ async function runForPersonality(personality, config) {
     config,
     inactivityHours,
   });
+  const heldGrudges = settleIdleGrudges(personality, reflection.privateThoughts);
 
   const delivery = await evaluateDeliveryPolicy({
     personalityId: personality.id,
@@ -803,6 +829,7 @@ async function runForPersonality(personality, config) {
     deliveryReason: delivery.reason,
     memoryWrites: persist.memoryWrites,
     goalsAdded: persist.goalsAdded,
+    heldGrudges,
   };
 }
 

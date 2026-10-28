@@ -500,18 +500,18 @@ function clampNumber(value, min, max, fallback) {
 function sanitizeRecoveryCurves(curves) {
   const input = curves && typeof curves === "object" ? curves : {};
   return {
-    default: clampNumber(input.default, 0.01, 0.25, 0.08),
-    stoic: clampNumber(input.stoic, 0.01, 0.25, 0.12),
-    volatile: clampNumber(input.volatile, 0.01, 0.25, 0.04),
-    bratty: clampNumber(input.bratty, 0.01, 0.25, 0.06),
-    villainous: clampNumber(input.villainous, 0.01, 0.25, 0.03),
-    kind: clampNumber(input.kind, 0.01, 0.25, 0.1),
+    default: clampNumber(input.default, 0.01, 0.25, 0.03),
+    stoic: clampNumber(input.stoic, 0.01, 0.25, 0.06),
+    volatile: clampNumber(input.volatile, 0.01, 0.25, 0.02),
+    bratty: clampNumber(input.bratty, 0.01, 0.25, 0.025),
+    villainous: clampNumber(input.villainous, 0.01, 0.25, 0.015),
+    kind: clampNumber(input.kind, 0.01, 0.25, 0.05),
   };
 }
 
 function sanitizeMoodRuntimeConfig(config) {
   const normalized = config && typeof config === "object" ? config : {};
-  const inertia = clampNumber(normalized.inertia, 0.5, 0.95, 0.75);
+  const inertia = clampNumber(normalized.inertia, 0.5, 0.95, 0.5);
   const responsiveness = clampNumber(
     normalized.responsiveness,
     0.05,
@@ -522,7 +522,7 @@ function sanitizeMoodRuntimeConfig(config) {
   return {
     inertia,
     responsiveness,
-    perTurnDeltaCap: clampNumber(normalized.perTurnDeltaCap, 0.2, 0.8, 0.45),
+    perTurnDeltaCap: clampNumber(normalized.perTurnDeltaCap, 0.2, 0.8, 0.65),
     recoveryCurves: sanitizeRecoveryCurves(normalized.recoveryCurves),
     updatedAt: String(normalized.updatedAt || "").trim(),
   };
@@ -569,9 +569,24 @@ export function setCognitionLoopConfig(config) {
   return getCognitionLoopConfig();
 }
 
+function isLegacyZoeDamping(config) {
+  const curves = config?.recoveryCurves || {};
+  return Number(config?.inertia) === 0.75
+    && Number(curves.default) === 0.08
+    && Number(curves.stoic) === 0.12
+    && Number(curves.volatile) === 0.04
+    && Number(curves.bratty) === 0.06
+    && Number(curves.villainous) === 0.03
+    && Number(curves.kind) === 0.1
+    && Number(config?.perTurnDeltaCap ?? 0.45) === 0.45;
+}
+
 export function getMoodRuntimeConfig() {
   const row = db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(MOOD_RUNTIME_CONFIG_KEY);
   const parsed = parseJsonObject(row?.value || "") || {};
+  if (isLegacyZoeDamping(parsed)) {
+    return setMoodRuntimeConfig({});
+  }
   return sanitizeMoodRuntimeConfig(parsed);
 }
 

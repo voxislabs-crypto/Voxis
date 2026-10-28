@@ -439,6 +439,24 @@ Edit `backend/.env` with your API keys. All environment variables are optional â
 | `CLERK_PUBLISHABLE_KEY` | Preferred backend publishable key name |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Supported backend fallback alias |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Supported backend/frontend fallback alias |
+| `VOXIS_INTERNAL_SECRET` | Shared secret for `/api/internal/*`. Required for non-loopback callers. Send it as `X-Voxis-Internal-Key` or `Authorization: Bearer`. |
+| `HOST` | Bind address. Defaults to `127.0.0.1` so the sidecar stays on the machine. |
+| `VOXIS_LOCAL` | Set `true` (also `1` or `yes`) for local sidecar dev. Skips Clerk session checks on every route and allows boot without Clerk keys. Leave unset on deployed instances. |
+| `VOXIS_SEAT_GPT` / `VOXIS_SEAT_CLAUDE` / `VOXIS_SEAT_GROK` | Personality id behind each CoE seat for `/api/internal/context` and `/api/internal/round`. |
+| `VOXIS_SEAT_MAP` | JSON object alternative, for example `{"gpt":13,"claude":24,"grok":25}`. |
+
+Local sidecar, from `backend/`:
+
+```powershell
+$env:HOST = "127.0.0.1"
+$env:VOXIS_LOCAL = "true"
+$env:VOXIS_SEAT_GPT = "<personality id>"
+$env:VOXIS_SEAT_CLAUDE = "<personality id>"
+$env:VOXIS_SEAT_GROK = "<personality id>"
+node server.js
+```
+
+`VOXIS_LOCAL=true` belongs next to `HOST` and the seat bindings. It removes the Clerk boot dependency for this process only. Deployed instances leave it unset and keep session checks.
 
 **Mood & Prompt:**
 

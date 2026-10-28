@@ -202,7 +202,7 @@ export async function generateSpeechHandler(req, res, next) {
   } catch (error) {
     if (error?.ttsProvider) {
       const provider = String(error.ttsProvider || "unknown").trim().toLowerCase();
-      const providerCode = String(error.ttsProviderCode || "").trim().toLowerCase();
+      const providerCode = String(error.ttsProviderCode || error.ttsProviderStatus || "").trim().toLowerCase();
       const providerStatus = Number(error.providerStatus || 0);
       console.warn("[TTS] Provider synthesis failure", {
         provider,

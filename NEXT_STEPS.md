@@ -216,6 +216,21 @@ Why this direction:
 - Simpler experimentation/A-B tests at CoE layer.
 - Clear ownership boundary: Voxis = persona quality, CoE = deliberation/aggregation.
 
+### Shipped sidecar contract (2026-10-27)
+
+Voxis is a context sidecar. CoE orchestrates. Ollama seats deliberate. Voxis does not propose, critique, or synthesize.
+
+Boot from `backend/` with `HOST=127.0.0.1`, `VOXIS_LOCAL=true`, and the `VOXIS_SEAT_*` bindings, then `node server.js`. The process listens on `127.0.0.1` port 3101 by default. State is the SQLite file `backend/voxis.sqlite`. There is no Postgres. `VOXIS_LOCAL=true` skips Clerk session checks for that process so local dev does not wait on Clerk. Leave `VOXIS_LOCAL` unset on deployed instances; those still require a session. Set `VOXIS_INTERNAL_SECRET` before binding `HOST` to anything other than loopback.
+
+CoE calls these two routes, both under `/api/internal` and both behind the internal key:
+
+- `POST /api/internal/context` once per seat, before proposals. Body: `seatId`, `topic`, optional `maxChars` (clamped to 500–800, default 700). Response: `{ context, personalityId, chars, bound }`. `context` is mood plus topic-matching memories and prior council lines. No LLM call. Lookup uses a keyword index and falls back to the linear scan when that persona has no index yet or the topic matches nothing. CoE ignores the extra `retrieval` field.
+- `POST /api/internal/round` once after synthesis. Body: `topic`, `outcome`, optional `moodDelta`, `seats`. Response: `{ ok: true, queued: true, written }`. `written` is the accepted seats, which is the array CoE already counts. The handler returns immediately. A flush commits the batch in one SQLite transaction every 2 seconds, or sooner when 10 outcomes are waiting. If the process dies before that flush, the pending round logs are lost. A future version could persist the queue to disk for crash safety.
+
+Seat binding is `VOXIS_SEAT_GPT`, `VOXIS_SEAT_CLAUDE`, `VOXIS_SEAT_GROK`, or `VOXIS_SEAT_MAP` as JSON. An unbound seat returns an empty context and is skipped on write.
+
+`POST /api/internal/chat` still generates a reply. The council does not call it.
+
 ### V1 Contract (CoE -> Voxis)
 
 Endpoint proposal:
@@ -268,9 +283,8 @@ This enables dynamic attach/detach of personalities without Voxis code changes.
 4. Enable feature-flagged partial traffic.
 5. Promote to full council mode once latency/error targets pass.
 
-### First Implementation Slice (smallest safe step)
+### First Implementation Slice
 
-1. Add new Voxis route/controller for `POST /api/coe/personality/:personalityId/respond`.
-2. Reuse existing prompt assembly + mood pipeline internally.
-3. Return normalized response envelope (including usage + mood + timing).
-4. Add one integration test for success and one for timeout/error envelope.
+Done on the Voxis side: `POST /api/internal/chat` with shared-secret or loopback auth, persona prompt assembly, `extraContext` / `systemAppend`, and a non-streaming JSON reply. Tests cover auth, context injection, missing personality, and provider 429.
+
+Still on the CoE side: a `voxisProvider` that calls this endpoint per seat and puts the other proposals into `extraContext` on the critique round.
