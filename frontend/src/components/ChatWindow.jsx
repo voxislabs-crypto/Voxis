@@ -5,6 +5,13 @@ import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
 import {
+  choosePiperVoice,
+  formatQuickPiperLabel,
+  isFemaleCloudVoice,
+  piperPresentation,
+  piperUseCase,
+} from "../utils/piperVoiceLabel.js";
+import {
   collectSpeechChunks,
   createSpeechSession,
   normalizeSpeechChunk,
@@ -21,6 +28,7 @@ import {
   takeNextPending,
   takeNextReady,
 } from "../voice/speechPlaybackQueue.js";
+import { stripSfxCues } from "../voice/sfxCueText.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
@@ -89,24 +97,6 @@ function stripInlineMetadataTokens(text) {
     return source.trim();
   }
   return source.slice(0, first.index).trim();
-}
-
-function stripSfxCues(text) {
-  // Remove explicit SFX cue spellings (e.g. *BUUUURP*, *BRAAAP*) so the visible text
-  // doesn't include the spoken cues — the actual sound is provided by frontend SFX overlays.
-  // IMPORTANT: preserve original newlines, paragraphs, and indentation.
-  let t = String(text || "");
-  t = t.replace(/\*+[\s*]*([a-zA-Z]+)[\s!?.*]*\*+/gi, '');
-  t = t.replace(/[\(\[]\s*([a-zA-Z]+)\s*[\)\]]/gi, '');
-  t = t.replace(/<([a-zA-Z]+)>/gi, '');
-  t = t.replace(/\b(BUUU+RP|BRAAA+P|URRR+P|BRRR+RP|BURP|BELCH|BRAAP|URRRP)\b/gi, '');
-
-  // Collapse runs of spaces/tabs only. Preserve \n and \n\n for paragraphs.
-  t = t.replace(/[ \t]+/g, ' ');
-  t = t.replace(/^[ \t]+/gm, '');   // trim leading whitespace per line
-  t = t.replace(/[ \t]+$/gm, '');   // trim trailing whitespace per line
-
-  return t.trim();
 }
 
 function extractEPFDialogue(text) {
@@ -702,7 +692,7 @@ const chatStyles = `
     width: 100%;
     min-height: 88px;
     padding: 13px 16px;
-    padding-right: 100px;
+    padding-right: 172px;
     border: 1px solid rgba(0, 180, 255, 0.14);
     border-radius: 16px;
     background: rgba(6, 14, 28, 0.90);
@@ -725,6 +715,8 @@ const chatStyles = `
     right: 12px;
     top: 12px;
     display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
     gap: 8px;
     padding: 6px;
     border-radius: 11px;
@@ -736,6 +728,9 @@ const chatStyles = `
   .composer-icon-btn {
     width: 38px;
     height: 38px;
+    min-width: 38px;
+    flex: 0 0 38px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -792,6 +787,8 @@ const chatStyles = `
     position: relative;
     width: 38px;
     height: 38px;
+    min-width: 38px;
+    flex: 0 0 38px;
     display: grid;
     place-items: center;
     --reactor-level: 0;
@@ -799,7 +796,7 @@ const chatStyles = `
 
   .live-call-reactor-ring {
     position: absolute;
-    inset: -5px;
+    inset: 0;
     border-radius: 999px;
     border: 1px solid rgba(122, 221, 255, 0.34);
     opacity: 0;
@@ -809,7 +806,7 @@ const chatStyles = `
 
   .live-call-reactor-core {
     position: absolute;
-    inset: -10px;
+    inset: 2px;
     border-radius: 999px;
     background: radial-gradient(circle, rgba(100, 228, 255, 0.2), rgba(100, 228, 255, 0));
     filter: blur(2px);
@@ -850,16 +847,9 @@ const chatStyles = `
   }
 
   .composer-icon-btn.attach-btn {
-    width: 32px;
-    height: 32px;
     border-color: rgba(150, 180, 255, 0.28);
     background: rgba(110, 130, 220, 0.14);
     color: #ced9ff;
-  }
-
-  .composer-icon-btn.attach-btn svg {
-    width: 15px;
-    height: 15px;
   }
 
   @keyframes recordingPulse {
@@ -922,7 +912,7 @@ const chatStyles = `
     background: rgba(255, 96, 96, 0.25);
   }
 
-  .composer button {
+  .composer > button {
     align-self: end;
     padding: 13px 22px;
     border: 0;
@@ -934,11 +924,11 @@ const chatStyles = `
     transition: opacity 180ms, transform 180ms;
   }
 
-  .composer button:hover:not(:disabled) {
+  .composer > button:hover:not(:disabled) {
     transform: translateY(-1px);
   }
 
-  .composer button:disabled {
+  .composer > button:disabled {
     opacity: 0.55;
     cursor: wait;
   }
@@ -1314,41 +1304,32 @@ const chatStyles = `
     }
 
     .composer textarea {
-      padding-right: 124px;
+      padding-right: 156px;
     }
 
     .composer-actions {
       right: 8px;
       top: 8px;
-      gap: 5px;
+      gap: 6px;
       padding: 4px;
       border-radius: 10px;
     }
 
-    .composer-icon-btn {
+    .composer-icon-btn,
+    .live-call-reactor {
       width: 34px;
       height: 34px;
+      min-width: 34px;
+      flex-basis: 34px;
+    }
+
+    .composer-icon-btn {
       border-radius: 9px;
     }
 
     .composer-icon-btn svg {
       width: 16px;
       height: 16px;
-    }
-
-    .composer-icon-btn.attach-btn {
-      width: 28px;
-      height: 28px;
-    }
-
-    .composer-icon-btn.attach-btn svg {
-      width: 13px;
-      height: 13px;
-    }
-
-    .live-call-reactor {
-      width: 34px;
-      height: 34px;
     }
 
     .live-call-hud {
@@ -1359,7 +1340,7 @@ const chatStyles = `
       font-size: 0.68rem;
     }
 
-    .composer button {
+    .composer > button {
       width: 100%;
     }
 
@@ -1759,7 +1740,7 @@ const chatStyles = `
     background: rgba(2, 10, 24, 0.96);
   }
 
-  .composer button {
+  .composer > button {
     min-width: 150px;
     border-radius: 12px;
     text-transform: uppercase;
@@ -1962,7 +1943,7 @@ const chatStyles = `
     }
 
     .composer textarea {
-      padding-right: 132px;
+      padding-right: 172px;
     }
 
     .composer-actions {
@@ -2337,6 +2318,8 @@ export default function ChatWindow({
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [currentAudioIsCached, setCurrentAudioIsCached] = useState(false);
   const [speechPlaybackRate, setSpeechPlaybackRate] = useState(1);
+  const [piperVoices, setPiperVoices] = useState([]);
+  const [piperVoiceNote, setPiperVoiceNote] = useState("");
   const [cartesiaVoiceOptions, setCartesiaVoiceOptions] = useState(CARTESIA_QUICK_VOICE_OPTIONS);
   const [elevenLabsVoiceOptions, setElevenLabsVoiceOptions] = useState(ELEVENLABS_QUICK_VOICE_OPTIONS);
   const [elevenLabsModelOptions, setElevenLabsModelOptions] = useState(ELEVENLABS_QUICK_MODEL_OPTIONS);
@@ -2374,6 +2357,7 @@ export default function ChatWindow({
   const recognitionRef = useRef(null);
   const recognitionRestartTimerRef = useRef(null);
   const recognitionInactivityTimerRef = useRef(null);
+  const recognitionEpochRef = useRef(0);
   const recordingRequestedRef = useRef(false);
   const phoneSessionRef = useRef(null);
   const phoneRecognitionRef = useRef(null);
@@ -2682,7 +2666,76 @@ export default function ChatWindow({
     pendingSingingActiveRef.current = liveSingingActive;
   }, [liveSingingActive]);
 
-  // Fetch Cartesia voice catalog when the engine is Cartesia (or auto w/ debug lock).
+  useEffect(() => {
+    if (!authLoaded || !isSignedIn || voiceProfile.engine !== "piper") {
+      return;
+    }
+
+    let cancelled = false;
+    authFetch("/api/tts/piper-voices")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(String(data?.error || "Failed to load Piper voices."));
+        }
+        return data;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const voices = Array.isArray(data?.voices) ? data.voices : [];
+        setPiperVoices(voices);
+        const choice = choosePiperVoice(voices, voiceProfile);
+        const modelFile = String(data?.defaultModelPath || "").split(/[/\\]/).pop();
+        const cloudFemale = isFemaleCloudVoice(voiceProfile.providerVoice);
+        if (choice.reason === "cloud-female" && choice.voice) {
+          setVoiceProfile((current) => (
+            current.engine === "piper" && !current.piperModelPath
+              ? {
+                  ...current,
+                  piperModelPath: choice.voice.path,
+                  providerVoice: choice.voice.id,
+                  preferredVoice: choice.voice.id,
+                  piperSpeaker: null,
+                }
+              : current
+          ));
+          const useCase = piperUseCase(choice.voice);
+          setPiperVoiceNote(
+            `Sage is a cloud voice. Piper will use ${choice.voice.label}${useCase ? ` for ${useCase}` : ""}. Save Quick Voice to keep it.`,
+          );
+          return;
+        }
+        if (!voices.length) {
+          const maleDefault = piperPresentation({ id: modelFile }) === "male";
+          setPiperVoiceNote(
+            maleDefault
+              ? `Sage is a cloud voice, so Piper ignores it. The Piper file in settings is ${modelFile}, a male voice, and that file is not on this computer.`
+              : "Sage is a cloud voice, so Piper ignores it. No Piper voice files were found on this computer.",
+          );
+          return;
+        }
+        const active = voices.find((voice) => voice.path === voiceProfile.piperModelPath);
+        const activeUse = active ? piperUseCase(active) : "";
+        if (active && piperPresentation(active) === "male" && cloudFemale) {
+          setPiperVoiceNote(`This Piper model is male${activeUse ? `: ${activeUse}` : ""}. Sage does not change it.`);
+          return;
+        }
+        if (active && activeUse) {
+          setPiperVoiceNote(`${active.label}: ${activeUse}.`);
+          return;
+        }
+        setPiperVoiceNote("Each Piper name includes the job that voice is best at. Sage is a cloud voice and is not in this list.");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setPiperVoices([]);
+        setPiperVoiceNote(error?.message || "Piper voices could not be loaded.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, authLoaded, isSignedIn, voiceProfile.engine, voiceProfile.piperModelPath, voiceProfile.providerVoice]);
   // Falls back to CARTESIA_QUICK_VOICE_OPTIONS when API key is missing or the call fails.
   useEffect(() => {
     if (!authLoaded || !isSignedIn) {
@@ -2921,6 +2974,10 @@ export default function ChatWindow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
+  const savedVoiceSignature = personality
+    ? `${personality.id}:${JSON.stringify(personality.voiceProfile || {})}`
+    : "";
+
   useEffect(() => {
     if (!personality) {
       return;
@@ -2948,7 +3005,7 @@ export default function ChatWindow({
       piperModelPath: personality.voiceProfile?.piperModelPath || "",
       piperSpeaker: personality.voiceProfile?.piperSpeaker ?? null,
     });
-  }, [personality]);
+  }, [personality?.id, savedVoiceSignature]);
 
   useEffect(() => {
     const sessionPersonalityId = String(streamAutoplaySessionRef.current || "").split(":")[0];
@@ -2956,11 +3013,12 @@ export default function ChatWindow({
       && sessionPersonalityId !== ""
       && sessionPersonalityId === String(personality?.id ?? "");
 
-    setVoiceTelemetry(null);
     setActivePersonalityEvents([]);
     // Finishing the reply changes the saved message. That must not cancel
-    // clips already queued while the text was typing.
+    // clips already queued while the text was typing, or wipe the provider
+    // badge back to the dropdown while those clips are still playing.
     if (!streamOwnsThisReply) {
+      setVoiceTelemetry(null);
       streamAutoplaySessionRef.current = null;
       clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
       autoplayAssistantBaselineRef.current = assistantMessageCount;
@@ -3319,6 +3377,27 @@ export default function ChatWindow({
       ...current,
       [name]: value,
     }));
+  }
+
+  function handleQuickPiperVoiceChange(nextPath) {
+    const nextVoice = piperVoices.find((voice) => voice.path === nextPath);
+    if (!nextVoice) {
+      updateVoiceField("piperModelPath", nextPath);
+      return;
+    }
+    const presentation = piperPresentation(nextVoice);
+    setVoiceProfile((current) => ({
+      ...current,
+      piperModelPath: nextVoice.path,
+      providerVoice: nextVoice.id,
+      preferredVoice: nextVoice.id,
+      piperSpeaker: null,
+    }));
+    setPiperVoiceNote(
+      presentation
+        ? `${nextVoice.label} is the Piper model that will speak. Save Quick Voice to keep it.`
+        : "Piper uses the model picked here. Save Quick Voice to keep it.",
+    );
   }
 
   function clearStreamingAutoplayQueues({ revokeQueuedAudio = true } = {}) {
@@ -3946,6 +4025,12 @@ export default function ChatWindow({
     }
 
     const generation = speechSessionRef.current.generation;
+    const selectedEngine = String(voiceProfile.engine || "auto").trim().toLowerCase();
+    // A previous ElevenLabs quota miss pins the rest of the page session to
+    // Cartesia. An explicit Piper (or any other saved engine) cancels that pin.
+    if (selectedEngine && selectedEngine !== "auto" && selectedEngine !== "elevenlabs") {
+      streamEngineOverrideRef.current = null;
+    }
     streamQueueProcessingRef.current = true;
     setIsGeneratingAudio(true);
     let pausedForPlayback = false;
@@ -4371,8 +4456,15 @@ export default function ChatWindow({
       return;
     }
 
+    // Voice input is still listening when Enter sends. Its final result
+    // writes the whole transcript back into the box unless this session is ignored.
+    recognitionEpochRef.current += 1;
+    draftRef.current = "";
     setDraft("");
     setAttachedFile(null);
+    if (recognitionRef.current) {
+      stopRecognitionSession(false);
+    }
     await onSend(message);
   }
 
@@ -4539,6 +4631,7 @@ export default function ChatWindow({
 
     clearRecognitionTimers();
     const recognition = new SpeechRecognition();
+    const recognitionEpoch = recognitionEpochRef.current;
     const draftPrefix = String(draftRef.current || "").trim();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -4550,6 +4643,10 @@ export default function ChatWindow({
     };
 
     recognition.onresult = (event) => {
+      if (recognitionEpoch !== recognitionEpochRef.current) {
+        return;
+      }
+
       const transcript = Array.from(event.results)
         .map((result) => String(result?.[0]?.transcript || "").trim())
         .filter(Boolean)
@@ -5560,6 +5657,29 @@ export default function ChatWindow({
                     />
                   ) : null}
                 </>
+              ) : voiceProfile.engine === "piper" ? (
+                <>
+                  <select
+                    id="voice-quick-select"
+                    value={voiceProfile.piperModelPath || ""}
+                    onChange={(event) => handleQuickPiperVoiceChange(event.target.value)}
+                    disabled={piperVoices.length === 0}
+                  >
+                    <option value="">
+                      {piperVoices.length ? "Select a Piper voice" : "No Piper voices installed"}
+                    </option>
+                    {piperVoices.map((voice) => (
+                      <option key={voice.path} value={voice.path}>
+                        {formatQuickPiperLabel(voice)}
+                      </option>
+                    ))}
+                  </select>
+                  {piperVoiceNote ? (
+                    <p style={{ margin: "4px 0 0", fontSize: "0.78rem", lineHeight: 1.45, color: "#88ecff" }}>
+                      {piperVoiceNote}
+                    </p>
+                  ) : null}
+                </>
               ) : voiceProfile.engine === "elevenlabs" ? (
                 <>
                   <select
@@ -5966,7 +6086,10 @@ export default function ChatWindow({
                         <span className="live-phase">{message.phase || "processing"}</span>
                         {activeMode === "scientist"
                           ? message.content || "Thinking..."
-                          : message.displayContent || message.content || "Thinking..."}
+                          : stripSfxCues(message.displayContent || message.content || "")
+                            || message.displayContent
+                            || message.content
+                            || "Thinking..."}
                       </>
                     ) : message.role === "assistant" ? (
                       (() => {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { buildSpeechPacket } from "./speechDirector.js";
@@ -17,6 +18,7 @@ import { splitIntoChunks } from "./chunkSpeech.js";
 import { getKokoroHfToken, getKokoroLocalPath, getTtsCredential, getVoiceDefaults } from "../models/settingsModel.js";
 import { cleanLyricsForTts } from "./singingEngine.js";
 import { synthesizeOpenVoice } from "./openVoiceAdapter.js";
+import { synthesizePiperLine } from "./piperWorker.js";
 import { convertWithRvc, getRvcServiceUrl, isRvcInstalled } from "./rvcAdapter.js";
 import { getVoiceCloneDir } from "./voiceCloneService.js";
 import { getPersonalityCloneMeta } from "../models/voiceCloneModel.js";
@@ -238,9 +240,20 @@ export function getEngineCapabilities(engine) {
   return TTS_ENGINE_CAPABILITIES[String(engine || "").trim().toLowerCase()] || null;
 }
 
+function bundledPiperCommand() {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const candidates = [
+    path.join(repoRoot, "voice-services", "piper", "piper.exe"),
+    path.join(repoRoot, "voice-services", "piper", "piper", "piper.exe"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) || "";
+}
+
 function getPiperConfig() {
+  const configured = String(process.env.PIPER_COMMAND || "piper").trim() || "piper";
+  const bundled = configured !== "piper" && !existsSync(configured) ? bundledPiperCommand() : "";
   return {
-    command: process.env.PIPER_COMMAND || "piper",
+    command: bundled || configured,
     modelPath: String(process.env.PIPER_MODEL_PATH || "").trim(),
     speaker: String(process.env.PIPER_SPEAKER || "").trim(),
     timeoutMs: getPiperTimeoutMs(),
@@ -535,6 +548,7 @@ function getPiperSearchDirectories(extraDirs = []) {
   }
 
   addDir(process.env.PIPER_MODELS_DIR);
+  addDir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "voice-services", "piper", "models"));
   addDir("/opt/piper/models");
   addDir("/usr/share/piper/models");
   addDir("/usr/local/share/piper/models");
@@ -1511,53 +1525,6 @@ async function generateCloudSpeechAudio({ personality, text, voiceProfile, speec
   };
 }
 
-function runPiper({ command, args, text, timeoutMs = DEFAULT_PIPER_TIMEOUT_MS }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
-
-    let settled = false;
-    let stderr = "";
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGKILL");
-      reject(
-        new Error(
-          `Piper TTS timed out after ${timeoutMs / 1000}s for ${String(text || "").trim().length} chars. Check PIPER_COMMAND, PIPER_MODEL_PATH, and PIPER_TIMEOUT_MS.`,
-        ),
-      );
-    }, timeoutMs);
-
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk || "");
-    });
-
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`Piper exited with code ${code}. ${stderr.trim()}`.trim()));
-    });
-
-    child.stdin.write(`${text}\n`);
-    child.stdin.end();
-  });
-}
-
 async function generateSinglePiperSpeechAudio({ text, voiceProfile, config }) {
   const modelPath = String(voiceProfile?.piperModelPath || config.modelPath || "").trim();
   const timeoutMs = getPiperTimeoutMs(text);
@@ -1578,36 +1545,39 @@ async function generateSinglePiperSpeechAudio({ text, voiceProfile, config }) {
   }
 
   const tmpFile = path.join(os.tmpdir(), `voxis-piper-${randomUUID()}.wav`);
-  const args = ["--model", modelPath, "--output_file", tmpFile];
-
   const speakerValue = String(voiceProfile?.piperSpeaker ?? config.speaker ?? "").trim();
-  if (/^\d+$/.test(speakerValue)) {
-    args.push("--speaker", speakerValue);
-  }
-
   const rate = Math.min(1.6, Math.max(0.6, Number(voiceProfile?.rate) || 1));
   const lengthScale = Math.min(
     1.6,
     Math.max(0.55, Number(voiceProfile?.lengthScale ?? (1 / rate).toFixed(3))),
   );
-  args.push("--length_scale", String(lengthScale));
-
   const arousal = Number(voiceProfile?.moodArousal);
+  let noiseScale = "";
+  let noiseW = "";
   if (Number.isFinite(arousal) || Number.isFinite(Number(voiceProfile?.noiseScale)) || Number.isFinite(Number(voiceProfile?.noiseW))) {
-    const noiseScale = Math.min(
+    noiseScale = Math.min(
       1.0,
       Math.max(0.2, Number(voiceProfile?.noiseScale ?? (0.5 + (Number.isFinite(arousal) ? arousal * 0.4 : 0)))),
-    );
-    const noiseW = Math.min(
+    ).toFixed(3);
+    noiseW = Math.min(
       1.0,
       Math.max(0.3, Number(voiceProfile?.noiseW ?? (0.6 + (Number.isFinite(arousal) ? arousal * 0.3 : 0)))),
-    );
-    args.push("--noise_scale", noiseScale.toFixed(3));
-    args.push("--noise_w", noiseW.toFixed(3));
+    ).toFixed(3);
   }
 
   try {
-    await runPiper({ command, args, text, timeoutMs });
+    await synthesizePiperLine({
+      command,
+      modelPath,
+      text,
+      outputPath: tmpFile,
+      speaker: speakerValue,
+      lengthScale: String(lengthScale),
+      noiseScale,
+      noiseW,
+      cwd: existsSync(command) ? path.dirname(command) : "",
+      timeoutMs,
+    });
     const buffer = await fs.readFile(tmpFile);
 
     return {
@@ -1617,10 +1587,15 @@ async function generateSinglePiperSpeechAudio({ text, voiceProfile, config }) {
       timeoutMs,
     };
   } catch (error) {
+    const missingCommand = error?.code === "ENOENT";
     const wrapped = new Error(
-      `Piper synthesis failed: ${error.message || error} (command: ${command}, model: ${modelPath}, timeoutMs: ${timeoutMs})`,
+      missingCommand
+        ? `Piper is selected, but the program was not found at "${command}". Set PIPER_COMMAND to the Piper executable on this computer.`
+        : `Piper synthesis failed: ${error.message || error} (command: ${command}, model: ${modelPath}, timeoutMs: ${timeoutMs})`,
     );
     wrapped.statusCode = 502;
+    wrapped.ttsProvider = "piper";
+    wrapped.ttsProviderCode = missingCommand ? "missing_command" : "synthesis_failed";
     throw wrapped;
   } finally {
     await fs.unlink(tmpFile).catch(() => {});
@@ -2257,8 +2232,8 @@ function cachedSpeechMatchesRequest(requested, cached) {
   if (chosen === asked) {
     return true;
   }
-  // Explicit Cartesia must not replay another provider's audio.
-  if (asked === "cartesia") {
+  // Explicit Cartesia and Piper must not replay another provider's audio.
+  if (asked === "cartesia" || asked === "piper") {
     return false;
   }
   // ElevenLabs quota → Cartesia stays replayable for that same request.
@@ -2398,16 +2373,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       );
     }
 
-    // Explicit Cartesia must not spend another provider. Failures surface
-    // and are not cached. Auto mode can still move on after a Cartesia miss.
-    if (requested === "cartesia") {
+    // Explicit Cartesia and Piper stay on the engine the user saved.
+    // A miss surfaces and is not cached. Auto mode can still move on.
+    if (requested === "cartesia" || requested === "piper") {
       return false;
-    }
-
-    // Piper process failures (binary missing, model not found, timeout) should
-    // always degrade to the next configured engine rather than surface a 502.
-    if (requested === "piper" || provider === "piper") {
-      return true;
     }
 
     // Kokoro warmup/timeouts can be lengthy on first use; degrade rather than

@@ -517,6 +517,57 @@ describe("tts credit-safe engine selection", () => {
     }
   });
 
+  it("does not spend Cartesia when an explicit Piper request fails", async () => {
+    const previous = {
+      CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
+      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+      PIPER_COMMAND: process.env.PIPER_COMMAND,
+      PIPER_MODEL_PATH: process.env.PIPER_MODEL_PATH,
+    };
+    const urls = [];
+    const originalFetch = global.fetch;
+
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    process.env.TTS_ENGINE = "auto";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    process.env.PIPER_COMMAND = "X:\\Voxis\\missing-piper.exe";
+    process.env.PIPER_MODEL_PATH = "X:\\Voxis\\missing-piper.onnx";
+    global.fetch = async (url) => {
+      const href = String(url);
+      urls.push(href);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "audio/mpeg" }),
+        arrayBuffer: async () => new Uint8Array([7, 8, 9]).buffer,
+      };
+    };
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      await expect(generateSpeechAudio({
+        personality: { id: 79, name: "Piper Persona", moodState: { arousal: 0.1, dominance: 0.2 } },
+        text: "Explicit piper must not call cartesia 9044.",
+        voiceProfile: {
+          engine: "piper",
+          rate: 1,
+          pitch: 1,
+        },
+      })).rejects.toMatchObject({
+        ttsProvider: "piper",
+        ttsProviderCode: "synthesis_failed",
+      });
+
+      expect(urls).toEqual([]);
+    } finally {
+      global.fetch = originalFetch;
+      restoreEnv(previous);
+    }
+  });
+
   it("falls forward to Cartesia once on an ElevenLabs quota error and replays from cache", async () => {
     const previous = {
       CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,

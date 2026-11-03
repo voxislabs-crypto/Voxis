@@ -3,7 +3,7 @@
  *
  * A clip replays with no provider call when the text, engine, and voice match.
  * Audio spoken by a different engine is not reused for an explicit Cartesia
- * request. A successful clip is also filed under the engine that actually
+ * or Piper request. A successful clip is also filed under the engine that actually
  * spoke, so a later Cartesia selection can reuse an earlier fallback instead
  * of paying again.
  *
@@ -72,8 +72,8 @@ export function buildTtsAliasKey(personalityId, engine, voiceId, model, text) {
 }
 
 /**
- * Explicit Cartesia never accepts another engine's clip. Other explicit
- * requests still accept their own successful fallback so replay stays free.
+ * Explicit Cartesia and Piper never accept another engine's clip. An
+ * ElevenLabs quota fallback to Cartesia still replays for that request.
  * @param {object|null|undefined} entry
  * @param {string} requestedEngine
  * @returns {boolean}
@@ -87,7 +87,7 @@ export function cachedClipMatchesEngine(entry, requestedEngine) {
   if (!chosen || chosen === requested) {
     return true;
   }
-  if (requested === "cartesia") {
+  if (requested === "cartesia" || requested === "piper") {
     return false;
   }
   return Boolean(entry?.telemetry?.fallbackUsed);

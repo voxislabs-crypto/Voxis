@@ -48,6 +48,13 @@ function getTtsRequestTimeoutMs(voiceProfile, personality) {
   if (usesClone) {
     return OPENVOICE_REQUEST_TIMEOUT_MS;
   }
+  // Piper's own budget starts at 90s. The outer request used to stop at 60s
+  // and abandon a local Piper line before the program could finish.
+  if (engine === "piper") {
+    const configured = Number(process.env.PIPER_TIMEOUT_MS || 90_000);
+    const piperBudget = Number.isFinite(configured) ? Math.max(90_000, Math.round(configured)) : 90_000;
+    return Math.min(180_000, piperBudget + 15_000);
+  }
   const configured = Number(process.env.TTS_REQUEST_TIMEOUT_MS || DEFAULT_TTS_REQUEST_TIMEOUT_MS);
   if (!Number.isFinite(configured)) {
     return DEFAULT_TTS_REQUEST_TIMEOUT_MS;

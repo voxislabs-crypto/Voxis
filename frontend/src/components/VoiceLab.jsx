@@ -3,6 +3,7 @@ import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
+import { formatQuickPiperLabel } from "../utils/piperVoiceLabel.js";
 import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
 import VoiceSampleSelector from "./VoiceSampleSelector.jsx";
 import VoiceCloneTab from "./VoiceCloneTab.jsx";
@@ -2937,7 +2938,7 @@ export default function VoiceLab({
                       </option>
                       {piperVoices.map((v) => (
                         <option key={v.path} value={v.path}>
-                          {v.label}{v.isDefault ? " (default)" : ""}
+                          {formatQuickPiperLabel(v)}{v.isDefault ? " (default)" : ""}
                         </option>
                       ))}
                     </select>

@@ -48,6 +48,17 @@ describe("tts session cache", () => {
     expect(hit?.fromCache).toBe(true);
   });
 
+  it("does not replay Cartesia audio for an explicit Piper request", () => {
+    const profile = {
+      engine: "piper",
+      piperModelPath: "X:\\voices\\en_US-lessac-medium.onnx",
+      piperSpeaker: 0,
+    };
+    rememberTtsClip(7, "Hello there", profile, clip("cartesia", { fallbackUsed: true }));
+    expect(cachedClipMatchesEngine(clip("cartesia", { fallbackUsed: true }), "piper")).toBe(false);
+    expect(readReusableTtsClip(7, "Hello there", profile)).toBeNull();
+  });
+
   it("does not replay ElevenLabs audio for an explicit Cartesia request", () => {
     const profile = {
       engine: "cartesia",
