@@ -1,4 +1,5 @@
 import { getAllPersonalities, getPersonalityById, updateMoodState, updateStateFlaws } from "../models/personalityModel.js";
+import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import {
   createChatMessage,
   getChatMessages,
@@ -286,7 +287,8 @@ async function generateUniquePersonaOpener({ messages, bannedSignatures, fallbac
 export async function personaOpenerHandler(req, res, next) {
   try {
     const personalityId = Number(req.params.id || req.body.personalityId);
-    const userId = req.body.userId;
+    const actor = getAuthenticatedActor(req);
+    const userId = actor?.localUserId ?? null;
     const requestedMode = String(req.body.mode || "").trim().toLowerCase();
 
     if (!Number.isInteger(personalityId)) {
@@ -294,10 +296,8 @@ export async function personaOpenerHandler(req, res, next) {
     }
 
     const { policy } = resolvePolicyContext({ userId, requestedMode });
-    const personality = getPersonalityById(personalityId);
-    if (!personality) {
-      return res.status(404).json({ error: "Personality not found." });
-    }
+    const personality = resolveOwnedPersona(req, res, personalityId);
+    if (!personality) return;
 
     const recentMessages = getRecentChatMessages(personalityId, 1);
     const alreadyHasAssistantMessage = recentMessages.some((item) => item.role === "assistant");
@@ -802,7 +802,8 @@ export async function chatHandler(req, res, next) {
                         Boolean(req.body?.guideMode || req.body?.useVoxisGuide);
     const personalityId = isVoxisGuide ? null : Number(rawPersonalityId);
     const message = String(req.body.message || "").trim();
-    const userId = req.body.userId;
+    const actor = getAuthenticatedActor(req);
+    const userId = actor?.localUserId ?? null;
     const requestedMode = String(req.body.mode || "").trim().toLowerCase();
     const forceWebSearch = req.body.enableSearch === true;
 
@@ -828,10 +829,8 @@ export async function chatHandler(req, res, next) {
     if (isVoxisGuide) {
       personality = { id: 'voxis-guide', name: 'Voxis' };
     } else {
-      personality = getPersonalityById(personalityId);
-      if (!personality) {
-        return res.status(404).json({ error: "Personality not found." });
-      }
+      personality = resolveOwnedPersona(req, res, personalityId);
+      if (!personality) return;
     }
 
     const sessionId = generateSessionId();
@@ -2024,10 +2023,8 @@ export function chatHistoryHandler(req, res, next) {
       return res.status(400).json({ error: "A valid personality id is required." });
     }
 
-    const personality = getPersonalityById(personalityId);
-    if (!personality) {
-      return res.status(404).json({ error: "Personality not found." });
-    }
+    const personality = resolveOwnedPersona(req, res, personalityId);
+    if (!personality) return;
 
     const messages = getChatMessages(personalityId, 50).map((message) => {
       if (message.role !== "assistant") {
