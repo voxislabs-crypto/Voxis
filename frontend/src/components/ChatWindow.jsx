@@ -4992,7 +4992,7 @@ export default function ChatWindow({
             userText: spoken,
           });
         }
-        const response = await authFetch("/api/internal/voice-turn", {
+        const response = await authFetch("/voice-turn", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -5006,6 +5006,14 @@ export default function ChatWindow({
           throw new Error(payload?.error || "Voice turn failed.");
         }
         const reply = String(payload.text || "").trim();
+        if (payload.audioUrl) {
+          const audioResponse = await authFetch(payload.audioUrl);
+          if (!audioResponse.ok) {
+            throw new Error("Voice audio could not be retrieved.");
+          }
+          const audioBlob = await audioResponse.blob();
+          payload.audioUrl = URL.createObjectURL(audioBlob);
+        }
         if (phoneActiveRef.current && reply) {
           onRecordLiveExchange?.({
             personalityId: personalityIdRef.current,

@@ -22,6 +22,7 @@ function sweep(now) {
 export function storeVoiceAudio({
   buffer,
   contentType,
+  ownerId = null,
   now = Date.now(),
   ttlMs = DEFAULT_TTL_MS,
 } = {}) {
@@ -40,12 +41,13 @@ export function storeVoiceAudio({
   clips.set(id, {
     buffer: bytes,
     contentType: String(contentType || "application/octet-stream"),
+    ownerId: Number.isInteger(Number(ownerId)) && Number(ownerId) > 0 ? Number(ownerId) : null,
     expiresAt: now + ttlMs,
   });
   return id;
 }
 
-export function readVoiceAudio(id, now = Date.now()) {
+export function readVoiceAudio(id, { ownerId = null, now = Date.now() } = {}) {
   sweep(now);
   const key = String(id || "");
   const clip = clips.get(key);
@@ -54,6 +56,9 @@ export function readVoiceAudio(id, now = Date.now()) {
   }
   if (clip.expiresAt <= now) {
     clips.delete(key);
+    return null;
+  }
+  if (clip.ownerId !== null && Number(ownerId) !== clip.ownerId) {
     return null;
   }
   return clip;

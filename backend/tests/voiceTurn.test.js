@@ -11,6 +11,13 @@ const mockMoodToLabel = vi.fn();
 const mockMoodToPromptFragment = vi.fn();
 const mockUpdateMoodState = vi.fn();
 const mockGenerateSpeechAudio = vi.fn();
+const mockGetAuthenticatedActor = vi.fn();
+const mockResolveOwnedPersona = vi.fn();
+
+vi.mock("../gatekeeper/authorization.js", () => ({
+  getAuthenticatedActor: mockGetAuthenticatedActor,
+  resolveOwnedPersona: mockResolveOwnedPersona,
+}));
 
 vi.mock("../models/personalityModel.js", () => ({
   getPersonalityById: mockGetPersonalityById,
@@ -38,8 +45,14 @@ vi.mock("../services/ttsService.js", () => ({
 }));
 
 const { resetVoiceAudioStore } = await import("../services/voiceAudioStore.js");
-const { voiceAudioHandler, voiceTurnHandler } = await import("../controllers/voiceTurnController.js");
+const {
+  authenticatedVoiceAudioHandler,
+  authenticatedVoiceTurnHandler,
+  voiceAudioHandler,
+  voiceTurnHandler,
+} = await import("../controllers/voiceTurnController.js");
 const internalRoutes = (await import("../routes/internalChatRoutes.js")).default;
+const chatRoutes = (await import("../routes/chatRoutes.js")).default;
 
 function mockRes() {
   const res = { statusCode: 200, body: null, headers: {} };
@@ -77,6 +90,8 @@ describe("voice turn route", () => {
     vi.clearAllMocks();
     resetVoiceAudioStore();
     mockGetPersonalityById.mockReturnValue(personality());
+    mockGetAuthenticatedActor.mockReturnValue({ localUserId: 7, clerkUserId: "user_7" });
+    mockResolveOwnedPersona.mockReturnValue(personality());
     mockGetRelevantPersonalityMemory.mockResolvedValue([{ content: "likes rain", importance: 5 }]);
     mockBuildPersonaPromptPackage.mockReturnValue({ prompt: "YOU ARE ARA" });
     mockMoodFromLabel.mockReturnValue({ valence: 0, arousal: 0, dominance: 0 });
@@ -174,5 +189,29 @@ describe("voice turn route", () => {
     const routeSource = readFileSync(new URL("../controllers/voiceTurnController.js", import.meta.url), "utf8");
     expect(sessionSource).not.toMatch(/llmService|moodEngine|memoryModel|ttsService|internalChat|voiceTurnController/);
     expect(routeSource).not.toMatch(/livekitVoiceSession/);
+  });
+
+  it("exposes a separate authenticated browser voice adapter with owner-bound audio", async () => {
+    const voiceTurn = chatRoutes.stack.find((layer) => layer.route?.path === "/voice-turn");
+    const voiceAudio = chatRoutes.stack.find((layer) => layer.route?.path === "/voice-audio/:id");
+    expect(voiceTurn.route.stack[0].handle.name).toBe("requireAuth");
+    expect(voiceAudio.route.stack[0].handle.name).toBe("requireAuth");
+
+    const res = mockRes();
+    await authenticatedVoiceTurnHandler({
+      voxisUser: { id: 7 },
+      body: { personalityId: 7, transcript: "hello" },
+    }, res, vi.fn());
+
+    expect(res.body.audioUrl).toMatch(/^\/voice-audio\/[a-f0-9]{32}$/);
+    const id = res.body.audioUrl.split("/").pop();
+    const ownerAudioRes = mockRes();
+    authenticatedVoiceAudioHandler({ voxisUser: { id: 7 }, params: { id } }, ownerAudioRes);
+    expect(ownerAudioRes.statusCode).toBe(200);
+
+    const otherAudioRes = mockRes();
+    mockGetAuthenticatedActor.mockReturnValueOnce({ localUserId: 8, clerkUserId: "user_8" });
+    authenticatedVoiceAudioHandler({ voxisUser: { id: 8 }, params: { id } }, otherAudioRes);
+    expect(otherAudioRes.statusCode).toBe(404);
   });
 });

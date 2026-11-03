@@ -3,6 +3,7 @@ import { generateSpeechAudio } from "../services/ttsService.js";
 import { sanitizeVoiceProfile } from "../services/voiceProfileSanitizer.js";
 import { internalChatHandler } from "./internalChatController.js";
 import { readVoiceAudio, storeVoiceAudio } from "../services/voiceAudioStore.js";
+import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 
 const MAX_TRANSCRIPT_CHARS = 16000;
 
@@ -82,7 +83,7 @@ export async function voiceTurnHandler(req, res, next) {
       return res.status(502).json({ error: "The model returned an empty reply." });
     }
 
-    const personality = getPersonalityById(Number(chatPayload.personalityId));
+    const personality = req.authorizedVoicePersonality || getPersonalityById(Number(chatPayload.personalityId));
     if (!personality) {
       return res.status(404).json({ error: "Personality not found." });
     }
@@ -112,11 +113,12 @@ export async function voiceTurnHandler(req, res, next) {
     const id = storeVoiceAudio({
       buffer: audio.buffer,
       contentType: audio.contentType,
+      ownerId: req.voiceAudioOwnerId ?? null,
     });
 
     return res.json({
       text,
-      audioUrl: `/api/internal/voice-audio/${id}`,
+      audioUrl: req.voiceAudioOwnerId ? `/voice-audio/${id}` : `/api/internal/voice-audio/${id}`,
       contentType: audio.contentType || "application/octet-stream",
       personalityId: chatPayload.personalityId,
       personalityName: chatPayload.personalityName,
@@ -127,8 +129,38 @@ export async function voiceTurnHandler(req, res, next) {
   }
 }
 
+// User-facing adapter for browser and first-party clients. It intentionally
+// retains the lightweight voice turn behavior; durable continuity is a later
+// relationship-scoped phase.
+export async function authenticatedVoiceTurnHandler(req, res, next) {
+  const actor = getAuthenticatedActor(req);
+  const personality = resolveOwnedPersona(req, res, req.body?.personalityId);
+  if (!actor || !personality) return;
+
+  req.authorizedVoicePersonality = personality;
+  req.voiceAudioOwnerId = actor.localUserId;
+  return voiceTurnHandler(req, res, next);
+}
+
 export function voiceAudioHandler(req, res) {
   const clip = readVoiceAudio(req.params?.id);
+  if (!clip) {
+    return res.status(404).json({ error: "Voice audio not found." });
+  }
+
+  res.setHeader("Content-Type", clip.contentType);
+  res.setHeader("Content-Length", String(clip.buffer.length));
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(clip.buffer);
+}
+
+export function authenticatedVoiceAudioHandler(req, res) {
+  const actor = getAuthenticatedActor(req);
+  if (!actor) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+
+  const clip = readVoiceAudio(req.params?.id, { ownerId: actor.localUserId });
   if (!clip) {
     return res.status(404).json({ error: "Voice audio not found." });
   }
