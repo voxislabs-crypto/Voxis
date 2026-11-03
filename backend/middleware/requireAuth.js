@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { verifyToken } from "@clerk/backend";
 import { createUser, getUserByClerkId } from "../models/userModel.js";
 import { getPersonalityCountByOwner, transferPersonalitiesToOwner } from "../models/personalityModel.js";
+import { isAdminActor } from "../gatekeeper/authorization.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -229,11 +230,7 @@ export async function requireAuth(req, res, next) {
 // Requires ADMIN_CLERK_IDS env var — a comma-separated list of Clerk user IDs allowed to
 // touch LLM provider settings. Falls back to allowing any authenticated user if unset.
 export function requireAdmin(req, res, next) {
-  const adminIds = process.env.ADMIN_CLERK_IDS
-    ? process.env.ADMIN_CLERK_IDS.split(",").map((id) => id.trim()).filter(Boolean)
-    : [];
-
-  if (adminIds.length && !adminIds.includes(req.clerkUserId)) {
+  if (!isAdminActor(req)) {
     return res.status(403).json({ error: "Admin access required." });
   }
 
