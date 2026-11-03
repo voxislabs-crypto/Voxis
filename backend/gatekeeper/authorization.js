@@ -1,4 +1,6 @@
 import { getPersonalityById } from "../models/personalityModel.js";
+import { getMemoryFactById } from "../models/memoryModel.js";
+import { getPersonaPreferenceById } from "../models/preferencesModel.js";
 
 function envFlag(name) {
   const value = String(process.env[name] ?? "").trim().toLowerCase();
@@ -74,4 +76,34 @@ export function resolveOwnedPersona(req, res, rawPersonalityId) {
   }
 
   return personality;
+}
+
+export function resolveOwnedMemory(req, res, rawMemoryId) {
+  const memoryId = Number(rawMemoryId);
+  if (!Number.isInteger(memoryId) || memoryId <= 0) {
+    res.status(400).json({ error: "Invalid memory id." });
+    return null;
+  }
+  const memory = getMemoryFactById(memoryId);
+  if (!memory) {
+    res.status(404).json({ error: "Memory fact not found." });
+    return null;
+  }
+  const personality = resolveOwnedPersona(req, res, memory.personalityId);
+  return personality ? { memory, personality } : null;
+}
+
+export function resolveOwnedPreference(req, res, rawPreferenceId) {
+  const preferenceId = Number(rawPreferenceId);
+  if (!Number.isInteger(preferenceId) || preferenceId <= 0) {
+    res.status(400).json({ error: "Invalid preference id." });
+    return null;
+  }
+  const preference = getPersonaPreferenceById(preferenceId);
+  if (!preference) {
+    res.status(404).json({ error: "Preference not found." });
+    return null;
+  }
+  const personality = resolveOwnedPersona(req, res, preference.personalityId);
+  return personality ? { preference, personality } : null;
 }

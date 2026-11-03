@@ -85,6 +85,7 @@ describe("performanceController", () => {
     const { performanceHandler } = await import("../controllers/performanceController.js");
 
     const req = {
+      voxisUser: { id: 7 },
       params: { id: "42" },
       body: {
         text: mirroredEpf,

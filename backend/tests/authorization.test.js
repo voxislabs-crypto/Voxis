@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetPersonalityById = vi.fn();
+const mockGetMemoryFactById = vi.fn();
+const mockGetPersonaPreferenceById = vi.fn();
 
 vi.mock("../models/personalityModel.js", () => ({
   getPersonalityById: mockGetPersonalityById,
+}));
+
+vi.mock("../models/memoryModel.js", () => ({
+  getMemoryFactById: mockGetMemoryFactById,
+}));
+
+vi.mock("../models/preferencesModel.js", () => ({
+  getPersonaPreferenceById: mockGetPersonaPreferenceById,
 }));
 
 const {
@@ -11,6 +21,8 @@ const {
   isAdminActor,
   requireSelfOrAdmin,
   resolveOwnedPersona,
+  resolveOwnedMemory,
+  resolveOwnedPreference,
 } = await import("../gatekeeper/authorization.js");
 
 function response() {
@@ -74,6 +86,18 @@ describe("Gatekeeper authorization", () => {
     const res = response();
 
     expect(resolveOwnedPersona({ voxisUser: { id: 7 } }, res, "24")).toBe(persona);
+    expect(mockGetPersonalityById).toHaveBeenCalledWith(24, 7);
+  });
+
+  it("authorizes memory and preference records through their parent personality", () => {
+    const res = response();
+    mockGetMemoryFactById.mockReturnValue({ id: 12, personalityId: 24 });
+    mockGetPersonaPreferenceById.mockReturnValue({ id: 13, personalityId: 24 });
+    mockGetPersonalityById.mockReturnValue({ id: 24, ownerId: 7 });
+    const req = { voxisUser: { id: 7 } };
+
+    expect(resolveOwnedMemory(req, res, 12)?.memory.id).toBe(12);
+    expect(resolveOwnedPreference(req, res, 13)?.preference.id).toBe(13);
     expect(mockGetPersonalityById).toHaveBeenCalledWith(24, 7);
   });
 });

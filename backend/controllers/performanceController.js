@@ -1,4 +1,4 @@
-import { getPersonalityById } from "../models/personalityModel.js";
+import { resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import { generateSpeechAudio, isTtsConfigured } from "../services/ttsService.js";
 import { parseEPF, isPerformanceOutput, extractPlainText } from "../services/epfParser.js";
 import { sanitizeVoiceProfile } from "../services/voiceProfileSanitizer.js";
@@ -33,10 +33,8 @@ export async function performanceHandler(req, res, next) {
     return res.status(400).json({ error: "text is required." });
   }
 
-  const personality = getPersonalityById(personalityId);
-  if (!personality) {
-    return res.status(404).json({ error: "Personality not found." });
-  }
+  const personality = resolveOwnedPersona(req, res, personalityId);
+  if (!personality) return;
 
   const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile, personality.voiceProfile);
 
@@ -173,10 +171,8 @@ export async function parsePerformanceHandler(req, res, next) {
     return res.status(400).json({ error: "text is required." });
   }
 
-  const personality = getPersonalityById(personalityId);
-  if (!personality) {
-    return res.status(404).json({ error: "Personality not found." });
-  }
+  const personality = resolveOwnedPersona(req, res, personalityId);
+  if (!personality) return;
 
   const isEPF = isPerformanceOutput(rawText);
   if (!isEPF) {

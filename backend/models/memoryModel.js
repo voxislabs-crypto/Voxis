@@ -644,6 +644,14 @@ export function updateMemoryFact(id, { content, memoryType, importance, enabled 
   return stripEmbedding(normalizeMemoryRow(row));
 }
 
+export function getMemoryFactById(id) {
+  const memoryId = Number(id);
+  if (!Number.isInteger(memoryId) || memoryId <= 0) return null;
+  return normalizeMemoryRow(
+    db.prepare(`SELECT * FROM personality_memory WHERE id = ?`).get(memoryId),
+  );
+}
+
 export async function refreshMemoryEmbedding(id) {
   if (!isEmbeddingConfigured()) {
     return;

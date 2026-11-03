@@ -6,6 +6,7 @@ import {
   refreshMemoryEmbedding,
 } from "../models/memoryModel.js";
 import { isEmbeddingConfigured, getEmbeddingModelName } from "../services/llmService.js";
+import { resolveOwnedMemory, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 
 const VALID_MEMORY_TYPES = new Set([
   "fact", "preference", "relationship", "event",
@@ -16,6 +17,7 @@ const VALID_MEMORY_TYPES = new Set([
 export function listMemoryHandler(req, res) {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: "Invalid personality id." });
+  if (!resolveOwnedPersona(req, res, id)) return;
   res.json(getAllPersonalityMemory(id));
 }
 
@@ -23,6 +25,7 @@ export async function backfillMemoryEmbeddingsHandler(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "Invalid personality id." });
+    if (!resolveOwnedPersona(req, res, id)) return;
 
     if (!isEmbeddingConfigured()) {
       return res.status(409).json({
@@ -46,6 +49,7 @@ export async function backfillMemoryEmbeddingsHandler(req, res, next) {
 export function updateMemoryHandler(req, res) {
   const id = parseInt(req.params.memoryId, 10);
   if (!id) return res.status(400).json({ error: "Invalid memory id." });
+  if (!resolveOwnedMemory(req, res, id)) return;
 
   const { content, memoryType, importance, enabled } = req.body;
 
@@ -75,6 +79,7 @@ export function updateMemoryHandler(req, res) {
 export function deleteMemoryHandler(req, res) {
   const id = parseInt(req.params.memoryId, 10);
   if (!id) return res.status(400).json({ error: "Invalid memory id." });
+  if (!resolveOwnedMemory(req, res, id)) return;
   deleteMemoryFact(id);
   res.json({ ok: true });
 }

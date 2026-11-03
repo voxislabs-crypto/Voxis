@@ -5,7 +5,7 @@ import {
   deletePersonaPreference,
   PREF_TYPES,
 } from "../models/preferencesModel.js";
-import { getPersonalityById } from "../models/personalityModel.js";
+import { resolveOwnedPersona, resolveOwnedPreference } from "../gatekeeper/authorization.js";
 
 // ---------------------------------------------------------------------------
 // GET /personality/:id/preferences
@@ -14,8 +14,7 @@ export function listPersonaPreferencesHandler(req, res) {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: "Invalid personality id." });
 
-  const personality = getPersonalityById(id);
-  if (!personality) return res.status(404).json({ error: "Personality not found." });
+  if (!resolveOwnedPersona(req, res, id)) return;
 
   return res.json(getPersonaPreferences(id));
 }
@@ -28,8 +27,7 @@ export function createPersonaPreferenceHandler(req, res) {
   const personalityId = parseInt(req.params.id, 10);
   if (!personalityId) return res.status(400).json({ error: "Invalid personality id." });
 
-  const personality = getPersonalityById(personalityId);
-  if (!personality) return res.status(404).json({ error: "Personality not found." });
+  if (!resolveOwnedPersona(req, res, personalityId)) return;
 
   const { prefType, content, importance, source } = req.body;
 
@@ -65,6 +63,7 @@ export function createPersonaPreferenceHandler(req, res) {
 export function updatePersonaPreferenceHandler(req, res) {
   const prefId = parseInt(req.params.prefId, 10);
   if (!prefId) return res.status(400).json({ error: "Invalid preference id." });
+  if (!resolveOwnedPreference(req, res, prefId)) return;
 
   const { prefType, content, importance } = req.body;
 
@@ -86,6 +85,7 @@ export function updatePersonaPreferenceHandler(req, res) {
 export function deletePersonaPreferenceHandler(req, res) {
   const prefId = parseInt(req.params.prefId, 10);
   if (!prefId) return res.status(400).json({ error: "Invalid preference id." });
+  if (!resolveOwnedPreference(req, res, prefId)) return;
 
   deletePersonaPreference(prefId);
   return res.json({ ok: true });

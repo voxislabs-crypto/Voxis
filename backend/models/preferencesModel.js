@@ -309,6 +309,17 @@ export function updatePersonaPreference(id, { prefType, content, importance }) {
     .get(id);
 }
 
+export function getPersonaPreferenceById(id) {
+  const preferenceId = Number(id);
+  if (!Number.isInteger(preferenceId) || preferenceId <= 0) return null;
+  return normalizeRow(
+    db.prepare(
+      `SELECT id, personalityId, prefType, content, importance, source, createdAt, updatedAt, lastTriggeredAt, triggerCount
+       FROM persona_preferences WHERE id = ?`,
+    ).get(preferenceId),
+  );
+}
+
 export function deletePersonaPreference(id) {
   db.prepare(`DELETE FROM persona_preferences WHERE id = ?`).run(id);
 }

@@ -28,6 +28,7 @@ import {
 import { getAllVoicePresets, recommendVoicePreset } from "../services/voicePresetsService.js";
 import { sanitizeVoiceProfile } from "../services/voiceProfileSanitizer.js";
 import { normalizeStateFlaws } from "../services/stateFlawService.js";
+import { resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import { extractPersonaFromConversation, classifyIntent } from "../services/personaExtractionService.js";
 import { explainBehavior } from "../services/explanationService.js";
 import { extractUserPreferences, storeUserPreferences } from "../services/preferenceLearningService.js";
@@ -895,7 +896,7 @@ export function updateVoiceProfileHandler(req, res, next) {
       return res.status(400).json({ error: "A valid personality id is required." });
     }
 
-    const personality = getPersonalityById(personalityId);
+    const personality = resolveOwnedPersona(req, res, personalityId);
 
     if (!personality) {
       return res.status(404).json({ error: "Personality not found." });

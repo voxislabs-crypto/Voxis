@@ -1,4 +1,4 @@
-import { getPersonalityById } from "../models/personalityModel.js";
+import { resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import {
   generateSpeechAudio,
   personaHasOpenVoiceReference,
@@ -162,11 +162,8 @@ export async function generateSpeechHandler(req, res, next) {
       return res.status(400).json({ error: "Text is required for speech generation." });
     }
 
-    const personality = getPersonalityById(personalityId);
-
-    if (!personality) {
-      return res.status(404).json({ error: "Personality not found." });
-    }
+    const personality = resolveOwnedPersona(req, res, personalityId);
+    if (!personality) return;
 
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile, personality.voiceProfile);
     const ttsHealth = await getTtsHealthStatus();
