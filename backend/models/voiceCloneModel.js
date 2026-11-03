@@ -16,7 +16,7 @@ import db from "../db/db.js";
 
 /**
  * List all registered RVC voice packs.
- * @param {number|null} ownerId   Filter by owner (Clerk user id) if provided.
+ * @param {number|null} ownerId   Filter by local Voxis user id if provided.
  */
 export function listRvcVoicePacks(ownerId = null) {
   if (ownerId) {
@@ -42,6 +42,16 @@ export function getRvcVoicePack(packId) {
       "SELECT id, name, description, modelPath, samplePath, ownerId, createdAt FROM rvc_voice_packs WHERE id = ?",
     )
     .get(packId);
+}
+
+export function getVisibleRvcVoicePack(packId, ownerId) {
+  const localOwnerId = Number(ownerId);
+  if (!Number.isInteger(localOwnerId) || localOwnerId <= 0) return null;
+  return db
+    .prepare(
+      "SELECT id, name, description, modelPath, samplePath, ownerId, createdAt FROM rvc_voice_packs WHERE id = ? AND (ownerId = ? OR ownerId IS NULL)",
+    )
+    .get(packId, localOwnerId);
 }
 
 /**
@@ -74,6 +84,14 @@ export function createRvcVoicePack({ name, description = "", modelPath, samplePa
  */
 export function deleteRvcVoicePack(packId) {
   db.prepare("DELETE FROM rvc_voice_packs WHERE id = ?").run(packId);
+}
+
+export function deleteOwnedRvcVoicePack(packId, ownerId) {
+  const localOwnerId = Number(ownerId);
+  if (!Number.isInteger(localOwnerId) || localOwnerId <= 0) return 0;
+  return Number(
+    db.prepare("DELETE FROM rvc_voice_packs WHERE id = ? AND ownerId = ?").run(packId, localOwnerId).changes || 0,
+  );
 }
 
 // ── Personality Clone Metadata ───────────────────────────────────────────────

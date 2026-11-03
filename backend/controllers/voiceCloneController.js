@@ -39,14 +39,15 @@ import {
 import { isRvcInstalled } from "../services/rvcAdapter.js";
 import {
   listRvcVoicePacks,
-  getRvcVoicePack,
+  getVisibleRvcVoicePack,
   createRvcVoicePack,
-  deleteRvcVoicePack,
+  deleteOwnedRvcVoicePack,
   getPersonalityCloneMeta,
   setPersonalityCloneMeta,
   clearPersonalityCloneMeta,
 } from "../models/voiceCloneModel.js";
 import { getPersonalityById, updatePersonalityVoiceProfile } from "../models/personalityModel.js";
+import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 
 // ── Multer setup ─────────────────────────────────────────────────────────────
 // Store uploads in OS temp dir; we move them after processing.
@@ -127,6 +128,12 @@ function setPersonaSpeechEngine(personalityId, engine) {
 // ── POST /personality/:id/voice-clone ────────────────────────────────────────
 
 export const startVoiceCloneHandler = [
+  (req, res, next) => {
+    const personality = resolveOwnedPersona(req, res, req.params.id);
+    if (!personality) return;
+    req.authorizedVoiceClonePersonality = personality;
+    return next();
+  },
   // multer handles audio file if present; also accepts JSON-only (URL source)
   (req, res, next) => {
     audioUpload.single("audio")(req, res, (err) => {
@@ -165,7 +172,8 @@ export const startVoiceCloneHandler = [
       return res.status(400).json({ error: "rvcPackId is required for kokoro-rvc engine." });
     }
     if (engine === "kokoro-rvc" && rvcPackId) {
-      const pack = getRvcVoicePack(rvcPackId);
+      const actor = getAuthenticatedActor(req);
+      const pack = getVisibleRvcVoicePack(rvcPackId, actor?.localUserId);
       if (!pack) {
         return res.status(400).json({ error: `RVC voice pack ${rvcPackId} not found.` });
       }
@@ -268,8 +276,9 @@ export async function removeVoiceCloneHandler(req, res, next) {
       return res.status(400).json({ error: "Invalid persona id." });
     }
 
+    const persona = resolveOwnedPersona(req, res, personalityId);
+    if (!persona) return;
     clearPersonalityCloneMeta(personalityId);
-    const persona = getPersonalityById(personalityId);
     if (String(persona?.voiceProfile?.engine || "").toLowerCase() === "openvoice") {
       setPersonaSpeechEngine(personalityId, "auto");
     }
@@ -293,6 +302,7 @@ export async function getVoiceCloneStatusHandler(req, res, next) {
       return res.status(400).json({ error: "Invalid persona id." });
     }
 
+    if (!resolveOwnedPersona(req, res, personalityId)) return;
     const meta = getPersonalityCloneMeta(personalityId);
     const pipelineStatus = await getVoiceClonePipelineStatus();
     const [ovInstalled, rvcInstalled] = await Promise.all([
@@ -316,7 +326,7 @@ export async function getVoiceCloneStatusHandler(req, res, next) {
 
 export function listRvcPacksHandler(req, res, next) {
   try {
-    const ownerId = req.auth?.userId ?? null;
+    const ownerId = getAuthenticatedActor(req)?.localUserId ?? null;
     const packs = listRvcVoicePacks(ownerId);
     res.json({ packs });
   } catch (err) {
@@ -369,7 +379,7 @@ export const uploadRvcPackHandler = [
         name,
         description,
         modelPath: "pending", // will be updated after move
-        ownerId: req.auth?.userId ?? null,
+        ownerId: getAuthenticatedActor(req)?.localUserId ?? null,
       });
 
       const packDir = await ensureRvcPacksDir(packId);
@@ -428,16 +438,23 @@ export async function deleteRvcPackHandler(req, res, next) {
       return res.status(400).json({ error: "Invalid pack id." });
     }
 
-    const pack = getRvcVoicePack(packId);
+    const ownerId = getAuthenticatedActor(req)?.localUserId ?? null;
+    const pack = getVisibleRvcVoicePack(packId, ownerId);
     if (!pack) {
       return res.status(404).json({ error: "Voice pack not found." });
+    }
+
+    // Legacy global packs intentionally remain read-only until their ownership
+    // migration policy is decided. Private packs can only be removed by owner.
+    if (Number(pack.ownerId) !== Number(ownerId)) {
+      return res.status(403).json({ error: "Voice pack is not owned by the authenticated user." });
     }
 
     // Remove files from disk (best-effort)
     const packDir = getRvcPackDir(packId);
     await fs.rm(packDir, { recursive: true, force: true }).catch(() => {});
 
-    deleteRvcVoicePack(packId);
+    deleteOwnedRvcVoicePack(packId, ownerId);
 
     res.json({ ok: true });
   } catch (err) {
