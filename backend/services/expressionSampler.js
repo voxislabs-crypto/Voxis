@@ -277,3 +277,177 @@ export function applyBoundedExpressionSampling(text, {
     protectedRanges: protectedRanges.length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Micro-variation cues for the prompt.
+//
+// Reads the live per-user VAD and the residual flag already computed for this
+// turn. It does not call an LLM, and it does not rewrite identity, speechStyle,
+// behaviorRules, or notablePhrases. Anonymous and guide sessions are skipped.
+// Strength stays on the same modest scale as the VAD prosody multipliers.
+// ---------------------------------------------------------------------------
+
+export const MICRO_VARIATION = {
+  arousalHigh: 0.35,
+  arousalLow: -0.35,
+  dominanceHigh: 0.35,
+  maxCues: 2,
+  strengthCap: 0.12,
+  arousalScale: 0.08,
+  dominanceScale: 0.06,
+  residualStrength: 0.08,
+};
+
+const MICRO_CUE_PRIORITY = {
+  residual: 3,
+  "arousal-high": 2,
+  "arousal-low": 2,
+  dominance: 1,
+};
+
+const HIGH_AROUSAL_CUES = [
+  "Prefer shorter sentences, with a slightly higher interruption rate and tighter pacing.",
+  "Use a shorter sentence and tighter pacing, and allow one brief interruption.",
+  "Keep sentences shorter and pacing tighter, with a slight interruption before the next clause.",
+];
+
+const LOW_AROUSAL_CUES = [
+  "Allow a slightly longer, more measured sentence.",
+  "Stay measured, and let one sentence run a little longer.",
+  "Choose a measured pace and a slightly longer sentence.",
+];
+
+const DOMINANCE_CUES = [
+  "Use slightly more directive phrasing, inside the current speech style.",
+  "Make one line a little more directive, without a new voice.",
+  "Prefer a directive next step over a soft suggestion.",
+];
+
+const RESIDUAL_CUES = [
+  "A light hedge or a slightly sharper word is allowed, still inside the current speech style.",
+  "You may use one hedge, or one slightly sharper word, and then return to the usual style.",
+  "Occasional hedge or slightly sharper word choice only; do not leave the current speech style.",
+];
+
+const MICRO_BOUND = "This is a light variation cue only. Do not override identity, speech style, behavior rules, or notable phrases.";
+
+function finiteAxis(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function clampStrength(value) {
+  return round3(Math.min(MICRO_VARIATION.strengthCap, Math.max(0, value)));
+}
+
+function pickCue(bank, turnIndex) {
+  const index = Math.abs(Math.floor(Number(turnIndex) || 0)) % bank.length;
+  return bank[index];
+}
+
+function makeCue(axis, text, strength) {
+  return {
+    axis,
+    text,
+    strength: clampStrength(strength),
+  };
+}
+
+export function sampleMicroVariation({
+  mood = null,
+  residualActive = false,
+  turnIndex = 0,
+  sessionKind = "signed-in",
+} = {}) {
+  const kind = String(sessionKind || "signed-in");
+  if (kind !== "signed-in") {
+    return {
+      applied: false,
+      note: null,
+      cues: [],
+      strength: 0,
+      reason: kind === "guide" ? "guide" : "anonymous",
+    };
+  }
+
+  const arousal = finiteAxis(mood?.arousal);
+  const dominance = finiteAxis(mood?.dominance);
+  const turn = Math.abs(Math.floor(finiteAxis(turnIndex)));
+  const cues = [];
+
+  if (arousal >= MICRO_VARIATION.arousalHigh) {
+    cues.push(makeCue(
+      "arousal-high",
+      pickCue(HIGH_AROUSAL_CUES, turn),
+      arousal * MICRO_VARIATION.arousalScale,
+    ));
+  } else if (arousal <= MICRO_VARIATION.arousalLow) {
+    cues.push(makeCue(
+      "arousal-low",
+      pickCue(LOW_AROUSAL_CUES, turn),
+      Math.abs(arousal) * MICRO_VARIATION.arousalScale,
+    ));
+  }
+
+  if (residualActive) {
+    cues.push(makeCue(
+      "residual",
+      pickCue(RESIDUAL_CUES, turn),
+      MICRO_VARIATION.residualStrength,
+    ));
+  }
+
+  if (dominance >= MICRO_VARIATION.dominanceHigh) {
+    cues.push(makeCue(
+      "dominance",
+      pickCue(DOMINANCE_CUES, turn),
+      dominance * MICRO_VARIATION.dominanceScale,
+    ));
+  }
+
+  const selected = cues
+    .sort((left, right) => (MICRO_CUE_PRIORITY[right.axis] || 0) - (MICRO_CUE_PRIORITY[left.axis] || 0))
+    .slice(0, MICRO_VARIATION.maxCues);
+
+  if (!selected.length) {
+    return {
+      applied: false,
+      note: null,
+      cues: [],
+      strength: 0,
+      reason: "below_threshold",
+    };
+  }
+
+  const strength = clampStrength(selected.reduce((sum, cue) => sum + cue.strength, 0));
+  const note = ["[MICRO VARIATION]", ...selected.map((cue) => cue.text), MICRO_BOUND].join("\n");
+
+  return {
+    applied: true,
+    note,
+    cues: selected,
+    strength,
+    reason: "applied",
+  };
+}
+
+export function appendMicroVariationNote(messages, variation) {
+  const next = Array.isArray(messages) ? messages.map((message) => ({ ...message })) : [];
+  if (!variation?.note) {
+    return {
+      messages: next,
+      applied: false,
+      note: null,
+    };
+  }
+  next.push({ role: "system", content: variation.note });
+  return {
+    messages: next,
+    applied: true,
+    note: variation.note,
+  };
+}

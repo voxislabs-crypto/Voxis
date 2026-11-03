@@ -4,12 +4,29 @@ import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
 import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
+import {
+  collectSpeechChunks,
+  createSpeechSession,
+  normalizeSpeechChunk,
+  reconcileFinalSpeech,
+  replaceGeneration,
+  requeueUnfinished,
+  settlePlaybackCompleted,
+  settlePlaybackStarted,
+  settleSynthesis,
+  speechTurnDecision,
+  splitCompleteSentences,
+  splitLongSpeechChunk,
+  submitSentence,
+  takeNextPending,
+  takeNextReady,
+} from "../voice/speechPlaybackQueue.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
-import { createLiveKitVoiceSession } from "../../../backend/services/livekitVoiceSession.js";
+import { createLiveCallHearing, createLiveKitVoiceSession, LIVEKIT_TURN_POLICY, stripWake } from "../../../backend/services/livekitVoiceSession.js";
 
 const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 const TTS_DISABLE_KOKORO = String(import.meta.env.VITE_TTS_DISABLE_KOKORO ?? "false").trim().toLowerCase() === "true";
@@ -2223,138 +2240,6 @@ async function fetchTtsHealthSnapshot(authFetch) {
 }
 
 const MAX_STREAM_READY_AUDIO = 3;
-const MAX_STREAM_SENTENCE_CHARS = 220; // keep TTS requests small to avoid provider timeouts on long responses (e.g. ElevenLabs)
-const DOT_PLACEHOLDER = "__VOXIS_DOT__";
-const COMMON_ABBREVIATIONS = [
-  "Mr.",
-  "Mrs.",
-  "Ms.",
-  "Dr.",
-  "Prof.",
-  "Sr.",
-  "Jr.",
-  "St.",
-  "vs.",
-  "etc.",
-  "i.e.",
-  "e.g.",
-  "U.S.",
-  "U.K.",
-  "No.",
-];
-
-function escapeRegex(text) {
-  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function splitCompleteSentences(text) {
-  const source = String(text || "");
-  if (!source.trim()) {
-    return { sentences: [], remainder: "" };
-  }
-
-  let protectedSource = source;
-  for (const abbr of COMMON_ABBREVIATIONS) {
-    protectedSource = protectedSource.replace(
-      new RegExp(escapeRegex(abbr), "g"),
-      abbr.replace(/\./g, DOT_PLACEHOLDER),
-    );
-  }
-
-  const sentences = [];
-  const matcher = /[^.!?\n]+[.!?]+["')\]]*\s*/g;
-  let match = null;
-  let consumedEnd = 0;
-
-  while ((match = matcher.exec(protectedSource)) !== null) {
-    const sentence = String(match[0] || "")
-      .replace(new RegExp(DOT_PLACEHOLDER, "g"), ".")
-      .trim();
-    if (sentence) {
-      sentences.push(sentence);
-    }
-    consumedEnd = matcher.lastIndex;
-  }
-
-  return {
-    sentences,
-    remainder: protectedSource
-      .slice(consumedEnd)
-      .replace(new RegExp(DOT_PLACEHOLDER, "g"), ".")
-      .trim(),
-  };
-}
-
-function normalizeSpeechChunk(text) {
-  return String(text || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function splitLongSpeechChunk(text, maxChars = MAX_STREAM_SENTENCE_CHARS) {
-  const normalized = normalizeSpeechChunk(text);
-  if (!normalized) {
-    return [];
-  }
-
-  if (normalized.length <= maxChars) {
-    return [normalized];
-  }
-
-  const chunks = [];
-  let remaining = normalized;
-
-  while (remaining.length > maxChars) {
-    let splitAt = remaining.lastIndexOf(",", maxChars);
-    if (splitAt < Math.floor(maxChars * 0.4)) {
-      splitAt = remaining.lastIndexOf(" ", maxChars);
-    }
-    if (splitAt <= 0) {
-      splitAt = maxChars;
-    }
-
-    const part = remaining.slice(0, splitAt).trim();
-    if (part) {
-      chunks.push(part);
-    }
-    remaining = remaining.slice(splitAt).trim();
-  }
-
-  if (remaining) {
-    chunks.push(remaining);
-  }
-
-  return chunks;
-}
-
-function collectSpeechChunks(text) {
-  const { sentences, remainder } = splitCompleteSentences(text);
-  const chunks = [];
-  for (const sentence of sentences) {
-    chunks.push(...splitLongSpeechChunk(sentence));
-  }
-  const tail = normalizeSpeechChunk(remainder);
-  if (tail) {
-    chunks.push(...splitLongSpeechChunk(tail));
-  }
-  return chunks.filter(Boolean);
-}
-
-// Lines already queued during typing are skipped. The rest, including a tail
-// with no closing punctuation, is what still has to be spoken.
-function unspokenSpeechChunks(alreadyQueued, text) {
-  const remaining = Array.isArray(alreadyQueued) ? [...alreadyQueued] : [];
-  const unspoken = [];
-  for (const chunk of collectSpeechChunks(text)) {
-    const seenAt = remaining.indexOf(chunk);
-    if (seenAt >= 0) {
-      remaining.splice(seenAt, 1);
-      continue;
-    }
-    unspoken.push(chunk);
-  }
-  return unspoken;
-}
 
 function coalescePersonalityEvents(events, nowMs = Date.now()) {
   const map = new Map();
@@ -2411,6 +2296,7 @@ export default function ChatWindow({
   isLoadingMessages,
   isSending,
   onSend,
+  onRecordLiveExchange,
   onSaveVoiceProfile,
   onJumpToBuilder,
   onOpenVoiceLab,
@@ -2425,7 +2311,7 @@ export default function ChatWindow({
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [phonePhase, setPhonePhase] = useState("idle");
-  const [phoneCaption, setPhoneCaption] = useState("");
+  const [liveCallDraft, setLiveCallDraft] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [voiceProfile, setVoiceProfile] = useState({
     enabled: true,
@@ -2474,12 +2360,15 @@ export default function ChatWindow({
   const zoneShiftTimerRef = useRef(null);
   const personalityEventsTimerRef = useRef(null);
   const streamAutoplaySessionRef = useRef(null);
+  const streamStoppedSessionRef = useRef(null);
   const streamEngineOverrideRef = useRef(null);
   const streamSentenceCursorRef = useRef(0);
-  const streamQueuedSentenceKeysRef = useRef(new Set());
-  const streamQueuedSpeechRef = useRef([]);
-  const streamPendingSentenceQueueRef = useRef([]);
-  const streamReadyAudioQueueRef = useRef([]);
+  const speechSessionRef = useRef(null);
+  if (!speechSessionRef.current) {
+    speechSessionRef.current = createSpeechSession();
+  }
+  const speechAudioByIdRef = useRef(new Map());
+  const playbackTicketRef = useRef(null);
   const streamQueueProcessingRef = useRef(false);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -2492,6 +2381,7 @@ export default function ChatWindow({
   const phoneActiveRef = useRef(false);
   const phonePlaybackRef = useRef(false);
   const phoneMicHeldRef = useRef(false);
+  const phoneHearingRef = useRef(null);
   const phonePlayTokenRef = useRef(null);
   const composerRef = useRef(null);
   const personalityIdRef = useRef(personality?.id ?? null);
@@ -2889,12 +2779,13 @@ export default function ChatWindow({
   }, [displayDebug, livePhase, liveReply]);
 
   const renderedMessages = useMemo(() => {
-    if (!pendingAssistantMessage) {
-      return messages;
+    const base = pendingAssistantMessage ? [...messages, pendingAssistantMessage] : [...messages];
+    const draftText = String(liveCallDraft || "").trim();
+    if (!draftText) {
+      return base;
     }
-
-    return [...messages, pendingAssistantMessage];
-  }, [messages, pendingAssistantMessage]);
+    return [...base, { role: "user", content: draftText, liveCallDraft: true }];
+  }, [liveCallDraft, messages, pendingAssistantMessage]);
 
   const performanceTier = useMemo(
     () => resolvePerformanceTier(neuralProfile, activeMode, prefersReducedMotion),
@@ -3218,23 +3109,58 @@ export default function ChatWindow({
   }, [isAudioPlaying]);
 
   useEffect(() => {
-    if (!voiceProfile.enabled || !voiceProfile.autoplay || !personality) {
+    if (!personality) {
       return;
     }
 
     const sessionKey = `${personality.id}:${messages.length}`;
+    const previousMessageKey = `${personality.id}:${Math.max(0, messages.length - 1)}`;
+    const stamp = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
+    const decision = speechTurnDecision({
+      autoplayEnabled: Boolean(voiceProfile.enabled && voiceProfile.autoplay),
+      isSending,
+      sessionKey,
+      previousMessageKey,
+      activeSessionKey: streamAutoplaySessionRef.current,
+      stoppedSessionKey: streamStoppedSessionRef.current,
+      streamUsed: streamAutoplayUsedRef.current,
+      hasLatestAssistantMessage: Boolean(latestAssistantMessage),
+      assistantMessageCount,
+      baselineCount: autoplayAssistantBaselineRef.current,
+      latestIsLive: Boolean(latestAssistantMessage?.live),
+      alreadyStamped: lastGeneratedRef.current === stamp,
+    });
 
-    if (isSending) {
-      if (streamAutoplaySessionRef.current !== sessionKey) {
-        streamAutoplaySessionRef.current = sessionKey;
-        clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    if (
+      decision.action === "idle"
+      || decision.action === "hold-stop"
+      || decision.action === "ignore-unrelated"
+    ) {
+      return;
+    }
+
+    if (decision.action === "replace-turn") {
+      const audioElement = audioRef.current;
+      if (audioElement instanceof HTMLAudioElement) {
+        audioElement.pause();
       }
+      streamStoppedSessionRef.current = null;
+      streamAutoplaySessionRef.current = sessionKey;
+      clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    }
 
+    if (decision.action === "replace-turn" || decision.action === "enqueue-new-sentences") {
       const { sentences } = splitCompleteSentences(liveReply || "");
       if (sentences.length < streamSentenceCursorRef.current) {
+        const audioElement = audioRef.current;
+        if (audioElement instanceof HTMLAudioElement) {
+          audioElement.pause();
+        }
         clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+        streamAutoplaySessionRef.current = sessionKey;
       }
 
+      const generation = speechSessionRef.current.generation;
       for (let index = streamSentenceCursorRef.current; index < sentences.length; index += 1) {
         const parts = splitLongSpeechChunk(sentences[index]);
         for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
@@ -3243,97 +3169,52 @@ export default function ChatWindow({
             continue;
           }
 
-          const sentenceKey = `${sessionKey}:${index}:${partIndex}:${sentence}`;
-          if (streamQueuedSentenceKeysRef.current.has(sentenceKey)) {
+          const record = submitSentence(speechSessionRef.current, generation, {
+            text: sentence,
+            key: `${sessionKey}:${index}:${partIndex}:${sentence}`,
+            segmentIndex: index,
+          });
+          if (!record) {
             continue;
           }
-
-          streamQueuedSentenceKeysRef.current.add(sentenceKey);
-          streamQueuedSpeechRef.current.push(sentence);
-          streamPendingSentenceQueueRef.current.push({
-            text: sentence,
-            segmentIndex: index,
-            segmentKey: sentenceKey,
-          });
           streamAutoplayUsedRef.current = true;
         }
       }
 
       streamSentenceCursorRef.current = Math.max(streamSentenceCursorRef.current, sentences.length);
 
-      if (streamPendingSentenceQueueRef.current.length > 0) {
+      if (speechSessionRef.current.pendingIds.length > 0) {
         void processStreamingSentenceQueue();
       }
-
       return;
     }
 
-    // The saved message bumps messages.length, so the session key changes
-    // on the same render the text finishes. Keep that turn's queue and speak
-    // any line that was not already queued.
-    const previousMessageKey = `${personality.id}:${Math.max(0, messages.length - 1)}`;
-    const activeSessionKey = streamAutoplaySessionRef.current;
-    const continuingStream = streamAutoplayUsedRef.current && (
-      activeSessionKey === sessionKey || activeSessionKey === previousMessageKey
-    );
-    if (continuingStream) {
-      const unspoken = unspokenSpeechChunks(streamQueuedSpeechRef.current, latestAssistantSpeechText);
-      for (const sentence of unspoken) {
-        const sentenceKey = `${activeSessionKey}:rest:${streamQueuedSpeechRef.current.length}:${sentence}`;
-        if (streamQueuedSentenceKeysRef.current.has(sentenceKey)) {
-          continue;
-        }
-        streamQueuedSentenceKeysRef.current.add(sentenceKey);
-        streamQueuedSpeechRef.current.push(sentence);
-        streamPendingSentenceQueueRef.current.push({
-          text: sentence,
-          segmentIndex: streamQueuedSpeechRef.current.length,
-          segmentKey: sentenceKey,
-        });
-      }
-
-      if (streamPendingSentenceQueueRef.current.length > 0) {
+    // The saved message bumps messages.length on the same render the text
+    // finishes. Keep clips that already finished and queue only the lines
+    // that never reached the end of playback.
+    if (decision.action === "reconcile") {
+      const generation = speechSessionRef.current.generation;
+      const plan = reconcileFinalSpeech(
+        speechSessionRef.current,
+        generation,
+        collectSpeechChunks(latestAssistantSpeechText),
+      );
+      if (plan.enqueued.length > 0 || speechSessionRef.current.pendingIds.length > 0) {
         void processStreamingSentenceQueue();
       }
-
+      if (!streamPlaybackActiveRef.current && speechSessionRef.current.readyIds.length > 0) {
+        playNextQueuedStreamAudio({ silentAutoplayBlock: true });
+      }
       return;
     }
 
-    if (streamAutoplayUsedRef.current) {
+    if (decision.action !== "speak-full-text") {
       return;
     }
 
-    // Fallback path for non-streamed assistant updates.
-    if (!latestAssistantMessage) {
-      return;
-    }
-
-    // Only autoplay after a newly generated assistant turn in this session.
-    if (assistantMessageCount <= autoplayAssistantBaselineRef.current) {
-      return;
-    }
-
-    // Don't generate audio for partial/streaming updates; wait for the final complete message.
-    if (latestAssistantMessage?.live) {
-      return;
-    }
-
-    const stamp = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
-    if (lastGeneratedRef.current === stamp) {
-      return;
-    }
-
-    // Ensure the main player gets a single full audio + complete SFX timeline
-    // (fixes "no burps when replaying from quick voice / bottom controls" vs bubble Replay).
-    // Early chunks are still used during live token streaming for low latency start.
+    // Non-streamed replies still use one full clip so the SFX timeline stays intact.
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
     streamAutoplayUsedRef.current = false;
-
-    // For the main player ("quick voice area"), always use a single full-text
-    // generate once the response is complete. This ensures the complete SFX
-    // timeline is attached to one audio file (so replaying via bottom controls
-    // gets all burps). During live streaming we still use small chunks for
-    // low-latency start.
     void generateAudio(latestAssistantSpeechText, { silentAutoplayBlock: true });
     lastGeneratedRef.current = stamp;
   }, [
@@ -3441,23 +3322,26 @@ export default function ChatWindow({
   }
 
   function clearStreamingAutoplayQueues({ revokeQueuedAudio = true } = {}) {
-    streamPendingSentenceQueueRef.current = [];
-    streamQueuedSentenceKeysRef.current = new Set();
-    streamQueuedSpeechRef.current = [];
+    if (ttsRequestAbortRef.current) {
+      ttsRequestAbortRef.current.abort();
+      ttsRequestAbortRef.current = null;
+    }
+    replaceGeneration(speechSessionRef.current);
+    playbackTicketRef.current = null;
     streamSentenceCursorRef.current = 0;
     streamAutoplayUsedRef.current = false;
     streamPlaybackActiveRef.current = false;
     streamEngineOverrideRef.current = null;
 
     if (revokeQueuedAudio) {
-      for (const item of streamReadyAudioQueueRef.current) {
+      for (const item of speechAudioByIdRef.current.values()) {
         if (item?.url) {
           URL.revokeObjectURL(item.url);
         }
       }
     }
 
-    streamReadyAudioQueueRef.current = [];
+    speechAudioByIdRef.current.clear();
     sfxPlayQueueRef.current = [];
   }
 
@@ -3788,7 +3672,8 @@ export default function ChatWindow({
   }
 
   function getStreamQueueDepth() {
-    return streamPendingSentenceQueueRef.current.length + streamReadyAudioQueueRef.current.length;
+    const session = speechSessionRef.current;
+    return session.pendingIds.length + session.awaitingIds.length + session.readyIds.length;
   }
 
   async function requestSpeechAudio(text, controller, meta = {}) {
@@ -3938,11 +3823,29 @@ export default function ChatWindow({
   }
 
   function playNextQueuedStreamAudio({ silentAutoplayBlock = true } = {}) {
-    const nextItem = streamReadyAudioQueueRef.current.shift();
-    if (!nextItem?.url) {
+    const generation = speechSessionRef.current.generation;
+    const nextId = speechSessionRef.current.readyIds[0];
+    const peeked = nextId == null ? null : speechAudioByIdRef.current.get(nextId);
+    if (!peeked?.url) {
+      if (nextId != null) {
+        speechSessionRef.current.readyIds.shift();
+      }
       streamPlaybackActiveRef.current = false;
       return;
     }
+
+    const record = takeNextReady(speechSessionRef.current, generation);
+    if (!record) {
+      streamPlaybackActiveRef.current = false;
+      return;
+    }
+    const nextItem = speechAudioByIdRef.current.get(record.id);
+    if (!nextItem?.url) {
+      playbackTicketRef.current = null;
+      streamPlaybackActiveRef.current = false;
+      return;
+    }
+    playbackTicketRef.current = { id: record.id, generation };
 
     setCurrentAudioIsCached(!!nextItem.fromCache);
 
@@ -3987,6 +3890,10 @@ export default function ChatWindow({
     setAudioUrl(nextItem.url);
 
     requestAnimationFrame(() => {
+      const ticket = playbackTicketRef.current;
+      if (!ticket || ticket.id !== record.id || ticket.generation !== speechSessionRef.current.generation) {
+        return;
+      }
       const audioElement = audioRef.current;
       if (audioElement instanceof HTMLAudioElement) {
         audioElement.muted = false;
@@ -4004,90 +3911,144 @@ export default function ChatWindow({
     });
   }
 
+  function noteStreamSynthesisFailure(generation, id, error) {
+    const outcome = settleSynthesis(speechSessionRef.current, generation, id, false);
+    if (outcome === "retry") {
+      return;
+    }
+    if (outcome === "failed") {
+      const recovered = requeueUnfinished(speechSessionRef.current, generation, id, { fromReconcile: true });
+      if (recovered) {
+        return;
+      }
+    }
+    reportStreamSpeechError(error);
+  }
+
+  function reportStreamSpeechError(error) {
+    if (!error || error?.name === "AbortError") {
+      return;
+    }
+    const statusPayload = {
+      type: "error",
+      message: buildTtsErrorMessage(error),
+    };
+    if (Boolean(error?.isHtmlErrorPage) && Number(error?.httpStatus || 0) === 502) {
+      statusPayload.actionId = "run-connectivity-diagnostics";
+      statusPayload.actionLabel = "Run diagnostics";
+    }
+    onStatus?.(statusPayload);
+  }
+
   async function processStreamingSentenceQueue() {
     if (streamQueueProcessingRef.current || !voiceProfile.enabled || !personality) {
       return;
     }
 
+    const generation = speechSessionRef.current.generation;
     streamQueueProcessingRef.current = true;
     setIsGeneratingAudio(true);
     let pausedForPlayback = false;
+    let activeController = null;
+
+    const turnStillOwnsQueue = () => speechSessionRef.current.generation === generation;
 
     try {
-      while (streamPendingSentenceQueueRef.current.length > 0) {
-        if (streamReadyAudioQueueRef.current.length >= MAX_STREAM_READY_AUDIO && streamPlaybackActiveRef.current) {
+      while (turnStillOwnsQueue()) {
+        const session = speechSessionRef.current;
+        if (session.readyIds.length >= MAX_STREAM_READY_AUDIO && streamPlaybackActiveRef.current) {
           pausedForPlayback = true;
           break;
         }
 
-        const nextSentence = streamPendingSentenceQueueRef.current.shift();
-        const normalized = normalizeSpeechChunk(nextSentence?.text || "");
-        if (!normalized || !nextSentence?.segmentKey) {
-          continue;
+        const nextSentence = takeNextPending(session, generation);
+        if (!nextSentence) {
+          break;
         }
 
-        const controller = new AbortController();
-        ttsRequestAbortRef.current = controller;
+        activeController = new AbortController();
+        ttsRequestAbortRef.current = activeController;
         const queuedOverride = streamEngineOverrideRef.current
           ? { engine: streamEngineOverrideRef.current }
           : null;
+        const requestMeta = {
+          segmentIndex: nextSentence.segmentIndex,
+          queueDepthAtRequest: getStreamQueueDepth(),
+          streamingSegment: true,
+        };
 
         let audioResult;
         try {
-          audioResult = await requestSpeechAudio(normalized, controller, {
-            segmentIndex: nextSentence.segmentIndex,
-            queueDepthAtRequest: getStreamQueueDepth(),
-            streamingSegment: true,
+          audioResult = await requestSpeechAudio(nextSentence.text, activeController, {
+            ...requestMeta,
             voiceProfileOverride: queuedOverride,
           });
         } catch (error) {
-          if (error?.name === "AbortError") {
-            throw error;
+          if (!turnStillOwnsQueue() || error?.name === "AbortError") {
+            break;
           }
           const activeEngine = String(queuedOverride?.engine || voiceProfile?.engine || "").toLowerCase();
           if (activeEngine === "cartesia" || !isElevenLabsCreditError(error)) {
-            throw error;
+            noteStreamSynthesisFailure(generation, nextSentence.id, error);
+            continue;
           }
           streamEngineOverrideRef.current = "cartesia";
           onStatus?.({
             type: "info",
             message: "ElevenLabs quota is used up. Continuing the rest of this reply on Cartesia.",
           });
-          const retryController = new AbortController();
-          ttsRequestAbortRef.current = retryController;
-          audioResult = await requestSpeechAudio(normalized, retryController, {
-            segmentIndex: nextSentence.segmentIndex,
-            queueDepthAtRequest: getStreamQueueDepth(),
-            streamingSegment: true,
-            voiceProfileOverride: { engine: "cartesia" },
-          });
+          try {
+            activeController = new AbortController();
+            ttsRequestAbortRef.current = activeController;
+            audioResult = await requestSpeechAudio(nextSentence.text, activeController, {
+              ...requestMeta,
+              voiceProfileOverride: { engine: "cartesia" },
+            });
+          } catch (retryError) {
+            if (!turnStillOwnsQueue() || retryError?.name === "AbortError") {
+              break;
+            }
+            noteStreamSynthesisFailure(generation, nextSentence.id, retryError);
+            continue;
+          }
         }
-        streamReadyAudioQueueRef.current.push(audioResult);
 
-        if (!streamPlaybackActiveRef.current && !isAudioPlaying) {
+        const outcome = settleSynthesis(speechSessionRef.current, generation, nextSentence.id, true);
+        if (outcome !== "generated") {
+          if (audioResult?.url) {
+            URL.revokeObjectURL(audioResult.url);
+          }
+          if (!turnStillOwnsQueue()) {
+            break;
+          }
+          continue;
+        }
+
+        speechAudioByIdRef.current.set(nextSentence.id, audioResult);
+        if (!streamPlaybackActiveRef.current && !isAudioPlaying && turnStillOwnsQueue()) {
           playNextQueuedStreamAudio({ silentAutoplayBlock: true });
         }
       }
     } catch (error) {
-      if (error?.name !== "AbortError") {
-        const statusPayload = {
-          type: "error",
-          message: buildTtsErrorMessage(error),
-        };
-        if (Boolean(error?.isHtmlErrorPage) && Number(error?.httpStatus || 0) === 502) {
-          statusPayload.actionId = "run-connectivity-diagnostics";
-          statusPayload.actionLabel = "Run diagnostics";
-        }
-        onStatus?.(statusPayload);
+      if (turnStillOwnsQueue()) {
+        reportStreamSpeechError(error);
       }
     } finally {
-      if (ttsRequestAbortRef.current) {
+      if (ttsRequestAbortRef.current === activeController) {
         ttsRequestAbortRef.current = null;
       }
       streamQueueProcessingRef.current = false;
+      const session = speechSessionRef.current;
+      if (session.generation !== generation) {
+        if (session.pendingIds.length > 0) {
+          void processStreamingSentenceQueue();
+        } else {
+          setIsGeneratingAudio(false);
+        }
+        return;
+      }
       setIsGeneratingAudio(false);
-
-      if (!pausedForPlayback && streamPendingSentenceQueueRef.current.length > 0) {
+      if (!pausedForPlayback && session.pendingIds.length > 0) {
         void processStreamingSentenceQueue();
       }
     }
@@ -4111,17 +4072,21 @@ export default function ChatWindow({
       !audioElement.ended,
     );
 
-    if (ttsRequestAbortRef.current) {
-      ttsRequestAbortRef.current.abort();
-      ttsRequestAbortRef.current = null;
+    if (audioElement instanceof HTMLAudioElement) {
+      audioElement.pause();
     }
 
+    streamStoppedSessionRef.current = streamAutoplaySessionRef.current
+      || (isSending && personality?.id != null ? `${personality.id}:${messages.length}` : null);
     streamAutoplaySessionRef.current = null;
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
 
     if (audioElement instanceof HTMLAudioElement) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
+      try {
+        audioElement.currentTime = 0;
+      } catch {
+        // The clip URL may already have been revoked with the queue.
+      }
     }
 
     setIsGeneratingAudio(false);
@@ -4157,6 +4122,7 @@ export default function ChatWindow({
     // Manual/single-shot playback takes ownership from streaming queue mode.
     streamAutoplaySessionRef.current = null;
     clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    const generationAtStart = speechSessionRef.current.generation;
 
     // Replay reuses a saved clip for the same text, engine, and voice.
     // A clip spoken by a different engine does not count, so Cartesia is
@@ -4167,6 +4133,12 @@ export default function ChatWindow({
 
     try {
       const audioResult = await requestSpeechAudio(text, controller);
+      if (speechSessionRef.current.generation !== generationAtStart) {
+        if (audioResult?.url) {
+          URL.revokeObjectURL(audioResult.url);
+        }
+        return;
+      }
       const nextAudioUrl = audioResult.url;
 
       setCurrentAudioIsCached(!!audioResult.fromCache);
@@ -4220,6 +4192,9 @@ export default function ChatWindow({
       setAudioUrl(nextAudioUrl);
 
       requestAnimationFrame(() => {
+        if (speechSessionRef.current.generation !== generationAtStart) {
+          return;
+        }
         const audioElement = audioRef.current;
         if (audioElement instanceof HTMLAudioElement) {
           audioElement.muted = false;
@@ -4258,7 +4233,20 @@ export default function ChatWindow({
   }
 
   function handleAudioEnded() {
+    const ticket = playbackTicketRef.current;
+    playbackTicketRef.current = null;
+    const generationNow = speechSessionRef.current.generation;
+    const staleTicket = Boolean(ticket) && ticket.generation !== generationNow;
+    if (ticket && !staleTicket) {
+      settlePlaybackCompleted(speechSessionRef.current, ticket.generation, ticket.id);
+    }
+
     setIsAudioPlaying(false);
+    if (staleTicket) {
+      streamPlaybackActiveRef.current = false;
+      return;
+    }
+
     if (phonePlaybackRef.current) {
       phonePlaybackRef.current = false;
       phoneSessionRef.current?.notifyPlaybackEnded();
@@ -4291,16 +4279,22 @@ export default function ChatWindow({
     }
     clearActiveSfxPlayback();
 
-    if (streamReadyAudioQueueRef.current.length > 0) {
+    const session = speechSessionRef.current;
+    if (session.generation !== generationNow) {
+      streamPlaybackActiveRef.current = false;
+      return;
+    }
+
+    if (session.readyIds.length > 0) {
       playNextQueuedStreamAudio({ silentAutoplayBlock: true });
-      if (streamPendingSentenceQueueRef.current.length > 0 && !streamQueueProcessingRef.current) {
+      if (session.pendingIds.length > 0 && !streamQueueProcessingRef.current) {
         void processStreamingSentenceQueue();
       }
       return;
     }
 
     streamPlaybackActiveRef.current = false;
-    if (streamPendingSentenceQueueRef.current.length > 0 && !streamQueueProcessingRef.current) {
+    if (session.pendingIds.length > 0 && !streamQueueProcessingRef.current) {
       void processStreamingSentenceQueue();
     }
   }
@@ -4684,6 +4678,9 @@ export default function ChatWindow({
         window.clearTimeout(personalityEventsTimerRef.current);
       }
 
+      if (audioRef.current instanceof HTMLAudioElement) {
+        audioRef.current.pause();
+      }
       clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
     };
   }, []);
@@ -4712,6 +4709,8 @@ export default function ChatWindow({
     phonePlaybackRef.current = false;
     phoneMicHeldRef.current = false;
     phonePlayTokenRef.current = null;
+    phoneHearingRef.current?.reset();
+    phoneHearingRef.current = null;
     if (phoneRestartTimerRef.current) {
       window.clearTimeout(phoneRestartTimerRef.current);
       phoneRestartTimerRef.current = null;
@@ -4730,7 +4729,7 @@ export default function ChatWindow({
     }
     setIsLiveCallActive(false);
     setPhonePhase("idle");
-    setPhoneCaption("");
+    setLiveCallDraft("");
   }
 
   function holdPhoneMic() {
@@ -4784,15 +4783,9 @@ export default function ChatWindow({
       if (phoneMicHeldRef.current || phonePlaybackRef.current) {
         return;
       }
-      const latest = event.results?.[event.results.length - 1];
-      const text = String(latest?.[0]?.transcript || "").trim();
-      if (!text) {
-        return;
-      }
-      phoneSessionRef.current?.noteTranscript({
-        text,
-        final: Boolean(latest?.isFinal),
-      });
+      // isFinal from the browser means the current phrase stabilized, not that
+      // the user finished. Ending the turn here aborts the mic mid-sentence.
+      phoneHearingRef.current?.pushResults(event.results);
     };
 
     recognition.onerror = (event) => {
@@ -4809,6 +4802,7 @@ export default function ChatWindow({
     };
 
     recognition.onend = () => {
+      phoneHearingRef.current?.finishSegment();
       if (phoneRecognitionRef.current === recognition) {
         phoneRecognitionRef.current = null;
       }
@@ -4879,24 +4873,47 @@ export default function ChatWindow({
     stopRecognitionSession(true);
     phoneActiveRef.current = true;
     setIsLiveCallActive(true);
-    setPhoneCaption("");
+    setLiveCallDraft("");
+    phoneHearingRef.current?.reset();
+    phoneHearingRef.current = createLiveCallHearing({
+      onTranscript: ({ text, final }) => {
+        if (phoneMicHeldRef.current || !phoneActiveRef.current) {
+          return;
+        }
+        const command = stripWake(text, LIVEKIT_TURN_POLICY.wakePhrase);
+        setLiveCallDraft(command);
+        phoneSessionRef.current?.noteTranscript({ text, final });
+      },
+    });
     phoneSessionRef.current = createLiveKitVoiceSession({
-      turn: async ({ transcript, messages }) => {
+      turn: async ({ transcript, messages: turnMessages }) => {
+        const spoken = String(transcript || "").trim();
+        if (spoken) {
+          setLiveCallDraft("");
+          onRecordLiveExchange?.({
+            personalityId: personalityIdRef.current,
+            userText: spoken,
+          });
+        }
         const response = await authFetch("/api/internal/voice-turn", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             personalityId: personalityIdRef.current,
             transcript,
-            messages,
+            messages: turnMessages,
           }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(payload?.error || "Voice turn failed.");
         }
-        if (phoneActiveRef.current) {
-          setPhoneCaption(String(payload.text || ""));
+        const reply = String(payload.text || "").trim();
+        if (phoneActiveRef.current && reply) {
+          onRecordLiveExchange?.({
+            personalityId: personalityIdRef.current,
+            assistantText: reply,
+          });
         }
         return payload;
       },
@@ -4905,6 +4922,7 @@ export default function ChatWindow({
           setPhonePhase(phase);
         }
         if (phase === "thinking" || phase === "speaking") {
+          phoneHearingRef.current?.reset();
           holdPhoneMic();
           phoneSessionRef.current?.holdInput();
           return;
@@ -4937,9 +4955,9 @@ export default function ChatWindow({
         if (!phoneActiveRef.current) {
           return;
         }
-        const heard = String(text || "").trim().slice(0, 120);
+        const heard = String(text || "").trim();
         if (heard) {
-          setPhoneCaption(`Heard “${heard}”. Say hey voxis to start.`);
+          setLiveCallDraft(heard);
         }
       },
     });
@@ -4988,16 +5006,6 @@ export default function ChatWindow({
           : "Waiting";
   const liveCallStateClass = String(liveCallStatusLabel || "idle").toLowerCase().replace(/\s+/g, "-");
   const liveCallReactorLevel = isLiveCallActive ? Math.max(0, Math.min(1, Number(speechEnergy || 0))) : 0;
-  const liveCallModeLabel = isLiveCallActive ? "Neural Link Live Call" : isVoiceInputActive ? "Voice Input" : "";
-  const liveCallStatusCopy = !isLiveCallActive
-    ? ""
-    : phonePhase === "speaking"
-      ? (phoneCaption ? phoneCaption.slice(0, 180) : "Speaking. The mic is paused until this line finishes.")
-      : phonePhase === "thinking"
-        ? "Working on a reply. The mic is paused."
-        : phonePhase === "listening"
-          ? "Listening."
-          : (phoneCaption || "Say hey voxis to open the call.");
 
   const contextMeter = activeUsage ? (
     <div
@@ -5723,6 +5731,14 @@ export default function ChatWindow({
                 controls
                 src={audioUrl}
                 onPlay={() => {
+                  const ticket = playbackTicketRef.current;
+                  if (ticket) {
+                    settlePlaybackStarted(
+                      speechSessionRef.current,
+                      ticket.generation,
+                      ticket.id,
+                    );
+                  }
                   setIsAudioPlaying(true);
                   const el = audioRef.current;
                   if (el && el.currentTime > 0.05) {
@@ -6073,8 +6089,6 @@ export default function ChatWindow({
                     <span />
                   </div>
                 </div>
-                <div className="live-call-mode">{liveCallModeLabel}</div>
-                <div className="live-call-copy">{liveCallStatusCopy}</div>
               </div>
             ) : null}
             <div className="composer-input-wrap">

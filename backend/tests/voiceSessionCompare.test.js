@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   LIVEKIT_TURN_POLICY,
+  LIVE_CALL_ENDPOINT_SILENCE_MS,
   containsWake,
+  createLiveCallHearing,
   createLiveKitVoiceSession,
   endpointCommitDelayMs,
   runLiveKitPhoneScript,
@@ -168,14 +170,18 @@ describe("phone session comparison", () => {
       audioUrl: "/api/internal/voice-audio/scripted",
     }));
     const interrupts = [];
+    const unrecognized = [];
     const session = createLiveKitVoiceSession({
       turn,
       onInterrupt: () => interrupts.push(true),
+      onUnrecognized: (heard) => unrecognized.push(heard),
     });
 
+    session.noteTranscript({ text: "what time", final: false });
     session.noteTranscript({ text: "what time is it", final: true });
     await vi.advanceTimersByTimeAsync(4000);
     expect(turn).not.toHaveBeenCalled();
+    expect(unrecognized).toEqual(["what time is it"]);
 
     expect(containsWake("hey voxis", LIVEKIT_TURN_POLICY.wakePhrase)).toBe(true);
     expect(containsWake("Hey, Voxis", LIVEKIT_TURN_POLICY.wakePhrase)).toBe(true);
@@ -212,6 +218,147 @@ describe("phone session comparison", () => {
       { role: "user", content: "what is the harbor plan" },
       { role: "assistant", content: "echo what is the harbor plan" },
     ]);
+
+    session.stop();
+    vi.useRealTimers();
+  });
+
+  it("accepts voxis pronunciation aliases and focus, and ignores bare short names", async () => {
+    const phrase = LIVEKIT_TURN_POLICY.wakePhrase;
+
+    expect(containsWake("hey voxis", phrase)).toBe(true);
+    expect(containsWake("Hey, Voxis", phrase)).toBe(true);
+    expect(containsWake("hey vox is", phrase)).toBe(true);
+    expect(containsWake("voxis", phrase)).toBe(true);
+    expect(containsWake("hey boxes", phrase)).toBe(true);
+    expect(containsWake("hey box", phrase)).toBe(true);
+    expect(containsWake("hey boxis", phrase)).toBe(true);
+    expect(containsWake("hey ara", phrase)).toBe(true);
+    expect(containsWake("Hey, Ara", phrase)).toBe(true);
+    expect(containsWake("hey focus", phrase)).toBe(true);
+    expect(containsWake("Focus", phrase)).toBe(true);
+    expect(containsWake("ara", phrase)).toBe(false);
+    expect(containsWake("box", phrase)).toBe(false);
+    expect(containsWake("boxes", phrase)).toBe(false);
+    expect(containsWake("boxis", phrase)).toBe(false);
+    expect(containsWake("focused on the plan", phrase)).toBe(false);
+    expect(containsWake("hey ara", "hello there")).toBe(false);
+    expect(containsWake("focus", "hello there")).toBe(false);
+
+    expect(stripWake("hey voxis what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("Hey, Voxis, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("hey vox is what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("hey boxes what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("hey box, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("hey boxis, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("Hey, Ara, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("hey focus what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(stripWake("Focus, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+
+    vi.useFakeTimers();
+    const turn = vi.fn(async ({ transcript }) => ({ text: `echo ${transcript}`, audioUrl: "/a" }));
+    const unrecognized = [];
+    const session = createLiveKitVoiceSession({
+      turn,
+      onUnrecognized: (heard) => unrecognized.push(heard),
+    });
+
+    for (const text of ["what time is it", "ara", "box", "boxes"]) {
+      session.noteTranscript({ text, final: true });
+    }
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(turn).not.toHaveBeenCalled();
+    expect(unrecognized).toEqual(["what time is it", "ara", "box", "boxes"]);
+
+    session.noteTranscript({ text: "hey ara what is the harbor plan", final: true });
+    await vi.advanceTimersByTimeAsync(499);
+    expect(turn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(turn.mock.calls[0][0].transcript).toBe("what is the harbor plan");
+
+    session.stop();
+    vi.useRealTimers();
+
+    vi.useFakeTimers();
+    const focusTurn = vi.fn(async () => ({ text: "ok", audioUrl: "/a" }));
+    const focusSession = createLiveKitVoiceSession({ turn: focusTurn });
+    focusSession.noteTranscript({ text: "Focus, open the door", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(focusTurn).toHaveBeenCalledTimes(1);
+    expect(focusTurn.mock.calls[0][0].transcript).toBe("open the door");
+    focusSession.stop();
+    vi.useRealTimers();
+  });
+
+  it("keeps collecting speech after an early browser final and strips the wake from the growing line", async () => {
+    vi.useFakeTimers();
+    const emitted = [];
+    const hearing = createLiveCallHearing({
+      silenceMs: LIVE_CALL_ENDPOINT_SILENCE_MS,
+      onTranscript: (utterance) => emitted.push(utterance),
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (id) => clearTimeout(id),
+    });
+
+    hearing.pushResults([
+      { 0: { transcript: "hey voxis tell" }, isFinal: true },
+    ]);
+    expect(emitted).toEqual([{ text: "hey voxis tell", final: false }]);
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS - 1);
+    expect(emitted).toHaveLength(1);
+
+    hearing.pushResults([
+      { 0: { transcript: "hey voxis tell me the harbor plan" }, isFinal: true },
+    ]);
+    expect(emitted.at(-1)).toEqual({
+      text: "hey voxis tell me the harbor plan",
+      final: false,
+    });
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS);
+    expect(emitted.at(-1)).toEqual({
+      text: "hey voxis tell me the harbor plan",
+      final: true,
+    });
+
+    hearing.finishSegment();
+    hearing.pushResults([
+      { 0: { transcript: "and the dock" }, isFinal: false },
+    ]);
+    expect(emitted.at(-1)).toEqual({
+      text: "hey voxis tell me the harbor plan and the dock",
+      final: false,
+    });
+    hearing.reset();
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS);
+    expect(emitted.at(-1).final).toBe(false);
+
+    const turn = vi.fn(async () => ({ text: "ok", audioUrl: "/a" }));
+    const session = createLiveKitVoiceSession({ turn });
+    session.noteTranscript({ text: "focus", final: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(turn).not.toHaveBeenCalled();
+
+    session.noteTranscript({ text: "hey boxes tell", final: false });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).not.toHaveBeenCalled();
+    session.noteTranscript({ text: "hey boxes tell me the harbor plan", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(turn.mock.calls[0][0].transcript).toBe("tell me the harbor plan");
+
+    await Promise.resolve();
+    session.notifyPlaybackEnded();
+    session.noteTranscript({ text: "focus the camera", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(2);
+    expect(turn.mock.calls[1][0].transcript).toBe("the camera");
+
+    await Promise.resolve();
+    session.notifyPlaybackEnded();
+    session.noteTranscript({ text: "focus", final: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(turn).toHaveBeenCalledTimes(2);
 
     session.stop();
     vi.useRealTimers();

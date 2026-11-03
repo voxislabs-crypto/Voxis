@@ -69,21 +69,18 @@ def main():
         sys.exit(1)
 
     try:
-        rvc = RVCInference(device="cpu")  # set device="cuda:0" for GPU
-        rvc.load_model(args.model)
-
-        rvc.infer(
-            input_path=args.input,
-            output_path=args.output,
-            f0_method=args.f0_method,
-            f0_up_key=pitch,
-            index_path=args.index if args.index else "",
+        rvc = RVCInference(device="cpu")  # set device="cuda:0" only with a CUDA torch
+        rvc.load_model(args.model, index_path=args.index if args.index else "")
+        rvc.set_params(
+            f0method=args.f0_method,
+            f0up_key=pitch,
             index_rate=args.index_rate,
             protect=args.protect,
             filter_radius=3,
             resample_sr=0,
             rms_mix_rate=0.25,
         )
+        rvc.infer_file(args.input, args.output)
 
     except Exception as e:
         print(f"[rvc_convert] Inference failed: {e}", file=sys.stderr)

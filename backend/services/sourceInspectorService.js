@@ -33,6 +33,8 @@ const DENIED_SEGMENTS = new Set([
   ".next",
   "sfx-cache",
   "loop-cache",
+  ".cache",
+  "__pycache__",
   ".dropstone",
   "music",
   "videos",

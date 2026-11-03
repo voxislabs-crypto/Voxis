@@ -236,6 +236,44 @@ describe("source inspector", () => {
     expect(JSON.stringify(result)).not.toContain("super-secret");
   });
 
+  it("omits .cache and __pycache__ from discovery and search, and rejects direct reads", () => {
+    const root = makeRoot();
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, ".cache"), { recursive: true });
+    fs.mkdirSync(path.join(root, "pkg", "__pycache__"), { recursive: true });
+    fs.mkdirSync(path.join(root, "melotts"), { recursive: true });
+    fs.mkdirSync(path.join(root, "OpenVoice"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "keep.js"), "export const keep = true;\n");
+    fs.writeFileSync(path.join(root, ".cache", "weights.js"), "export const secret = \"CACHE_NEEDLE\";\n");
+    fs.writeFileSync(path.join(root, "pkg", "__pycache__", "mod.js"), "export const secret = \"PYCACHE_NEEDLE\";\n");
+    fs.writeFileSync(path.join(root, "melotts", "voice.js"), "export const vendor = \"MELO_NEEDLE\";\n");
+    fs.writeFileSync(path.join(root, "OpenVoice", "voice.js"), "export const vendor = \"OV_NEEDLE\";\n");
+    const inspector = createSourceInspector({ root });
+
+    expect(inspector.discover({}).files.map((file) => file.path)).toEqual(["src/keep.js"]);
+    expect(inspector.search({ query: "CACHE_NEEDLE" }).matches).toEqual([]);
+    expect(inspector.search({ query: "PYCACHE_NEEDLE" }).matches).toEqual([]);
+    expect(inspector.search({ query: "MELO_NEEDLE" }).matches).toEqual([]);
+    expect(inspector.search({ query: "OV_NEEDLE" }).matches).toEqual([]);
+    expect(inspector.search({ query: "keep" }).matches).toEqual([
+      { path: "src/keep.js", line: 1, text: "export const keep = true;" },
+    ]);
+
+    for (const relativePath of [
+      ".cache/weights.js",
+      "pkg/__pycache__/mod.js",
+      "melotts/voice.js",
+      "OpenVoice/voice.js",
+    ]) {
+      const error = expectError(() => inspector.read({ path: relativePath }), 403);
+      expect(error.message).not.toMatch(/CACHE_NEEDLE|PYCACHE_NEEDLE|MELO_NEEDLE|OV_NEEDLE/);
+    }
+
+    for (const dir of [".cache", "pkg/__pycache__", "melotts", "OpenVoice"]) {
+      expectError(() => inspector.discover({ dir }), 403);
+    }
+  });
+
   it("ignores a caller-supplied root and does not modify files", () => {
     const root = makeRoot();
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "voxis-inspector-other-"));

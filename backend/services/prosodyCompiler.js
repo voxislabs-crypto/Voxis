@@ -1,4 +1,5 @@
 import { getSpeechProfile } from "./speechProfiles.js";
+import { mapVadToProsodyHints } from "./vadProsody.js";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -167,6 +168,12 @@ export function compileProsodyEnvelope({
   }
   rateMultiplier = clamp(rateMultiplier, 0.75, 1.25);
 
+  // Layer live VAD hints on the existing cadence and mood-to-voice rate.
+  // applyMoodToVoice has already scaled voiceProfile.rate before this runs.
+  const vadProsody = mapVadToProsodyHints(mood);
+  rateMultiplier = clamp(rateMultiplier * vadProsody.rateMultiplier, 0.75, 1.25);
+  const scaledPauseSeconds = clamp(avgPauseSeconds * vadProsody.pauseMultiplier, 0.1, 0.8);
+
   const baseRate = asNumber(voiceProfile?.rate, 1);
   const targetRate = clamp(baseRate * rateMultiplier, 0.6, 1.6);
 
@@ -191,22 +198,23 @@ export function compileProsodyEnvelope({
   };
 
   const kokoro = {
-    pauseSeconds: clamp(avgPauseSeconds, 0.1, 0.8),
+    pauseSeconds: Number(scaledPauseSeconds.toFixed(3)),
     phrasing,
     emphasisMode: precisionMode ? "commas" : phrasing === "bursty" ? "ellipses" : "commas",
   };
 
+  const cloudBaseInstruction = precisionMode
+    ? "Keep technical wording, hedging, and literal phrasing intact while speaking clearly."
+    : phrasing === "bursty"
+      ? "Deliver with energetic momentum and audible punch on emphasized words."
+      : phrasing === "measured"
+        ? "Deliver with deliberate pacing and clear pause boundaries."
+        : "Deliver with natural cadence and light expressive emphasis.";
   const cloud = {
     speed: Number(targetRate.toFixed(3)),
     phrasing,
     preserveLiteralContent: precisionMode,
-    instructions: precisionMode
-      ? "Keep technical wording, hedging, and literal phrasing intact while speaking clearly."
-      : phrasing === "bursty"
-        ? "Deliver with energetic momentum and audible punch on emphasized words."
-        : phrasing === "measured"
-          ? "Deliver with deliberate pacing and clear pause boundaries."
-          : "Deliver with natural cadence and light expressive emphasis.",
+    instructions: [cloudBaseInstruction, vadProsody.styleInstruction].filter(Boolean).join(" "),
   };
 
   const cartesia = {
@@ -238,7 +246,8 @@ export function compileProsodyEnvelope({
     cadenceLabel,
     rhythmLabel,
     speechDensity: Number(speechDensity.toFixed(3)),
-    avgPauseSeconds: Number(avgPauseSeconds.toFixed(3)),
+    avgPauseSeconds: Number(scaledPauseSeconds.toFixed(3)),
+    vadProsody,
     phrasing,
     intensity: Number(intensity.toFixed(3)),
     confidence: Number(confidence.toFixed(3)),

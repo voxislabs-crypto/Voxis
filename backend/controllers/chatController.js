@@ -78,7 +78,7 @@ import {
   getProfaneFilterConfig,
   getCompanionAliasConfig,
 } from "../models/settingsModel.js";
-import { applyBoundedExpressionSampling } from "../services/expressionSampler.js";
+import { applyBoundedExpressionSampling, sampleMicroVariation } from "../services/expressionSampler.js";
 import {
   searchWeb,
   shouldUseWebSearch,
@@ -123,6 +123,13 @@ import {
 } from "../services/singingEngine.js";
 import { stepStateFlaws } from "../services/stateFlawService.js";
 import { updateEmotionDrift } from "../models/personalityModel.js";
+import {
+  appendMoodHistory,
+  getOrCreateUserMood,
+  getUserMood,
+  upsertUserMood,
+} from "../models/moodModel.js";
+import { assessResidualContinuity, resolveResidualNote } from "../services/residualContinuity.js";
 
 // Reconditioning cadence: antagonist/dark contexts drift faster, so we anchor more often.
 const RECONDITION_CADENCE = {
@@ -345,8 +352,13 @@ export async function personaOpenerHandler(req, res, next) {
         responseLayer, // SFX cues and tone from the "down" direction of the handshake
       };
     } else {
+      const openerUserId = Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : null;
+      const storedUserMood = openerUserId ? getUserMood(personality.id, openerUserId) : null;
+      const openerMood = storedUserMood?.moodState && "valence" in storedUserMood.moodState
+        ? storedUserMood.moodState
+        : (personality?.moodState || moodFromLabel(personality?.mood || "neutral"));
       promptPackage = buildPersonaPromptPackage(personality, memoryFacts, seed, {
-        currentMoodLabel: moodToLabel(personality?.moodState || moodFromLabel(personality?.mood || "neutral")),
+        currentMoodLabel: moodToLabel(openerMood),
         conversationKey: `${personalityId}:${Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : "anon"}`,
         userName: req.voxisUser?.displayName || "",
         companionAliases: resolveCompanionAliasesForPrompt(),
@@ -874,14 +886,23 @@ export async function chatHandler(req, res, next) {
     }
 
     const moodBaseline =
-      "valence" in personality.moodBaseline
+      personality.moodBaseline && "valence" in personality.moodBaseline
         ? personality.moodBaseline
         : moodFromLabel(personality.mood);
 
-    const currentMood =
-      "valence" in personality.moodState
+    const fallbackMood =
+      personality.moodState && "valence" in personality.moodState
         ? personality.moodState
         : { ...moodBaseline };
+
+    const perUserMood = !isVoxisGuide && userScopedId
+      ? getOrCreateUserMood(personalityId, userScopedId, fallbackMood)
+      : null;
+
+    const currentMood =
+      perUserMood?.moodState && "valence" in perUserMood.moodState
+        ? perUserMood.moodState
+        : fallbackMood;
 
     console.log("[VOXIS DEBUG] Mood before LLM call - currentMood:", currentMood);
 
@@ -964,8 +985,8 @@ export async function chatHandler(req, res, next) {
     observeMoodTransition(sessionId, { before: currentMood, after: newMood, label: moodLabel, stepDiagnostics: moodStep.diagnostics });
 
     // Persist synchronously before the LLM call so mood influences this response.
-    updateMoodState(personalityId, newMood);
-    personality.moodState = newMood;
+    // Signed-in users write personality_user_mood. Anonymous sessions keep the
+    // personality row, which is the shared fallback.
     personality.mood = moodLabel;
 
     // Emotion Memory Drift — update drift state based on this turn's emotion.
@@ -979,14 +1000,30 @@ export async function chatHandler(req, res, next) {
         Math.pow(newMood.dominance || 0, 2),
       ) / Math.sqrt(3),
     );
-    let driftState = normalizeDriftState(personality.emotionDrift || {});
+    const driftSource = perUserMood ? perUserMood.emotionDrift : personality.emotionDrift;
+    let driftState = normalizeDriftState(driftSource || {});
     driftState = applyDecay(driftState, 120, personality.singingProfile?.archetype || "none");
     driftState = applyEmotionResidue(driftState, previousMoodLabel);
     driftState = applyEmotionDrift(driftState, moodLabel.toLowerCase(), moodIntensity);
-    // Persist drift asynchronously — non-critical, should not block LLM call.
-    setImmediate(() => {
-      updateEmotionDrift(personalityId, driftState);
-    });
+
+    const loadedMoodHistory = perUserMood && Array.isArray(perUserMood.moodHistory)
+      ? perUserMood.moodHistory
+      : [];
+    if (perUserMood) {
+      const moodHistory = appendMoodHistory(loadedMoodHistory, newMood);
+      upsertUserMood(personalityId, userScopedId, {
+        moodState: newMood,
+        moodHistory,
+        emotionDrift: driftState,
+      });
+    } else {
+      updateMoodState(personalityId, newMood);
+      // Persist drift asynchronously — non-critical, should not block LLM call.
+      setImmediate(() => {
+        updateEmotionDrift(personalityId, driftState);
+      });
+    }
+    personality.moodState = newMood;
     personality.emotionDrift = driftState;
 
     // Singing emergence — pressure-based decision (not random).
@@ -1291,6 +1328,42 @@ export async function chatHandler(req, res, next) {
       messages.push({ role: "system", content: moodFragment });
     }
 
+    // Residual note uses the history loaded before this turn was appended, so
+    // it describes an edge already carried, and only for signed-in per-user mood.
+    const residualNote = perUserMood
+      ? resolveResidualNote({
+          personalityId,
+          userId: userScopedId,
+          history: loadedMoodHistory,
+          baseline: moodBaseline,
+          personality,
+          turnIndex: Math.floor(Number(totalMessages) / 2),
+        })
+      : null;
+    if (residualNote) {
+      messages.push({ role: "system", content: residualNote });
+    }
+
+    // Micro-variation reads the residual flag, including turns where the note
+    // itself is on cooldown. Anonymous and guide sessions have no per-user mood.
+    const residualActive = perUserMood
+      ? assessResidualContinuity({
+          history: loadedMoodHistory,
+          baseline: moodBaseline,
+          personality,
+        }).active
+      : false;
+    const microVariation = sampleMicroVariation({
+      mood: newMood,
+      residualActive,
+      turnIndex: Math.floor(Number(totalMessages) / 2),
+      sessionKind: perUserMood ? "signed-in" : (isVoxisGuide ? "guide" : "anonymous"),
+    });
+    if (microVariation.note) {
+      messages.push({ role: "system", content: microVariation.note });
+    }
+    const moodContextForRecovery = [moodFragment, residualNote, microVariation.note].filter(Boolean).join("\n\n");
+
     // Singing instruction — injected as a late system message (decision already made in code).
     // Grok architecture: code decides, LLM gets a 1-sentence directive — no heavy prompt frame.
     const singingInstruction = buildSingingInstruction(singingProfile, moodLabel.toLowerCase(), singingActive);
@@ -1309,6 +1382,8 @@ export async function chatHandler(req, res, next) {
       reconditioned: shouldRecondition,
       preferenceDecayEvaluated: shouldDecayPreferences,
       moodFragmentInjected: Boolean(moodFragment),
+      residualNoteInjected: Boolean(residualNote),
+      microVariationInjected: Boolean(microVariation.note),
       singingInstructionInjected: Boolean(singingInstruction),
       historyMessages: history.length,
     };
@@ -1366,7 +1441,7 @@ export async function chatHandler(req, res, next) {
       personality,
       memoryFacts,
       policyPrompt: buildModePolicyPrompt(policy),
-      moodFragment,
+      moodFragment: moodContextForRecovery || null,
       streamedDebugData,
       inputTokenEstimate,
       contextWindow,
@@ -1445,8 +1520,8 @@ export async function chatHandler(req, res, next) {
           emotionalRepairMessages.push({ role: "system", content: scientistContract });
         }
 
-        if (moodFragment) {
-          emotionalRepairMessages.push({ role: "system", content: moodFragment });
+        if (moodContextForRecovery) {
+          emotionalRepairMessages.push({ role: "system", content: moodContextForRecovery });
         }
 
         emotionalRepairMessages.push({
@@ -1642,6 +1717,8 @@ export async function chatHandler(req, res, next) {
       flags: {
         reconditioned: shouldRecondition,
         moodFragmentInjected: Boolean(moodFragment),
+        residualNoteInjected: Boolean(residualNote),
+        microVariationInjected: Boolean(microVariation.note),
         historyMessages: history.length,
         embeddingsConfigured: isEmbeddingConfigured(),
         rateLimitRecovered: Boolean(rateLimit?.retrySucceeded),

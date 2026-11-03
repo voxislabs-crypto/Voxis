@@ -35,7 +35,15 @@ function getPythonBin() {
   return String(process.env.OPENVOICE_PYTHON || "").trim() || "python";
 }
 
-const OPENVOICE_TIMEOUT_MS = 12 * 60 * 1000;
+const DEFAULT_OPENVOICE_TIMEOUT_MS = 12 * 60 * 1000;
+
+export function getOpenVoiceTimeoutMs() {
+  const configured = Number(process.env.OPENVOICE_JOB_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured >= 50) {
+    return configured;
+  }
+  return DEFAULT_OPENVOICE_TIMEOUT_MS;
+}
 
 /**
  * Run the OpenVoice Python synthesis script as a subprocess.
@@ -123,6 +131,11 @@ function startWorker() {
     worker.stderrBuffer = `${worker.stderrBuffer}${chunk.toString("utf8")}`.slice(-4000);
   });
 
+  proc.stdin.on("error", () => {
+    // The process can close while a job is still being written. discardWorker
+    // rejects the waiter; this only stops an unhandled EPIPE from escaping.
+  });
+
   proc.on("error", (error) => {
     discardWorker(worker, `OpenVoice worker failed to start: ${error.message}`);
   });
@@ -172,7 +185,7 @@ async function ensureWorker() {
 
   const worker = startWorker();
   activeWorker = worker;
-  const ready = await worker.readMessage(OPENVOICE_TIMEOUT_MS);
+  const ready = await worker.readMessage(getOpenVoiceTimeoutMs());
   if (!ready?.ready) {
     const message = ready?.error || "OpenVoice worker failed to load its models.";
     discardWorker(worker, message);
@@ -254,16 +267,21 @@ async function synthesizeWithWorker({ text, personalityId, rate, refPath }) {
   const tmpOut = path.join(os.tmpdir(), `voxis-ov-${randomUUID()}.wav`);
   const worker = await ensureWorker();
   const clampedRate = Math.min(1.3, Math.max(0.7, Number(rate) || 1));
-  worker.proc.stdin.write(`${JSON.stringify({
-    reference: refPath,
-    text,
-    output: tmpOut,
-    rate: clampedRate,
-    language: "EN",
-  })}\n`);
+  try {
+    worker.proc.stdin.write(`${JSON.stringify({
+      reference: refPath,
+      text,
+      output: tmpOut,
+      rate: clampedRate,
+      language: "EN",
+    })}\n`);
+  } catch (error) {
+    discardWorker(worker, error.message);
+    throw error;
+  }
 
   try {
-    const result = await worker.readMessage(OPENVOICE_TIMEOUT_MS);
+    const result = await worker.readMessage(getOpenVoiceTimeoutMs());
     if (!result?.ok) {
       const error = new Error(result?.error || "OpenVoice synthesis failed.");
       error.statusCode = 502;

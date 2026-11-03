@@ -17,7 +17,7 @@ import { splitIntoChunks } from "./chunkSpeech.js";
 import { getKokoroHfToken, getKokoroLocalPath, getTtsCredential, getVoiceDefaults } from "../models/settingsModel.js";
 import { cleanLyricsForTts } from "./singingEngine.js";
 import { synthesizeOpenVoice } from "./openVoiceAdapter.js";
-import { convertWithRvc } from "./rvcAdapter.js";
+import { convertWithRvc, getRvcServiceUrl, isRvcInstalled } from "./rvcAdapter.js";
 import { getVoiceCloneDir } from "./voiceCloneService.js";
 import { getPersonalityCloneMeta } from "../models/voiceCloneModel.js";
 
@@ -922,6 +922,22 @@ export function resolveSpeechEngine(voiceProfile, personality) {
     return "kokoro";
   }
   return "cartesia";
+}
+
+// RVC is a local process. When it is down, keep speaking with a local engine
+// instead of failing the turn. OpenVoice keeps the cloned clip. Kokoro and
+// Piper are the next local voices.
+export function chooseEngineWhenRvcIsDown(personality, voiceProfile = null) {
+  if (isAllowedTtsEngine("openvoice") && personaHasOpenVoiceReference(personality)) {
+    return "openvoice";
+  }
+  if (isKokoroAvailable()) {
+    return "kokoro";
+  }
+  if (isAllowedTtsEngine("piper") && isPiperConfigured(voiceProfile)) {
+    return "piper";
+  }
+  return null;
 }
 
 function getRequestedEngine(voiceProfile) {
@@ -2429,14 +2445,56 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
         break;
       }
       case "kokoro-rvc": {
+        const cloneMeta = personality?.id ? getPersonalityCloneMeta(personality.id) : null;
+        const packId = cloneMeta?.cloneRvcPackId ?? effectiveVoiceProfile?.cloneRvcPackId;
+        if (packId && !(await isRvcInstalled())) {
+          const fallback = chooseEngineWhenRvcIsDown(personality, effectiveVoiceProfile);
+          const serviceUrl = getRvcServiceUrl();
+          if (!fallback) {
+            const error = new Error(
+              `RVC service at ${serviceUrl} is not running, and OpenVoice, Kokoro, and Piper are unavailable.`,
+            );
+            error.statusCode = 503;
+            error.ttsProvider = "rvc";
+            error.ttsProviderCode = "service_down";
+            throw error;
+          }
+          console.warn(
+            `[TTS] RVC service at ${serviceUrl} is not running. Skipping voice conversion and using ${fallback}.`,
+          );
+          if (fallback === "openvoice") {
+            const mood = resolveMood(personality);
+            const { rate } = deriveMoodVoiceParams(mood, prosodyEnvelope);
+            audio = await synthesizeOpenVoice({
+              text: synthesisText,
+              personalityId: personality?.id,
+              rate,
+            });
+          } else if (fallback === "piper") {
+            audio = await generatePiperSpeechAudio({
+              text: synthesisText,
+              voiceProfile: effectiveVoiceProfile,
+            });
+          } else {
+            audio = await generateKokoroSpeechAudio({
+              text: synthesisText,
+              voiceProfile: effectiveVoiceProfile,
+            });
+          }
+          audio = {
+            ...audio,
+            engine: fallback,
+            rvcSkipped: true,
+            rvcSkipReason: "service-down",
+          };
+          break;
+        }
         // Step 1: Kokoro synthesizes text → WAV
         const kokoroAudio = await generateKokoroSpeechAudio({
           text: synthesisText,
           voiceProfile: effectiveVoiceProfile,
         });
         // Step 2: RVC converts the WAV to the target voice identity
-        const cloneMeta = personality?.id ? getPersonalityCloneMeta(personality.id) : null;
-        const packId = cloneMeta?.cloneRvcPackId ?? effectiveVoiceProfile?.cloneRvcPackId;
         if (!packId) {
           // No pack configured — return the raw Kokoro audio with a note
           audio = { ...kokoroAudio, engine: "kokoro", rvcSkipped: true };
@@ -2494,7 +2552,11 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
         chosenEngine: audio.engine || engine,
         chosenVoiceId: String(audio?.voiceId || resolveRequestedVoiceId(audio.engine || engine, audio.effectiveVoiceProfile) || ""),
         attemptedEngines,
-        fallbackUsed: false,
+        fallbackUsed: audio.rvcSkipReason === "service-down",
+        fallbackFrom: audio.rvcSkipReason === "service-down" ? engine : undefined,
+        fallbackReason: audio.rvcSkipReason === "service-down"
+          ? "RVC service is not running."
+          : undefined,
         synthesisText: String(audio?.synthesisText || directedText),
         synthesisTextChanged: String(audio?.synthesisText || directedText) !== String(directedText),
         engineControls: audio?.engineControls || null,

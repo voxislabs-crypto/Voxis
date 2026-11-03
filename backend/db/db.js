@@ -309,6 +309,33 @@ db.exec(`
   )
 `);
 
+// Per-user emotional state. The personalities.moodState and emotionDrift
+// columns stay the anonymous fallback. Safe on existing databases: the table
+// is created only when missing, and later columns are added with ensureColumn.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS personality_user_mood (
+    personalityId INTEGER NOT NULL,
+    userId INTEGER NOT NULL,
+    moodState TEXT NOT NULL DEFAULT '{}',
+    moodHistory TEXT NOT NULL DEFAULT '[]',
+    emotionDrift TEXT NOT NULL DEFAULT '{}',
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (personalityId, userId),
+    FOREIGN KEY (personalityId) REFERENCES personalities(id),
+    FOREIGN KEY (userId) REFERENCES users(id)
+  )
+`);
+
+ensureColumn("personality_user_mood", "moodState", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personality_user_mood", "moodHistory", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("personality_user_mood", "emotionDrift", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("personality_user_mood", "updatedAt", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_personality_user_mood_user
+  ON personality_user_mood (userId, updatedAt DESC)
+`);
+
 // ---------------------------------------------------------------------------
 // Extended user memory types for emotional preferences:
 // 'user_likes' | 'user_dislikes' | 'user_trigger_positive' | 'user_trigger_negative'

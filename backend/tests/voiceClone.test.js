@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ── deriveMoodVoiceParams ────────────────────────────────────────────────────
 
@@ -158,5 +161,77 @@ describe("generateSpeechAudio — kokoro-rvc fallback when no pack configured", 
     expect(convertWithRvc).not.toHaveBeenCalled();
     // Just verify the function completes without error and RVC is skipped
     expect(result).toBeDefined();
+  });
+});
+
+describe("generateSpeechAudio — RVC service down", () => {
+  const personaId = 990188;
+  const referencePath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "voice-clones",
+    `persona-${personaId}`,
+    "openvoice-reference.wav",
+  );
+
+  afterEach(() => {
+    fs.rmSync(path.dirname(referencePath), { recursive: true, force: true });
+  });
+
+  it("uses OpenVoice and does not call RVC when port 7861 is down and a clip exists", async () => {
+    vi.resetModules();
+    fs.mkdirSync(path.dirname(referencePath), { recursive: true });
+    fs.writeFileSync(referencePath, Buffer.from("RIFF"));
+
+    const synthesizeOpenVoice = vi.fn().mockResolvedValue({
+      buffer: Buffer.from("RIFF....WAVE"),
+      contentType: "audio/wav",
+      engine: "openvoice",
+    });
+    const convertWithRvc = vi.fn();
+    const previousLock = process.env.TTS_DEBUG_PROVIDER_LOCK;
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+
+    vi.doMock("../services/openVoiceAdapter.js", () => ({
+      synthesizeOpenVoice,
+      isOpenVoiceInstalled: vi.fn(() => true),
+      hasReference: vi.fn(() => true),
+    }));
+    vi.doMock("../services/rvcAdapter.js", () => ({
+      convertWithRvc,
+      isRvcInstalled: vi.fn(async () => false),
+      getRvcServiceUrl: () => "http://127.0.0.1:7861",
+      resolveModelPath: vi.fn(),
+    }));
+    vi.doMock("../models/voiceCloneModel.js", () => ({
+      getPersonalityCloneMeta: vi.fn(() => ({ cloneEngine: "kokoro-rvc", cloneRvcPackId: 4 })),
+    }));
+    vi.doMock("../services/kokoroService.js", () => ({ synthesizeKokoro: vi.fn(), getKokoroVoices: vi.fn(() => []) }));
+    vi.doMock("../services/piperService.js", () => ({ synthesizePiper: vi.fn(), listPiperVoices: vi.fn(() => []) }));
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const result = await generateSpeechAudio({
+        text: "Hello without RVC",
+        personality: { id: personaId, name: "TestBot", moodState: { valence: 0, arousal: 0, dominance: 0 } },
+        voiceProfile: { engine: "kokoro-rvc", voice: "af_heart" },
+      });
+
+      expect(convertWithRvc).not.toHaveBeenCalled();
+      expect(synthesizeOpenVoice).toHaveBeenCalled();
+      expect(result.engine).toBe("openvoice");
+      expect(result.rvcSkipReason).toBe("service-down");
+      expect(result.telemetry.fallbackUsed).toBe(true);
+      expect(result.telemetry.fallbackFrom).toBe("kokoro-rvc");
+      expect(warn.mock.calls.some((call) => String(call[0]).includes("not running"))).toBe(true);
+      warn.mockRestore();
+    } finally {
+      if (previousLock === undefined) {
+        delete process.env.TTS_DEBUG_PROVIDER_LOCK;
+      } else {
+        process.env.TTS_DEBUG_PROVIDER_LOCK = previousLock;
+      }
+    }
   });
 });

@@ -65,6 +65,34 @@ function normalizePhrase(value) {
     .trim();
 }
 
+// Spoken stand-ins for the canonical "hey voxis" wake. These are whole phrases
+// only: bare "box", "boxes", "boxis", and "ara" stay ordinary words.
+const VOXIS_WAKE = "hey voxis";
+const VOXIS_WAKE_PHRASES = [
+  "hey boxes",
+  "hey boxis",
+  "hey box",
+  "hey ara",
+  "hey focus",
+];
+const VOXIS_WAKE_TOKENS = ["focus"];
+
+function isVoxisWake(wake) {
+  return wake === VOXIS_WAKE;
+}
+
+function applyVoxisAliases(normalized, wake) {
+  if (!isVoxisWake(wake)) {
+    return normalized;
+  }
+  let text = normalized;
+  for (const phrase of VOXIS_WAKE_PHRASES) {
+    const pattern = new RegExp(`\\b${phrase.split(" ").join("\\s+")}\\b`, "g");
+    text = text.replace(pattern, VOXIS_WAKE);
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function wakeTokenPattern(token) {
   if (token === "voxis") {
     return "vox(?:is|\\s+is)";
@@ -72,12 +100,26 @@ function wakeTokenPattern(token) {
   return escapeRegExp(token);
 }
 
+function voxisAliasSource() {
+  const phrases = VOXIS_WAKE_PHRASES.map((phrase) => (
+    `\\b${phrase.split(" ").map(escapeRegExp).join("\\W+")}\\b`
+  ));
+  const tokens = VOXIS_WAKE_TOKENS.map((token) => `\\b${escapeRegExp(token)}\\b`);
+  return [...phrases, ...tokens].join("|");
+}
+
 function wakeExpression(phrase) {
   const wake = normalizePhrase(phrase);
   if (!wake) {
     return null;
   }
-  return new RegExp(wake.split(" ").map(wakeTokenPattern).join("\\W+"), "ig");
+  const canonical = wake.split(" ").map(wakeTokenPattern).join("\\W+");
+  const source = isVoxisWake(wake) ? `(?:${canonical}|${voxisAliasSource()})` : canonical;
+  return new RegExp(source, "ig");
+}
+
+function containsWakeToken(text, token) {
+  return new RegExp(`\\b${escapeRegExp(token)}\\b`, "i").test(text);
 }
 
 export function containsWake(text, phrase) {
@@ -86,11 +128,15 @@ export function containsWake(text, phrase) {
   if (!normalized || !wake) {
     return false;
   }
-  if (normalized.includes(wake)) {
+  const heard = applyVoxisAliases(normalized, wake);
+  if (heard.includes(wake)) {
     return true;
   }
   const name = wake.split(" ").pop();
-  return Boolean(name && name.length >= 4 && new RegExp(`\\b${wakeTokenPattern(name)}\\b`, "i").test(normalized));
+  if (name && name.length >= 4 && new RegExp(`\\b${wakeTokenPattern(name)}\\b`, "i").test(heard)) {
+    return true;
+  }
+  return isVoxisWake(wake) && VOXIS_WAKE_TOKENS.some((token) => containsWakeToken(normalized, token));
 }
 
 export function stripWake(text, phrase) {
@@ -103,6 +149,76 @@ export function stripWake(text, phrase) {
     .replace(/\s+/g, " ")
     .replace(/^[\s,!.?:;]+/, "")
     .trim();
+}
+
+// Browser SpeechRecognition marks isFinal at the first short pause. The live
+// call keeps collecting until this silence, then sends one final transcript.
+export const LIVE_CALL_ENDPOINT_SILENCE_MS = 1200;
+
+export function createLiveCallHearing({
+  silenceMs = LIVE_CALL_ENDPOINT_SILENCE_MS,
+  onTranscript,
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  clearTimer = (id) => clearTimeout(id),
+} = {}) {
+  let heard = "";
+  let live = "";
+  let timer = null;
+
+  function hypothesis() {
+    return [heard, live].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  function clearSilence() {
+    if (timer != null) {
+      clearTimer(timer);
+      timer = null;
+    }
+  }
+
+  function emit(final) {
+    const text = hypothesis();
+    if (!text) {
+      return;
+    }
+    onTranscript?.({ text, final: Boolean(final) });
+  }
+
+  return {
+    hypothesis,
+    pushResults(results) {
+      const parts = [];
+      const length = Number(results?.length || 0);
+      for (let index = 0; index < length; index += 1) {
+        const piece = String(results[index]?.[0]?.transcript || "").trim();
+        if (piece) {
+          parts.push(piece);
+        }
+      }
+      live = parts.join(" ");
+      if (!hypothesis()) {
+        return;
+      }
+      emit(false);
+      clearSilence();
+      timer = setTimer(() => {
+        timer = null;
+        emit(true);
+      }, silenceMs);
+    },
+    finishSegment() {
+      if (!live) {
+        return;
+      }
+      heard = hypothesis();
+      live = "";
+    },
+    reset() {
+      clearSilence();
+      heard = "";
+      live = "";
+    },
+  };
 }
 
 function resolvePolicy(policy) {
@@ -136,6 +252,7 @@ export function createLiveKitVoiceSession({
   const policy = resolvePolicy(policyInput);
   const wakePhrase = policy.wakePhrase;
   let awake = !wakePhrase;
+  let stripWakeFromUtterance = Boolean(String(wakePhrase || "").trim());
   let phase = awake ? "listening" : "idle";
   let pending = "";
   let history = [];
@@ -294,18 +411,23 @@ export function createLiveKitVoiceSession({
 
     if (!awake) {
       if (!containsWake(incoming, wakePhrase)) {
-        onUnrecognized?.(incoming);
+        if (final) {
+          onUnrecognized?.(incoming);
+        }
         return;
       }
       awake = true;
-      const rest = stripWake(incoming, wakePhrase);
-      pending = rest;
-      speechStartedAt = rest ? stamp : null;
-      utteranceFinal = Boolean(final && rest);
       emitPhase("listening");
-      if (rest && final) {
-        scheduleEndpoint(true);
-      }
+    }
+
+    const command = stripWakeFromUtterance && containsWake(incoming, wakePhrase)
+      ? stripWake(incoming, wakePhrase)
+      : incoming;
+    if (!command) {
+      pending = "";
+      speechStartedAt = null;
+      utteranceFinal = false;
+      clearEndpoint();
       return;
     }
 
@@ -318,7 +440,7 @@ export function createLiveKitVoiceSession({
       }
     }
 
-    pending = incoming;
+    pending = command;
     if (final) {
       utteranceFinal = true;
     }
@@ -334,7 +456,7 @@ export function createLiveKitVoiceSession({
       }
       if (final && shouldInterrupt({
         speechMs: elapsed,
-        wordCount: wordCount(incoming),
+        wordCount: wordCount(command),
         interruption: policy.interruption,
       })) {
         interruptNow();

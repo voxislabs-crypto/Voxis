@@ -10,7 +10,8 @@
 //   applyDecay         — decay unused emotions toward baseline
 //   computeSingingLeakage — check if drift has pushed singing threshold over
 //
-// State is persisted as JSON on the personality row (emotionDrift column).
+// Anonymous sessions persist this JSON on personalities.emotionDrift.
+// Signed-in sessions persist it on personality_user_mood.emotionDrift.
 // ---------------------------------------------------------------------------
 
 function clamp(value, min = 0, max = 1) {

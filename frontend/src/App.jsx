@@ -2400,6 +2400,35 @@ export default function App() {
     setStatus({ type: "", message: "" });
   }
 
+  function handleRecordLiveExchange({ personalityId, userText, assistantText }) {
+    const id = Number(personalityId);
+    if (!Number.isInteger(id) || id <= 0) {
+      return;
+    }
+
+    const additions = [];
+    const spoken = String(userText || "").trim();
+    const reply = String(assistantText || "").trim();
+    if (spoken) {
+      additions.push(normalizeChatMessage({ role: "user", content: spoken }));
+    }
+    if (reply) {
+      additions.push(normalizeChatMessage({
+        role: "assistant",
+        content: reply,
+        displayContent: reply,
+      }));
+    }
+    if (!additions.length) {
+      return;
+    }
+
+    setChatLogs((current) => ({
+      ...current,
+      [id]: [...(current[id] || []), ...additions],
+    }));
+  }
+
   async function handleSendMessage(message) {
     if (!selectedPersonality) {
       setStatus({
@@ -3323,6 +3352,7 @@ export default function App() {
                     isLoadingMessages={isLoadingMessages}
                     isSending={isSending}
                     onSend={handleSendMessage}
+                    onRecordLiveExchange={handleRecordLiveExchange}
                     onSaveVoiceProfile={handleVoiceProfileChange}
                     onJumpToBuilder={() => setActiveView("builder")}
                     onOpenVoiceLab={() => setActiveView("voice")}
