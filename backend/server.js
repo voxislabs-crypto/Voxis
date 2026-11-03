@@ -29,6 +29,7 @@ import { initSfxCache } from "./services/sfxCacheService.js";
 import { getTtsHealthStatus, preloadKokoro } from "./services/ttsService.js";
 import { startCognitionLoop } from "./services/cognitionLoopService.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
+import { createCorsOriginValidator } from "./gatekeeper/corsPolicy.js";
 import {
   resolveListenHost,
   setSourceInspectorListenHost,
@@ -61,8 +62,10 @@ function getReleaseInfo() {
 
 app.use(
   cors({
-    origin: true,
+    origin: createCorsOriginValidator(),
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Authorization", "Content-Type", "X-Voxis-Internal-Key"],
   }),
 );
 app.use(express.json({ limit: "30mb" }));

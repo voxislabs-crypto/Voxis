@@ -6,6 +6,7 @@ import {
   refreshAllLoopsHandler,
   refreshMoodLoopHandler,
 } from "../controllers/loopController.js";
+import { requireAdmin, requireAuth } from "../middleware/requireAuth.js";
 
 const router = Router();
 
@@ -13,9 +14,9 @@ const router = Router();
 router.get("/api/loops/manifest", getLoopManifestHandler);
 router.get("/api/loops/audio/:filename", streamLoopAudioHandler);
 
-// Admin — trigger cache refresh (no auth required for local dev; add requireAuth() for prod)
-router.get("/api/loops/status", getLoopStatusHandler);
-router.post("/api/loops/refresh", refreshAllLoopsHandler);
-router.post("/api/loops/refresh/:mood", refreshMoodLoopHandler);
+// Runtime/cache control is administrative. Public media playback remains above.
+router.get("/api/loops/status", requireAuth, requireAdmin, getLoopStatusHandler);
+router.post("/api/loops/refresh", requireAuth, requireAdmin, refreshAllLoopsHandler);
+router.post("/api/loops/refresh/:mood", requireAuth, requireAdmin, refreshMoodLoopHandler);
 
 export default router;
