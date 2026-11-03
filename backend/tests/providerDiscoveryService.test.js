@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { afterEach, beforeEach, vi } from "vitest";
 
@@ -46,5 +49,28 @@ describe("providerDiscoveryService", () => {
     expect(result.provider).toBe("ollama");
     expect(result.baseUrl).toBe("http://127.0.0.1:11434/v1");
     expect(result.models.length).toBeGreaterThan(0);
+  });
+
+  it("reads installed model names from an Ollama manifests folder", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "voxis-ollama-"));
+    const manifests = path.join(root, "manifests", "registry.ollama.ai");
+    await mkdir(path.join(manifests, "library", "llama3.1"), { recursive: true });
+    await mkdir(path.join(manifests, "library", "qwen2.5"), { recursive: true });
+    await mkdir(path.join(manifests, "mannix", "llama3.1-8b-lexi"), { recursive: true });
+    await writeFile(path.join(manifests, "library", "llama3.1", "8b"), "{}");
+    await writeFile(path.join(manifests, "library", "qwen2.5", "7b"), "{}");
+    await writeFile(path.join(manifests, "mannix", "llama3.1-8b-lexi", "q4_k_m"), "{}");
+
+    try {
+      const { listInstalledOllamaModels } = await import("../services/providerDiscoveryService.js");
+      const installed = listInstalledOllamaModels({ roots: [root] });
+      expect(installed.models.map((model) => model.id)).toEqual([
+        "llama3.1:8b",
+        "mannix/llama3.1-8b-lexi:q4_k_m",
+        "qwen2.5:7b",
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

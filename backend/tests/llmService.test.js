@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetLlmRuntimeConfig = vi.fn();
 const mockSetLlmRuntimeConfig = vi.fn();
+const mockGetSavedLlmCredentials = vi.fn(() => []);
 const mockFetchProviderModels = vi.fn();
 
 vi.mock("../models/settingsModel.js", () => ({
   getLlmRuntimeConfig: mockGetLlmRuntimeConfig,
   setLlmRuntimeConfig: mockSetLlmRuntimeConfig,
+  getSavedLlmCredentials: mockGetSavedLlmCredentials,
   getProfaneFilterConfig: vi.fn(() => ({ enabled: false })),
 }));
 
@@ -19,6 +21,8 @@ describe("llmService model fallback", () => {
     vi.resetModules();
     mockGetLlmRuntimeConfig.mockReset();
     mockSetLlmRuntimeConfig.mockReset();
+    mockGetSavedLlmCredentials.mockReset();
+    mockGetSavedLlmCredentials.mockReturnValue([]);
     mockFetchProviderModels.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -174,6 +178,69 @@ describe("llmService model fallback", () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(mockSetLlmRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  it("switches to the next saved provider when the active account is out of credits", async () => {
+    delete process.env.LLM_API_KEY;
+    delete process.env.LLM_BASE_URL;
+    delete process.env.LLM_MODEL;
+
+    mockGetLlmRuntimeConfig.mockReturnValue({
+      provider: "grok",
+      baseUrl: "https://api.x.ai/v1",
+      apiKey: "xai-test",
+      model: "grok-4.20-0309-reasoning",
+      models: [
+        { id: "grok-4.20-0309-reasoning", name: "Grok reasoning" },
+        { id: "grok-4.3", name: "Grok 4.3" },
+      ],
+    });
+    mockGetSavedLlmCredentials.mockReturnValue([
+      {
+        provider: "grok",
+        baseUrl: "https://api.x.ai/v1",
+        apiKey: "xai-test",
+      },
+      {
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "sk-openai-test",
+      },
+    ]);
+
+    global.fetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          code: "permission-denied",
+          error: "Your team has either used all available credits or reached its monthly spending limit.",
+        })),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          choices: [{ message: { content: "Switched reply" } }],
+          model: "gpt-4o-mini",
+        }),
+      });
+
+    const { generateChatCompletion } = await import("../services/llmService.js");
+    const result = await generateChatCompletion([{ role: "user", content: "hello" }]);
+
+    expect(result).toBe("Switched reply");
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch.mock.calls[0][0]).toBe("https://api.x.ai/v1/chat/completions");
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe("grok-4.20-0309-reasoning");
+    expect(global.fetch.mock.calls[1][0]).toBe("https://api.openai.com/v1/chat/completions");
+    expect(JSON.parse(global.fetch.mock.calls[1][1].body).model).toBe("gpt-4o-mini");
+    expect(mockSetLlmRuntimeConfig).toHaveBeenCalledWith({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "sk-openai-test",
+      model: "gpt-4o-mini",
+      models: [{ id: "gpt-4o-mini", name: "gpt-4o-mini", isFree: false }],
+    });
   });
 
   it("allows keyless runtime calls for Ollama", async () => {

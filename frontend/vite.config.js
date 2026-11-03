@@ -35,6 +35,8 @@ export default defineConfig(({ command }) => ({
         target: backendUrl,
         changeOrigin: true,
         secure: false,
+        timeout: 900000,
+        proxyTimeout: 900000,
       },
       "/api/voxis": {
         target: backendUrl,
@@ -71,6 +73,8 @@ export default defineConfig(({ command }) => ({
         target: backendUrl,
         changeOrigin: true,
         secure: false,
+        timeout: 900000,
+        proxyTimeout: 900000,
       },
       "/personality-preference": {
         target: backendUrl,

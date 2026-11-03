@@ -30,6 +30,7 @@ import {
   getVoiceClonePipelineStatus,
   ensureRvcPacksDir,
   getRvcPackDir,
+  getVoiceCloneDir,
 } from "../services/voiceCloneService.js";
 import {
   registerReference,
@@ -45,6 +46,7 @@ import {
   setPersonalityCloneMeta,
   clearPersonalityCloneMeta,
 } from "../models/voiceCloneModel.js";
+import { getPersonalityById, updatePersonalityVoiceProfile } from "../models/personalityModel.js";
 
 // ── Multer setup ─────────────────────────────────────────────────────────────
 // Store uploads in OS temp dir; we move them after processing.
@@ -106,6 +108,20 @@ function sseHeaders(res) {
 
 function sseEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function setPersonaSpeechEngine(personalityId, engine) {
+  const persona = getPersonalityById(personalityId);
+  if (!persona?.voiceProfile || typeof persona.voiceProfile !== "object") {
+    return;
+  }
+  if (String(persona.voiceProfile.engine || "").toLowerCase() === engine) {
+    return;
+  }
+  updatePersonalityVoiceProfile(personalityId, {
+    ...persona.voiceProfile,
+    engine,
+  });
 }
 
 // ── POST /personality/:id/voice-clone ────────────────────────────────────────
@@ -191,11 +207,12 @@ export const startVoiceCloneHandler = [
           ),
           cloneRvcPackId: null,
         });
+        setPersonaSpeechEngine(personalityId, "openvoice");
 
         onProgress({ step: "done", pct: 100, message: "Voice registered successfully." });
         sseEvent(res, "done", {
           engine: "openvoice",
-          message: "✓ Voice clone complete. OpenVoice will now be used for this persona's TTS.",
+          message: "✓ Voice clone complete. This persona now speaks with that clip. The first line can take a few minutes.",
         });
       }
 
@@ -252,15 +269,13 @@ export async function removeVoiceCloneHandler(req, res, next) {
     }
 
     clearPersonalityCloneMeta(personalityId);
+    const persona = getPersonalityById(personalityId);
+    if (String(persona?.voiceProfile?.engine || "").toLowerCase() === "openvoice") {
+      setPersonaSpeechEngine(personalityId, "auto");
+    }
 
     // Remove reference file if present (best-effort)
-    const refPath = path.join(
-      path.dirname(new URL(import.meta.url).pathname),
-      "..",
-      "voice-clones",
-      `persona-${personalityId}`,
-      "openvoice-reference.wav",
-    );
+    const refPath = path.join(getVoiceCloneDir(personalityId), "openvoice-reference.wav");
     await fs.unlink(refPath).catch(() => {});
 
     res.json({ ok: true, message: "Voice clone data removed." });

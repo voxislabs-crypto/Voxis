@@ -51,6 +51,7 @@ vi.mock("../services/providerDiscoveryService.js", () => ({
   getSuggestedProviderIdFromApiKey: mockGetSuggestedProviderIdFromApiKey,
   listSupportedProviders: mockListSupportedProviders,
   getOllamaStatus: mockGetOllamaStatus,
+  listInstalledOllamaModels: vi.fn(() => ({ roots: [], models: [] })),
 }));
 
 function createResponse() {

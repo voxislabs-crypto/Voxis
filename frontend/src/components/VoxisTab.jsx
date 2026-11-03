@@ -2,6 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 
+const SHIFT_MAGNITUDES = ["slight", "moderate", "strong"];
+
+function collectShiftInput(action) {
+  if (!action) return [];
+  if (Array.isArray(action.shifts) && action.shifts.length) return action.shifts;
+  if (Array.isArray(action.spec?.shifts) && action.spec.shifts.length) return action.spec.shifts;
+  if (Array.isArray(action.changes?.shifts) && action.changes.shifts.length) return action.changes.shifts;
+  if (Array.isArray(action.changes?.traits) && action.changes.traits.length) return action.changes.traits;
+  return [];
+}
+
 const forgeStyles = `
   .forge {
     position: relative;
@@ -1746,6 +1757,10 @@ export default function VoxisTab({
   const [ttsBusy, setTtsBusy] = useState(false);
   const [constellationMode, setConstellationMode] = useState(false);
   const [pendingGuideAction, setPendingGuideAction] = useState(null);
+  const [shiftMagnitude, setShiftMagnitude] = useState("moderate");
+  const [shiftPreview, setShiftPreview] = useState(null);
+  const [shiftPreviewError, setShiftPreviewError] = useState("");
+  const [shiftApplying, setShiftApplying] = useState(false);
   const [recentGuideActions, setRecentGuideActions] = useState([]);
   const [isCreatingPersona, setIsCreatingPersona] = useState(false);
   const [previewCreationSpec, setPreviewCreationSpec] = useState(null);
@@ -1756,6 +1771,66 @@ export default function VoxisTab({
       setIsCreatingPersona(false);
     }
   }, [personality]);
+
+  useEffect(() => {
+    if (!pendingGuideAction) {
+      setShiftPreview(null);
+      setShiftPreviewError("");
+      return undefined;
+    }
+
+    setShiftMagnitude("moderate");
+    const shifts = collectShiftInput(pendingGuideAction);
+    const needsPreview = pendingGuideAction.action === "update_persona" || shifts.length > 0;
+    if (!needsPreview) {
+      setShiftPreview(null);
+      setShiftPreviewError("");
+      return undefined;
+    }
+    if (!shifts.length) {
+      setShiftPreview(null);
+      setShiftPreviewError("Name a dictionary shift. Prose traits are not saved.");
+      return undefined;
+    }
+
+    let cancelled = false;
+    const personalityId = pendingGuideAction.action === "update_persona"
+      ? (pendingGuideAction.targetId || personality?.id)
+      : undefined;
+    setShiftPreview(null);
+    setShiftPreviewError("");
+
+    (async () => {
+      try {
+        const res = await authFetch("/personality/spoken-shift/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shifts,
+            ...(personalityId ? { personalityId } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setShiftPreview(null);
+          setShiftPreviewError(data.error || "That request is not a dictionary shift.");
+          return;
+        }
+        setShiftPreview(data);
+        setShiftPreviewError("");
+      } catch (error) {
+        if (!cancelled) {
+          setShiftPreview(null);
+          setShiftPreviewError(error.message || "Could not preview the shift.");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingGuideAction, personality?.id, authFetch]);
   const recognitionRef = useRef(null);
   const echoAbortRef = useRef(null);
   const ttsAbortRef = useRef(null);
@@ -2365,6 +2440,7 @@ export default function VoxisTab({
         }
         showToast("Voxis is creating the persona...");
 
+        const shifts = collectShiftInput(actionData);
         const res = await authFetch("/personality", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2377,7 +2453,11 @@ export default function VoxisTab({
             speechStyle: spec.speechStyle || "",
             creativeContext: spec.creativeContext || "default",
             goals: spec.goals || [],
-            coreValues: spec.coreValues || [],
+            values: spec.values || [],
+            coreValues: spec.coreValues?.length ? spec.coreValues : (spec.values || []),
+            ...(shifts.length
+              ? { spokenShift: { shifts, magnitude: shiftMagnitude, confirm: true } }
+              : {}),
           }),
         });
 
@@ -2400,43 +2480,44 @@ export default function VoxisTab({
         }
       }
 
-      if (actionData.action === "update_persona" && actionData.changes) {
+      if (actionData.action === "update_persona") {
         const targetId = actionData.targetId || (personality && personality.id);
+        const shifts = collectShiftInput(actionData);
         if (!targetId) {
           showToast("No target persona selected for update.", true);
           return;
         }
-
-        showToast("Applying Voxis changes...");
-
-        const currentRes = await authFetch(`/personality/${targetId}`);
-        if (!currentRes.ok) {
-          showToast("Could not fetch current persona.", true);
+        if (!shifts.length) {
+          showToast("Name a dictionary shift. Prose traits are not saved.", true);
           return;
         }
-        const current = await currentRes.json();
-        const merged = { ...current };
 
-        const ch = actionData.changes;
-        if (ch.traits) merged.traits = [...new Set([...(current.traits || []), ...ch.traits])];
-        if (ch.behaviorRules) merged.behaviorRules = [...new Set([...(current.behaviorRules || []), ...ch.behaviorRules])];
-        if (ch.quirks) merged.quirks = [...new Set([...(current.quirks || []), ...ch.quirks])];
-        if (ch.speechStyle) merged.speechStyle = ch.speechStyle;
-        if (ch.description) merged.description = ch.description;
+        showToast("Applying the confirmed shift...");
 
-        const updateRes = await authFetch(`/personality/${targetId}`, {
-          method: "PUT",
+        const updateRes = await authFetch(`/personality/${targetId}/spoken-shift/apply`, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(merged),
+          body: JSON.stringify({
+            shifts,
+            magnitude: shiftMagnitude,
+            confirm: true,
+          }),
         });
 
         if (updateRes.ok) {
-          const updated = await updateRes.json();
-          showToast(`Updated ${updated.name || "persona"}.`);
+          const payload = await updateRes.json();
+          const updated = payload.personality || payload;
+          showToast(payload.sentence || `Updated ${updated.name || "persona"}.`);
           if (onPersonalityUpdated) onPersonalityUpdated(updated);
-          setRecentGuideActions(prev => [...prev, { type: "update", target: updated.name || actionData.targetName, changes: Object.keys(actionData.changes || {}), time: Date.now() }].slice(-10));
+          setRecentGuideActions(prev => [...prev, {
+            type: "update",
+            target: updated.name || actionData.targetName,
+            sentence: payload.sentence || "",
+            magnitude: shiftMagnitude,
+            time: Date.now(),
+          }].slice(-10));
           setPendingGuideAction(null);
-          void sendForgeMessage(`The changes were applied successfully.`);
+          void sendForgeMessage(`The changes were applied successfully. ${payload.sentence || ""}`);
         } else {
           const err = await updateRes.json().catch(() => ({}));
           showToast(err.error || "Update failed.", true);
@@ -2777,28 +2858,60 @@ export default function VoxisTab({
               <strong>Name:</strong> {pendingGuideAction.spec.name}<br />
               <strong>Description:</strong> {pendingGuideAction.spec.description?.slice(0,150)}...<br />
               <strong>Traits:</strong> {(pendingGuideAction.spec.traits || []).join(", ")}<br />
+              <strong>Values:</strong> {(pendingGuideAction.spec.coreValues || pendingGuideAction.spec.values || []).join(", ") || "None"}<br />
               <strong>Behavior:</strong> {(pendingGuideAction.spec.behaviorRules || []).join(" | ")}
             </div>
           )}
-          
+
           {pendingGuideAction.action === "update_persona" && (
             <div style={{ marginBottom: 12 }}>
-              <strong>Update persona:</strong> {pendingGuideAction.targetName || "selected"}<br />
-              <strong>Changes:</strong><br />
-              {Object.entries(pendingGuideAction.changes || {}).map(([k,v]) => (
-                <div key={k}>- {k}: {Array.isArray(v) ? v.join(", ") : String(v)}</div>
-              ))}
+              <strong>Update persona:</strong> {pendingGuideAction.targetName || "selected"}
+            </div>
+          )}
+
+          {(pendingGuideAction.action === "update_persona" || collectShiftInput(pendingGuideAction).length > 0) && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 8 }}>
+                {shiftPreviewError
+                  ? shiftPreviewError
+                  : (shiftPreview?.magnitudes?.[shiftMagnitude]?.sentence || "Checking the dictionary...")}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {SHIFT_MAGNITUDES.map((magnitude) => (
+                  <button
+                    key={magnitude}
+                    type="button"
+                    onClick={() => setShiftMagnitude(magnitude)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      border: shiftMagnitude === magnitude ? "1px solid #26ffff" : "1px solid rgba(255,255,255,0.3)",
+                      background: shiftMagnitude === magnitude ? "rgba(38,255,255,0.2)" : "transparent",
+                      color: "#f5e9ff",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {magnitude}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           
-          <pre style={{ fontSize: "0.7rem", background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, overflow: "auto", maxHeight: 120, margin: "8px 0" }}>
-            {JSON.stringify(pendingGuideAction, null, 2)}
-          </pre>
-          
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
             <button
+              type="button"
+              disabled={
+                shiftApplying
+                || ((pendingGuideAction.action === "update_persona" || collectShiftInput(pendingGuideAction).length > 0)
+                  && (!shiftPreview || Boolean(shiftPreviewError)))
+              }
               onClick={() => {
-                executeGuideAction(pendingGuideAction);
+                if (shiftApplying) return;
+                setShiftApplying(true);
+                Promise.resolve(executeGuideAction(pendingGuideAction))
+                  .finally(() => setShiftApplying(false));
               }}
               style={{
                 padding: "8px 16px",
@@ -2831,7 +2944,7 @@ export default function VoxisTab({
             </button>
           </div>
           <div style={{ fontSize: "0.65rem", opacity: 0.65, marginTop: 6 }}>
-            This is a preview. Voxis will be notified of your decision.
+            Nothing is written until you confirm. That confirmation is the audit record.
           </div>
         </div>
       )}

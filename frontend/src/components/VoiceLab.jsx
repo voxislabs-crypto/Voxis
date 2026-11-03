@@ -1088,6 +1088,7 @@ const REALISM_PRESETS = [
 
 const CUSTOM_OPTION = "__custom__";
 const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
+const TTS_DISABLE_KOKORO = String(import.meta.env.VITE_TTS_DISABLE_KOKORO ?? "false").trim().toLowerCase() === "true";
 const PROSODY_PROGRESS_STEPS = [
   "Scraping source audio",
   "Analyzing cadence and rhythm",
@@ -1102,9 +1103,15 @@ function isUuid(value) {
 function normalizeVoiceEngineForDebug(engine) {
   const normalized = String(engine || "auto").trim().toLowerCase();
   if (!TTS_DEBUG_PROVIDER_LOCK) {
+    if (TTS_DISABLE_KOKORO && normalized === "kokoro") {
+      return "auto";
+    }
     return normalized || "auto";
   }
-  return ["auto", "kokoro", "cartesia"].includes(normalized) ? normalized : "auto";
+  const locked = TTS_DISABLE_KOKORO
+    ? ["auto", "cartesia", "openvoice"]
+    : ["auto", "kokoro", "cartesia", "openvoice"];
+  return locked.includes(normalized) ? normalized : "auto";
 }
 
 function getProviderCatalogMeta(options) {
@@ -1292,8 +1299,8 @@ export default function VoiceLab({
                 {TTS_DEBUG_PROVIDER_LOCK ? (
                   <>
                     <option value="auto">auto (cartesia → kokoro)</option>
-                    <option value="kokoro">kokoro (free local)</option>
-                    <option value="openvoice">openvoice (voice clone)</option>
+                    {TTS_DISABLE_KOKORO ? null : <option value="kokoro">kokoro (free local)</option>}
+                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
                     <option value="kokoro-rvc">kokoro + rvc</option>
                     <option value="cartesia">cartesia (saved key)</option>
                   </>
@@ -1303,11 +1310,17 @@ export default function VoiceLab({
                     <option value="cloud">cloud</option>
                     <option value="elevenlabs">elevenlabs</option>
                     <option value="cartesia">cartesia</option>
-                    <option value="kokoro">kokoro</option>
+                    {TTS_DISABLE_KOKORO ? null : <option value="kokoro">kokoro</option>}
+                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
                     <option value="piper">piper</option>
                   </>
                 )}
               </select>
+              {voiceProfile.engine === "openvoice" ? (
+                <small className="vlab-small">
+                  Speaks with the reference clip from Clone Voice. Save this engine, then play from Character Chat.
+                </small>
+              ) : null}
             </div>
 
             {/* Provider voice selection simplified for tree view */}

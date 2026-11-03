@@ -294,6 +294,21 @@ db.exec(`
   ON persona_preferences (personalityId, importance DESC, id DESC)
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS persona_shift_audits (
+    id INTEGER PRIMARY KEY,
+    personalityId INTEGER,
+    ownerId INTEGER,
+    action TEXT NOT NULL,
+    magnitude TEXT NOT NULL DEFAULT '',
+    shifts TEXT NOT NULL DEFAULT '[]',
+    sentence TEXT NOT NULL DEFAULT '',
+    beforeJson TEXT NOT NULL DEFAULT '[]',
+    afterJson TEXT NOT NULL DEFAULT '[]',
+    confirmedAt TEXT NOT NULL
+  )
+`);
+
 // ---------------------------------------------------------------------------
 // Extended user memory types for emotional preferences:
 // 'user_likes' | 'user_dislikes' | 'user_trigger_positive' | 'user_trigger_negative'

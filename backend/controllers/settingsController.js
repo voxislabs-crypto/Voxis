@@ -46,6 +46,7 @@ import {
   fetchProviderModels,
   getSuggestedProviderIdFromApiKey,
   getOllamaStatus,
+  listInstalledOllamaModels,
   listSupportedProviders,
 } from "../services/providerDiscoveryService.js";
 
@@ -181,6 +182,22 @@ export async function connectLlmSettingsHandler(req, res, next) {
       apiKey,
     });
 
+    if (provider === "ollama" && typeof listInstalledOllamaModels === "function") {
+      const installed = listInstalledOllamaModels();
+      const merged = new Map();
+      for (const entry of [...(installed.models || []), ...(connected.models || [])]) {
+        const id = String(entry?.id || "").trim();
+        if (id && !merged.has(id)) {
+          merged.set(id, {
+            id,
+            name: String(entry?.name || id).trim() || id,
+            isFree: entry?.isFree !== false,
+          });
+        }
+      }
+      connected.models = [...merged.values()];
+    }
+
     // When the model list is empty (e.g. rate-limited), accept any typed model;
     // otherwise require the model to be in the fetched list.
     const selectedModel =
@@ -254,7 +271,16 @@ export function selectLlmModelHandler(req, res) {
     return res.status(404).json({ error: "No provider is connected." });
   }
 
-  const exists = (current.models || []).some((model) => model.id === selectedModel);
+  let models = Array.isArray(current.models) ? current.models : [];
+  let exists = models.some((model) => model.id === selectedModel);
+  if (!exists && String(current.provider || "").trim().toLowerCase() === "ollama" && typeof listInstalledOllamaModels === "function") {
+    const installed = listInstalledOllamaModels();
+    const match = (installed.models || []).find((model) => model.id === selectedModel);
+    if (match) {
+      models = [...models, { id: match.id, name: match.name || match.id, isFree: true }];
+      exists = true;
+    }
+  }
   if (!exists) {
     return res.status(400).json({ error: "Selected model is not available for the connected provider." });
   }
@@ -262,6 +288,7 @@ export function selectLlmModelHandler(req, res) {
   const updated = setLlmRuntimeConfig({
     ...current,
     model: selectedModel,
+    models,
   });
 
   return res.json(toPublicConfig(updated));

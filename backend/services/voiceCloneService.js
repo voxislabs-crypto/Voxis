@@ -14,18 +14,13 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const VOICE_CLONES_DIR = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "..",
-  "voice-clones",
-);
+const SERVICE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-const RVC_PACKS_DIR = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "..",
-  "rvc-voice-packs",
-);
+const VOICE_CLONES_DIR = path.join(SERVICE_DIR, "..", "voice-clones");
+
+const RVC_PACKS_DIR = path.join(SERVICE_DIR, "..", "rvc-voice-packs");
 
 export async function ensureVoiceClonesDir(personalityId) {
   const dir = path.join(VOICE_CLONES_DIR, `persona-${personalityId}`);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -18,6 +18,7 @@ import { getKokoroHfToken, getKokoroLocalPath, getTtsCredential, getVoiceDefault
 import { cleanLyricsForTts } from "./singingEngine.js";
 import { synthesizeOpenVoice } from "./openVoiceAdapter.js";
 import { convertWithRvc } from "./rvcAdapter.js";
+import { getVoiceCloneDir } from "./voiceCloneService.js";
 import { getPersonalityCloneMeta } from "../models/voiceCloneModel.js";
 
 const require = createRequire(import.meta.url);
@@ -100,9 +101,9 @@ export const TTS_ENGINE_CAPABILITIES = Object.freeze({
 function getAllowedTtsEngines() {
   if (isTtsDebugProviderLockEnabled()) {
     if (isTtsDisableKokoroEnabled()) {
-      return ["cartesia"];
+      return ["cartesia", "openvoice"];
     }
-    return LOCKED_TTS_ENGINES;
+    return [...LOCKED_TTS_ENGINES, "openvoice"];
   }
 
   return isTtsDisableKokoroEnabled()
@@ -886,7 +887,15 @@ export function classifySpeechContext({ text = "", speechHint = "", personality 
   };
 }
 
-function resolveEngine(voiceProfile) {
+export function personaHasOpenVoiceReference(personality) {
+  const id = personality?.id;
+  if (id === undefined || id === null || String(id).trim() === "") {
+    return false;
+  }
+  return existsSync(path.join(getVoiceCloneDir(id), "openvoice-reference.wav"));
+}
+
+export function resolveSpeechEngine(voiceProfile, personality) {
   const requested = getRequestedEngine(voiceProfile);
 
   if (requested === "kokoro" && isAllowedTtsEngine("kokoro")) return "kokoro";
@@ -896,6 +905,14 @@ function resolveEngine(voiceProfile) {
   if (requested === "cartesia" && isAllowedTtsEngine("cartesia")) return "cartesia";
   if (requested === "piper" && isAllowedTtsEngine("piper")) return "piper";
   if ((requested === "cloud" || requested === "openai") && isAllowedTtsEngine("cloud")) return "cloud";
+
+  // Auto, and a Kokoro pick while Kokoro is disabled, used to land on Cartesia's
+  // default male narrator even after Clone Voice stored a clip. A registered
+  // reference means this persona speaks with that clip.
+  const cloneReady = isAllowedTtsEngine("openvoice") && personaHasOpenVoiceReference(personality);
+  if (cloneReady && (requested === "auto" || requested === "kokoro" || requested === "" || requested === "openvoice")) {
+    return "openvoice";
+  }
 
   const autoOrder = getAutoEngineOrder(voiceProfile);
   if (autoOrder[0]) {
@@ -1025,7 +1042,7 @@ export function deriveMoodVoiceParams(mood = {}, prosodyEnvelope = {}) {
 export function prepareSpeechSynthesis({ personality, text, voiceProfile, speechHint }) {
   const mood = resolveMood(personality);
   const speechContext = classifySpeechContext({ text, speechHint, personality });
-  const resolvedEngine = resolveEngine(voiceProfile);
+  const resolvedEngine = resolveSpeechEngine(voiceProfile, personality);
 
   console.log("[VOXIS DEBUG] TTS prepareSpeechSynthesis - mood:", mood, "voiceProfile:", voiceProfile);
 
@@ -2204,6 +2221,14 @@ function buildSpeechAliasCacheKey({ personality, text, engine, voiceId, model })
   });
 }
 
+function cachedEngineMatches(engine, cached) {
+  if (engine !== "openvoice") {
+    return true;
+  }
+  const chosen = String(cached?.telemetry?.chosenEngine || cached?.engine || "").trim().toLowerCase();
+  return chosen === "openvoice";
+}
+
 function cachedSpeechMatchesRequest(requested, cached) {
   if (!cached?.buffer) {
     return false;
@@ -2281,7 +2306,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     ? "auto"
     : requestedRaw;
 
-  const engine = resolveEngine(voiceProfile);
+  const engine = resolveSpeechEngine(voiceProfile, personality);
   const { directedText, adjustedVoiceProfile, prosodyEnvelope, speechContext, speechPacket, sfx } = prepareSpeechSynthesis({
     personality,
     text,
@@ -2297,7 +2322,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     adjustedVoiceProfile,
   });
   const cachedResponse = getCachedTtsResponse(cacheKey);
-  if (cachedSpeechMatchesRequest(requested, cachedResponse)) {
+  if (cachedSpeechMatchesRequest(requested, cachedResponse) && cachedEngineMatches(engine, cachedResponse)) {
     return {
       ...cachedResponse,
       cached: true,
@@ -2315,7 +2340,7 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
       model: resolveRequestedVoiceModel(requested, adjustedVoiceProfile || voiceProfile),
     });
     const aliasHit = getCachedTtsResponse(aliasKey);
-    if (cachedSpeechMatchesRequest(requested, aliasHit)) {
+    if (cachedSpeechMatchesRequest(requested, aliasHit) && cachedEngineMatches(engine, aliasHit)) {
       return {
         ...aliasHit,
         cached: true,
@@ -2507,7 +2532,8 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     // For explicit engine requests, we normally avoid silent fallback.
     // Exception: provider-level limits (quota/concurrency) on ElevenLabs can
     // degrade to another configured engine so voice playback still works.
-    if (requested !== "auto" && !shouldFallbackFromExplicitRequest(primaryError)) {
+    // A cloned voice must not quietly become Cartesia when synthesis fails.
+    if (engine === "openvoice" || (requested !== "auto" && !shouldFallbackFromExplicitRequest(primaryError))) {
       throw primaryError;
     }
 

@@ -10,6 +10,8 @@ import {
   resetPersonalityHandler,
   updatePersonalityHandler,
   updateVoiceProfileHandler,
+  previewSpokenShiftHandler,
+  applySpokenShiftHandler,
   getVoicePresetsHandler,
   getRecommendedVoicePresetHandler,
   extractPersonaHandler,
@@ -62,6 +64,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 const router = Router();
 
 router.post("/personality", requireAuth, createPersonalityHandler);
+router.post("/personality/spoken-shift/preview", requireAuth, previewSpokenShiftHandler);
 router.post("/analyze-character", requireAuth, analyzeCharacterHandler);
 router.post("/extract-persona", requireAuth, extractPersonaHandler);
 router.post("/explain-behavior", requireAuth, explainBehaviorHandler);
@@ -73,6 +76,7 @@ router.get("/voice-presets", requireAuth, getVoicePresetsHandler);
 router.get("/personality/:id", requireAuth, getPersonalityHandler);
 router.get("/personality/:id/voice-preset", requireAuth, getRecommendedVoicePresetHandler);
 router.put("/personality/:id", requireAuth, updatePersonalityHandler);
+router.post("/personality/:id/spoken-shift/apply", requireAuth, applySpokenShiftHandler);
 router.post("/personality/:id/reset", requireAuth, resetPersonalityHandler);
 router.delete("/personality/:id", requireAuth, deletePersonalityHandler);
 router.post("/personality/:id/harness", requireAuth, runHarnessHandler);

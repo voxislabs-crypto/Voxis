@@ -1,3 +1,10 @@
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+
+const require = createRequire(import.meta.url);
+
 const PROVIDERS = [
   {
     id: "ollama",
@@ -405,9 +412,163 @@ export async function detectProviderByApiKey(apiKey) {
   throw error;
 }
 
+function readOllamaAppModelsPath() {
+  const localAppData = String(process.env.LOCALAPPDATA || "").trim();
+  if (!localAppData) {
+    return "";
+  }
+
+  const dbPath = path.join(localAppData, "Ollama", "db.sqlite");
+  try {
+    if (!fs.existsSync(dbPath)) {
+      return "";
+    }
+  } catch {
+    return "";
+  }
+
+  try {
+    const Database = require("better-sqlite3");
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const row = db.prepare("SELECT models FROM settings LIMIT 1").get();
+      return String(row?.models || "").trim();
+    } finally {
+      db.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
+function findOllamaModelRoots() {
+  const candidates = [];
+  const envDir = String(process.env.OLLAMA_MODELS || "").trim();
+  if (envDir) {
+    candidates.push(envDir);
+  }
+
+  const homeDir = os.homedir();
+  if (homeDir) {
+    candidates.push(path.join(homeDir, ".ollama", "models"));
+  }
+
+  const appDir = readOllamaAppModelsPath();
+  if (appDir) {
+    candidates.push(appDir);
+  }
+
+  if (process.platform === "win32") {
+    for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+      candidates.push(`${letter}:\\.ollama\\models`);
+    }
+  }
+
+  const roots = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const resolved = path.resolve(String(candidate || "").trim());
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (!resolved || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    try {
+      if (fs.statSync(resolved).isDirectory()) {
+        roots.push(resolved);
+      }
+    } catch {
+      // Missing drives and unused homes are expected.
+    }
+  }
+  return roots;
+}
+
+function collectFiles(dir, out = []) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectFiles(fullPath, out);
+    } else if (entry.isFile()) {
+      out.push(fullPath);
+    }
+  }
+  return out;
+}
+
+function modelIdFromManifest(manifestsDir, filePath) {
+  const relative = path.relative(manifestsDir, filePath);
+  const parts = relative.split(path.sep).filter(Boolean);
+  if (parts.length < 3) {
+    return "";
+  }
+
+  const tag = parts[parts.length - 1];
+  const name = parts[parts.length - 2];
+  const namespace = parts[parts.length - 3];
+  if (!tag || !name) {
+    return "";
+  }
+  if (!namespace || namespace === "library" || namespace === "registry.ollama.ai") {
+    return `${name}:${tag}`;
+  }
+  return `${namespace}/${name}:${tag}`;
+}
+
+export function listInstalledOllamaModels({ roots } = {}) {
+  const modelRoots = Array.isArray(roots) ? roots.filter(Boolean) : findOllamaModelRoots();
+  const models = new Map();
+
+  for (const root of modelRoots) {
+    const manifestsDir = path.join(root, "manifests");
+    for (const filePath of collectFiles(manifestsDir)) {
+      const id = modelIdFromManifest(manifestsDir, filePath);
+      if (!id || models.has(id)) {
+        continue;
+      }
+      models.set(id, {
+        id,
+        name: id,
+        isFree: true,
+        source: "disk",
+      });
+    }
+  }
+
+  return {
+    roots: modelRoots,
+    models: [...models.values()].sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+function mergeOllamaModels(primary = [], extra = []) {
+  const merged = new Map();
+  for (const model of [...primary, ...extra]) {
+    const id = String(model?.id || "").trim();
+    if (!id || merged.has(id)) {
+      continue;
+    }
+    merged.set(id, {
+      id,
+      name: String(model?.name || id).trim() || id,
+      isFree: model?.isFree !== false,
+      source: String(model?.source || "").trim(),
+    });
+  }
+  return [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
 export async function getOllamaStatus({ baseUrl = "" } = {}) {
   const provider = resolveProviderConfig("ollama", baseUrl);
   const ollamaBase = String(provider.baseUrl || "").replace(/\/v1\/?$/, "");
+  const installed = listInstalledOllamaModels();
 
   const status = {
     provider: "ollama",
@@ -415,8 +576,9 @@ export async function getOllamaStatus({ baseUrl = "" } = {}) {
     baseUrl: provider.baseUrl,
     reachable: false,
     version: "",
-    models: [],
-    model: "",
+    models: installed.models,
+    model: installed.models[0]?.id || "",
+    modelRoots: installed.roots,
     checkedAt: new Date().toISOString(),
   };
 
@@ -439,8 +601,8 @@ export async function getOllamaStatus({ baseUrl = "" } = {}) {
     }
 
     status.reachable = true;
-    status.models = Array.isArray(modelsResponse.models) ? modelsResponse.models : [];
-    status.model = String(modelsResponse.model || "").trim();
+    status.models = mergeOllamaModels(installed.models, modelsResponse.models);
+    status.model = String(modelsResponse.model || status.models[0]?.id || "").trim();
     return status;
   } catch (error) {
     status.reachable = false;

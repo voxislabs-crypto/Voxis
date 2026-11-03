@@ -24,10 +24,15 @@ import loopRoutes from "./routes/loopRoutes.js";
 import sfxRoutes from "./routes/sfxRoutes.js";
 import cognitionRoutes from "./routes/cognitionRoutes.js";
 import voxisRoutes from "./routes/voxisRoutes.js";
+import sourceInspectorRoutes from "./routes/sourceInspectorRoutes.js";
 import { initSfxCache } from "./services/sfxCacheService.js";
 import { getTtsHealthStatus, preloadKokoro } from "./services/ttsService.js";
 import { startCognitionLoop } from "./services/cognitionLoopService.js";
 import { clerkVerify } from "./middleware/requireAuth.js";
+import {
+  resolveListenHost,
+  setSourceInspectorListenHost,
+} from "./middleware/requireSourceInspectorAuth.js";
 
 try {
   const dotenv = await import("dotenv");
@@ -41,7 +46,9 @@ try {
 
 const app = express();
 const basePort = Number(process.env.PORT || 3101);
-const listenHost = String(process.env.HOST || "127.0.0.1").trim() || "127.0.0.1";
+const listenHost = resolveListenHost();
+// The source inspector allows requests only when this bind host is loopback.
+setSourceInspectorListenHost(listenHost);
 const PORT_FILE = path.join(process.cwd(), "..", "shared", "ports.json");
 
 function getReleaseInfo() {
@@ -122,6 +129,7 @@ app.get("/voxis-config.js", (req, res) => {
 app.use(personalityRoutes);
 app.use(chatRoutes);
 app.use("/api/internal", internalChatRoutes);
+app.use("/api/source-inspector", sourceInspectorRoutes);
 app.use(settingsRoutes);
 app.use(userRoutes);
 app.use(loopRoutes);
@@ -202,7 +210,7 @@ async function startServer() {
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.writeFileSync(PORT_FILE, JSON.stringify({ backend: port }, null, 2));
 
-  app.listen(port, listenHost, () => {
+  const httpServer = app.listen(port, listenHost, () => {
     const release = getReleaseInfo();
     console.log(
       `Voxis backend listening on http://${listenHost}:${port} (branch=${release.branch || "unknown"}, sha=${release.gitSha || "unknown"})`,
@@ -227,6 +235,10 @@ async function startServer() {
       nextRunAt: cognitionStatus.nextRunAt,
     });
   });
+  // OpenVoice on CPU can take several minutes. The default request timeout
+  // closes that socket while the clip is still synthesizing.
+  httpServer.requestTimeout = 15 * 60 * 1000;
+  httpServer.headersTimeout = 16 * 60 * 1000;
 }
 
 startServer();

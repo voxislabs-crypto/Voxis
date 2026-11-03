@@ -57,7 +57,27 @@ function escapeRegExp(value) {
 }
 
 function normalizePhrase(value) {
-  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\bvox\s+is\b/g, "voxis")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wakeTokenPattern(token) {
+  if (token === "voxis") {
+    return "vox(?:is|\\s+is)";
+  }
+  return escapeRegExp(token);
+}
+
+function wakeExpression(phrase) {
+  const wake = normalizePhrase(phrase);
+  if (!wake) {
+    return null;
+  }
+  return new RegExp(wake.split(" ").map(wakeTokenPattern).join("\\W+"), "ig");
 }
 
 export function containsWake(text, phrase) {
@@ -66,17 +86,22 @@ export function containsWake(text, phrase) {
   if (!normalized || !wake) {
     return false;
   }
-  return normalized.includes(wake);
+  if (normalized.includes(wake)) {
+    return true;
+  }
+  const name = wake.split(" ").pop();
+  return Boolean(name && name.length >= 4 && new RegExp(`\\b${wakeTokenPattern(name)}\\b`, "i").test(normalized));
 }
 
 export function stripWake(text, phrase) {
-  const wake = normalizePhrase(phrase);
-  if (!wake) {
+  const pattern = wakeExpression(phrase);
+  if (!pattern) {
     return String(text || "").trim();
   }
   return String(text || "")
-    .replace(new RegExp(escapeRegExp(wake), "ig"), " ")
+    .replace(pattern, " ")
     .replace(/\s+/g, " ")
+    .replace(/^[\s,!.?:;]+/, "")
     .trim();
 }
 
@@ -102,6 +127,7 @@ export function createLiveKitVoiceSession({
   onPlayback,
   onInterrupt,
   onError,
+  onUnrecognized,
   policy: policyInput,
   now = () => Date.now(),
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -120,6 +146,7 @@ export function createLiveKitVoiceSession({
   let falseTimer = null;
   let turnToken = 0;
   let stopped = false;
+  let inputHeld = false;
 
   function emitPhase(next) {
     phase = next;
@@ -242,8 +269,21 @@ export function createLiveKitVoiceSession({
     }
   }
 
+  function holdInput() {
+    inputHeld = true;
+    clearEndpoint();
+    clearInterruptWatch();
+    pending = "";
+    speechStartedAt = null;
+    utteranceFinal = false;
+  }
+
+  function releaseInput() {
+    inputHeld = false;
+  }
+
   function noteTranscript({ text, final = false, at, speechMs } = {}) {
-    if (stopped) {
+    if (stopped || inputHeld) {
       return;
     }
     const incoming = String(text || "").trim();
@@ -254,6 +294,7 @@ export function createLiveKitVoiceSession({
 
     if (!awake) {
       if (!containsWake(incoming, wakePhrase)) {
+        onUnrecognized?.(incoming);
         return;
       }
       awake = true;
@@ -330,6 +371,7 @@ export function createLiveKitVoiceSession({
     speechStartedAt = null;
     utteranceFinal = false;
     awake = !wakePhrase;
+    inputHeld = false;
     emitPhase("idle");
   }
 
@@ -338,6 +380,8 @@ export function createLiveKitVoiceSession({
   return {
     noteTranscript,
     notifyPlaybackEnded,
+    holdInput,
+    releaseInput,
     stop,
     getPhase: () => phase,
   };

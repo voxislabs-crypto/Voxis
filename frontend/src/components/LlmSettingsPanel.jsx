@@ -144,6 +144,11 @@ const settingsStyles = `
     color: var(--text);
   }
 
+  .ollama-model-picker {
+    display: grid;
+    gap: 8px;
+  }
+
   .llm-actions {
     display: flex;
     flex-wrap: wrap;
@@ -347,6 +352,7 @@ export default function LlmSettingsPanel({ onStatus }) {
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isCheckingOllama, setIsCheckingOllama] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState(null);
+  const [ollamaModelQuery, setOllamaModelQuery] = useState("");
   const ollamaCheckInFlightRef = useRef(false);
   const modelFavoritesImportRef = useRef(null);
   const [modelFavoritesByProvider, setModelFavoritesByProvider] = useState(() => loadModelFavorites());
@@ -453,6 +459,14 @@ export default function LlmSettingsPanel({ onStatus }) {
       return leftName.localeCompare(rightName);
     });
   }, [availableModels, activeModelFavorites]);
+
+  const ollamaModelChoices = useMemo(() => {
+    const query = ollamaModelQuery.trim().toLowerCase();
+    return sortedAvailableModels.filter((entry) => {
+      const label = `${entry.name || ""} ${entry.id || ""}`.toLowerCase();
+      return !query || label.includes(query);
+    });
+  }, [ollamaModelQuery, sortedAvailableModels]);
 
   const favoriteModelEntries = useMemo(() => {
     if (!sortedAvailableModels.length || !activeModelFavorites.length) {
@@ -1458,7 +1472,51 @@ export default function LlmSettingsPanel({ onStatus }) {
 
           <div className="llm-field">
             <label htmlFor="llm-model">Model</label>
-            {availableModels.length ? (
+            {provider === "ollama" ? (
+              <div className="ollama-model-picker">
+                <input
+                  id="llm-model-search"
+                  type="search"
+                  value={ollamaModelQuery}
+                  onChange={(event) => setOllamaModelQuery(event.target.value)}
+                  placeholder={isCheckingOllama ? "Searching .ollama folders..." : "Search installed Ollama models"}
+                  disabled={isConnecting || isLoading}
+                />
+                <select
+                  id="llm-model"
+                  value={ollamaModelChoices.some((entry) => entry.id === model) ? model : ""}
+                  onChange={(event) => {
+                    const nextModel = event.target.value;
+                    setModel(nextModel);
+                    if (nextModel && String(connected?.provider || "").toLowerCase() === "ollama") {
+                      void applyModel(nextModel);
+                    }
+                  }}
+                  disabled={isConnecting || isLoading || !ollamaModelChoices.length}
+                >
+                  <option value="">
+                    {isCheckingOllama
+                      ? "Looking for installed models..."
+                      : ollamaModelChoices.length
+                        ? "Choose an installed model"
+                        : "No installed models match"}
+                  </option>
+                  {ollamaModelChoices.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {(activeModelFavorites.includes(candidate.id) ? "[fav] " : "") + (candidate.name || candidate.id)}
+                    </option>
+                  ))}
+                </select>
+                <p className="llm-field-helper">
+                  {Array.isArray(ollamaStatus?.modelRoots) && ollamaStatus.modelRoots.length
+                    ? `Found ${availableModels.length} model(s) in ${ollamaStatus.modelRoots.join(", ")}.`
+                    : "Looks through the Ollama app folder and each drive's .ollama\\models directory."}
+                  {String(connected?.provider || "").toLowerCase() === "ollama"
+                    ? ""
+                    : " Pick a model, then click Connect Provider."}
+                </p>
+              </div>
+            ) : availableModels.length ? (
               <select
                 id="llm-model"
                 value={model}
@@ -1483,7 +1541,7 @@ export default function LlmSettingsPanel({ onStatus }) {
                 disabled={isConnecting || isLoading}
               />
             )}
-            {!availableModels.length ? (
+            {provider !== "ollama" && !availableModels.length ? (
               <p className="llm-field-helper">No model list available. Type a model ID and press Tab or click Connect to apply it.</p>
             ) : null}
             {availableModels.length ? (

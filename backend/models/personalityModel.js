@@ -80,12 +80,22 @@ function normalizeRow(row) {
     }),
     expressionStyle: (() => {
       const style = parseJsonObject(row.expressionStyle, {});
-      return {
+      const shaped = {
+        ...style,
         sentenceStyle: String(style.sentenceStyle || "").trim(),
         interruptionRate: Number(style.interruptionRate) || 0.3,
         energy: String(style.energy || "medium").trim() || "medium",
         rules: parseJsonArray(style.rules),
       };
+      const quirkDensity = Number(style.quirkDensity);
+      if (Number.isFinite(quirkDensity)) {
+        shaped.quirkDensity = Math.min(1, Math.max(0, quirkDensity));
+      }
+      const energyScore = Number(style.energyScore);
+      if (Number.isFinite(energyScore)) {
+        shaped.energyScore = Math.min(1, Math.max(0, energyScore));
+      }
+      return shaped;
     })(),
     voiceProfile: parseJsonObject(row.voiceProfile, {
       enabled: true,
@@ -241,7 +251,7 @@ export function getAllPersonalities(ownerId = null) {
           goals, coreValues, creativeContext, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
-          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, ownerId
+          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
         FROM personalities
         WHERE ownerId = ?
         ORDER BY id DESC
@@ -254,7 +264,7 @@ export function getAllPersonalities(ownerId = null) {
           goals, coreValues, creativeContext, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
-          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, ownerId
+          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
         FROM personalities
         ORDER BY id DESC
       `);
@@ -340,7 +350,7 @@ export function getPersonalityById(id, ownerId = null) {
           goals, coreValues, creativeContext, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
-          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, ownerId
+          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
         FROM personalities
         WHERE id = ? AND ownerId = ?
       `)
@@ -352,7 +362,7 @@ export function getPersonalityById(id, ownerId = null) {
           goals, coreValues, creativeContext, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
-          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, ownerId
+          voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
         FROM personalities
         WHERE id = ?
       `);
@@ -525,5 +535,44 @@ export function resetPersonalityState(id, moodState) {
 
 export function deletePersonality(id) {
   db.prepare(`DELETE FROM personalities WHERE id = ?`).run(id);
+}
+
+export function insertPersonaShiftAudit({
+  personalityId,
+  ownerId = null,
+  action,
+  magnitude = "",
+  shifts = [],
+  sentence = "",
+  before = [],
+  after = [],
+  confirmedAt,
+}) {
+  const result = db.prepare(`
+    INSERT INTO persona_shift_audits (
+      personalityId, ownerId, action, magnitude, shifts, sentence, beforeJson, afterJson, confirmedAt
+    ) VALUES (
+      @personalityId, @ownerId, @action, @magnitude, @shifts, @sentence, @beforeJson, @afterJson, @confirmedAt
+    )
+  `).run({
+    personalityId: Number.isInteger(Number(personalityId)) ? Number(personalityId) : null,
+    ownerId: Number.isInteger(Number(ownerId)) ? Number(ownerId) : null,
+    action: String(action || "update_persona"),
+    magnitude: String(magnitude || ""),
+    shifts: JSON.stringify(shifts || []),
+    sentence: String(sentence || ""),
+    beforeJson: JSON.stringify(before || []),
+    afterJson: JSON.stringify(after || []),
+    confirmedAt: String(confirmedAt || new Date().toISOString()),
+  });
+
+  return {
+    id: Number(result.lastInsertRowid),
+    personalityId: Number(personalityId),
+    action: String(action || "update_persona"),
+    magnitude: String(magnitude || ""),
+    sentence: String(sentence || ""),
+    confirmedAt: String(confirmedAt || ""),
+  };
 }
 

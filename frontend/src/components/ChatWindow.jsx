@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
@@ -51,11 +52,10 @@ function normalizeVoiceEngineForDebug(engine) {
     return normalized || "auto";
   }
 
-  if (TTS_DISABLE_KOKORO) {
-    return ["auto", "cartesia"].includes(normalized) ? normalized : "auto";
-  }
-
-  return ["auto", "kokoro", "cartesia"].includes(normalized) ? normalized : "auto";
+  const locked = TTS_DISABLE_KOKORO
+    ? ["auto", "cartesia", "openvoice"]
+    : ["auto", "kokoro", "cartesia", "openvoice"];
+  return locked.includes(normalized) ? normalized : "auto";
 }
 
 // Lightweight EPF detection — mirrors backend isPerformanceOutput
@@ -561,6 +561,7 @@ const chatStyles = `
     gap: 8px;
   }
   .live-call-hud {
+    grid-column: 1 / -1;
     display: grid;
     gap: 4px;
     padding: 9px 12px;
@@ -1765,17 +1766,27 @@ const chatStyles = `
   }
 
   .context-meter {
-    position: absolute;
-    right: 14px;
-    bottom: 96px;
+    position: relative;
     z-index: 4;
-    width: min(280px, calc(100% - 28px));
+    width: min(280px, 100%);
     padding: 10px 12px;
     border-radius: 12px;
     border: 1px solid rgba(0, 234, 255, 0.22);
-    background: rgba(4, 12, 26, 0.9);
+    background: rgba(4, 12, 26, 0.94);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
     backdrop-filter: blur(4px);
+  }
+
+  .composer > .context-meter {
+    grid-column: 1 / -1;
+    width: auto;
+  }
+
+  .context-meter.is-docked {
+    position: fixed;
+    z-index: 40;
+    width: auto;
+    margin: 0;
   }
 
   .context-meter.warn {
@@ -1861,9 +1872,10 @@ const chatStyles = `
 
   .context-meter-details {
     position: absolute;
+    left: 0;
     right: 0;
     bottom: calc(100% + 8px);
-    width: min(260px, calc(100vw - 44px));
+    width: auto;
     padding: 10px 12px;
     border-radius: 12px;
     border: 1px solid rgba(0, 234, 255, 0.2);
@@ -1930,13 +1942,6 @@ const chatStyles = `
       grid-column: 1;
       grid-row: auto;
       margin: 0 16px 16px;
-    }
-
-    .context-meter {
-      left: 14px;
-      right: 14px;
-      width: auto;
-      bottom: 92px;
     }
 
     .composer textarea {
@@ -2322,6 +2327,35 @@ function splitLongSpeechChunk(text, maxChars = MAX_STREAM_SENTENCE_CHARS) {
   return chunks;
 }
 
+function collectSpeechChunks(text) {
+  const { sentences, remainder } = splitCompleteSentences(text);
+  const chunks = [];
+  for (const sentence of sentences) {
+    chunks.push(...splitLongSpeechChunk(sentence));
+  }
+  const tail = normalizeSpeechChunk(remainder);
+  if (tail) {
+    chunks.push(...splitLongSpeechChunk(tail));
+  }
+  return chunks.filter(Boolean);
+}
+
+// Lines already queued during typing are skipped. The rest, including a tail
+// with no closing punctuation, is what still has to be spoken.
+function unspokenSpeechChunks(alreadyQueued, text) {
+  const remaining = Array.isArray(alreadyQueued) ? [...alreadyQueued] : [];
+  const unspoken = [];
+  for (const chunk of collectSpeechChunks(text)) {
+    const seenAt = remaining.indexOf(chunk);
+    if (seenAt >= 0) {
+      remaining.splice(seenAt, 1);
+      continue;
+    }
+    unspoken.push(chunk);
+  }
+  return unspoken;
+}
+
 function coalescePersonalityEvents(events, nowMs = Date.now()) {
   const map = new Map();
 
@@ -2443,6 +2477,7 @@ export default function ChatWindow({
   const streamEngineOverrideRef = useRef(null);
   const streamSentenceCursorRef = useRef(0);
   const streamQueuedSentenceKeysRef = useRef(new Set());
+  const streamQueuedSpeechRef = useRef([]);
   const streamPendingSentenceQueueRef = useRef([]);
   const streamReadyAudioQueueRef = useRef([]);
   const streamQueueProcessingRef = useRef(false);
@@ -2456,7 +2491,9 @@ export default function ChatWindow({
   const phoneRestartTimerRef = useRef(null);
   const phoneActiveRef = useRef(false);
   const phonePlaybackRef = useRef(false);
+  const phoneMicHeldRef = useRef(false);
   const phonePlayTokenRef = useRef(null);
+  const composerRef = useRef(null);
   const personalityIdRef = useRef(personality?.id ?? null);
   personalityIdRef.current = personality?.id ?? null;
   const micAudioContextRef = useRef(null);
@@ -2591,6 +2628,7 @@ export default function ChatWindow({
   );
 
   const activeUsage = liveUsage || latestAssistantUsage;
+  const [contextMeterBox, setContextMeterBox] = useState(null);
   const usagePercent = useMemo(() => {
     const ratio = Number(activeUsage?.percentUsed);
     if (Number.isFinite(ratio) && ratio >= 0) {
@@ -2612,6 +2650,71 @@ export default function ChatWindow({
   const usageSourceLabel = useMemo(() => {
     return activeUsage?.source === "provider" ? "Provider-reported" : "Live estimate";
   }, [activeUsage]);
+
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer || !activeUsage) {
+      setContextMeterBox(null);
+      return undefined;
+    }
+
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const sidebar = document.querySelector(".workspace .sidebar");
+      const anchor = composer.querySelector(".composer-input-wrap") || composer;
+      const sidebarRect = sidebar?.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const sidebarOpen = Boolean(
+        sidebar
+        && !sidebar.classList.contains("collapsed")
+        && sidebarRect
+        && sidebarRect.width >= 220
+        && sidebarRect.right <= anchorRect.left + 8,
+      );
+      if (!sidebarOpen) {
+        setContextMeterBox(null);
+        return;
+      }
+      const next = {
+        top: Math.round(anchorRect.top),
+        left: Math.round(sidebarRect.left + 16),
+        width: Math.round(Math.max(180, sidebarRect.width - 32)),
+      };
+      setContextMeterBox((current) => (
+        current
+        && current.top === next.top
+        && current.left === next.left
+        && current.width === next.width
+          ? current
+          : next
+      ));
+    };
+    const schedule = () => {
+      if (frame) {
+        return;
+      }
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    const observer = new ResizeObserver(schedule);
+    observer.observe(composer);
+    const sidebar = document.querySelector(".workspace .sidebar");
+    if (sidebar) {
+      observer.observe(sidebar);
+    }
+    return () => {
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      observer.disconnect();
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [activeUsage, personality?.id]);
 
   const providerBadge = useMemo(() => {
     const chosenEngine = String(
@@ -2957,13 +3060,22 @@ export default function ChatWindow({
   }, [personality]);
 
   useEffect(() => {
+    const sessionPersonalityId = String(streamAutoplaySessionRef.current || "").split(":")[0];
+    const streamOwnsThisReply = streamAutoplayUsedRef.current
+      && sessionPersonalityId !== ""
+      && sessionPersonalityId === String(personality?.id ?? "");
+
     setVoiceTelemetry(null);
     setActivePersonalityEvents([]);
-    streamAutoplaySessionRef.current = null;
-    clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+    // Finishing the reply changes the saved message. That must not cancel
+    // clips already queued while the text was typing.
+    if (!streamOwnsThisReply) {
+      streamAutoplaySessionRef.current = null;
+      clearStreamingAutoplayQueues({ revokeQueuedAudio: true });
+      autoplayAssistantBaselineRef.current = assistantMessageCount;
+      lastGeneratedRef.current = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
+    }
     setCurrentAudioIsCached(false);
-    autoplayAssistantBaselineRef.current = assistantMessageCount;
-    lastGeneratedRef.current = `${personality?.id || "none"}:${latestAssistantSpeechText}`;
     if (personalityEventsTimerRef.current) {
       window.clearTimeout(personalityEventsTimerRef.current);
     }
@@ -3137,6 +3249,7 @@ export default function ChatWindow({
           }
 
           streamQueuedSentenceKeysRef.current.add(sentenceKey);
+          streamQueuedSpeechRef.current.push(sentence);
           streamPendingSentenceQueueRef.current.push({
             text: sentence,
             segmentIndex: index,
@@ -3155,45 +3268,38 @@ export default function ChatWindow({
       return;
     }
 
-    // Finalize trailing text once stream ends (even if it lacked punctuation).
-    // Use small TTS chunks for the final audio too (prevents long synthesis timeouts
-    // on ElevenLabs etc. for full responses). The queue + ended chaining gives full length.
-    if (streamAutoplaySessionRef.current === sessionKey && streamAutoplayUsedRef.current) {
-      const { sentences, remainder } = splitCompleteSentences(latestAssistantSpeechText);
-      const finalized = [...sentences];
-      const tail = normalizeSpeechChunk(remainder);
-      if (tail) {
-        finalized.push(tail);
-      }
-
-      for (let index = streamSentenceCursorRef.current; index < finalized.length; index += 1) {
-        const parts = splitLongSpeechChunk(finalized[index]);
-        for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
-          const sentence = normalizeSpeechChunk(parts[partIndex]);
-          if (!sentence) {
-            continue;
-          }
-
-          const sentenceKey = `${sessionKey}:${index}:${partIndex}:${sentence}`;
-          if (streamQueuedSentenceKeysRef.current.has(sentenceKey)) {
-            continue;
-          }
-
-          streamQueuedSentenceKeysRef.current.add(sentenceKey);
-          streamPendingSentenceQueueRef.current.push({
-            text: sentence,
-            segmentIndex: index,
-            segmentKey: sentenceKey,
-          });
+    // The saved message bumps messages.length, so the session key changes
+    // on the same render the text finishes. Keep that turn's queue and speak
+    // any line that was not already queued.
+    const previousMessageKey = `${personality.id}:${Math.max(0, messages.length - 1)}`;
+    const activeSessionKey = streamAutoplaySessionRef.current;
+    const continuingStream = streamAutoplayUsedRef.current && (
+      activeSessionKey === sessionKey || activeSessionKey === previousMessageKey
+    );
+    if (continuingStream) {
+      const unspoken = unspokenSpeechChunks(streamQueuedSpeechRef.current, latestAssistantSpeechText);
+      for (const sentence of unspoken) {
+        const sentenceKey = `${activeSessionKey}:rest:${streamQueuedSpeechRef.current.length}:${sentence}`;
+        if (streamQueuedSentenceKeysRef.current.has(sentenceKey)) {
+          continue;
         }
+        streamQueuedSentenceKeysRef.current.add(sentenceKey);
+        streamQueuedSpeechRef.current.push(sentence);
+        streamPendingSentenceQueueRef.current.push({
+          text: sentence,
+          segmentIndex: streamQueuedSpeechRef.current.length,
+          segmentKey: sentenceKey,
+        });
       }
-
-      streamSentenceCursorRef.current = finalized.length;
 
       if (streamPendingSentenceQueueRef.current.length > 0) {
         void processStreamingSentenceQueue();
       }
 
+      return;
+    }
+
+    if (streamAutoplayUsedRef.current) {
       return;
     }
 
@@ -3337,6 +3443,7 @@ export default function ChatWindow({
   function clearStreamingAutoplayQueues({ revokeQueuedAudio = true } = {}) {
     streamPendingSentenceQueueRef.current = [];
     streamQueuedSentenceKeysRef.current = new Set();
+    streamQueuedSpeechRef.current = [];
     streamSentenceCursorRef.current = 0;
     streamAutoplayUsedRef.current = false;
     streamPlaybackActiveRef.current = false;
@@ -3904,10 +4011,12 @@ export default function ChatWindow({
 
     streamQueueProcessingRef.current = true;
     setIsGeneratingAudio(true);
+    let pausedForPlayback = false;
 
     try {
       while (streamPendingSentenceQueueRef.current.length > 0) {
         if (streamReadyAudioQueueRef.current.length >= MAX_STREAM_READY_AUDIO && streamPlaybackActiveRef.current) {
+          pausedForPlayback = true;
           break;
         }
 
@@ -3978,7 +4087,7 @@ export default function ChatWindow({
       streamQueueProcessingRef.current = false;
       setIsGeneratingAudio(false);
 
-      if (streamPendingSentenceQueueRef.current.length > 0 && !streamPlaybackActiveRef.current) {
+      if (!pausedForPlayback && streamPendingSentenceQueueRef.current.length > 0) {
         void processStreamingSentenceQueue();
       }
     }
@@ -4601,6 +4710,7 @@ export default function ChatWindow({
   function stopPhoneSession() {
     phoneActiveRef.current = false;
     phonePlaybackRef.current = false;
+    phoneMicHeldRef.current = false;
     phonePlayTokenRef.current = null;
     if (phoneRestartTimerRef.current) {
       window.clearTimeout(phoneRestartTimerRef.current);
@@ -4623,8 +4733,38 @@ export default function ChatWindow({
     setPhoneCaption("");
   }
 
+  function holdPhoneMic() {
+    phoneMicHeldRef.current = true;
+    if (phoneRestartTimerRef.current) {
+      window.clearTimeout(phoneRestartTimerRef.current);
+      phoneRestartTimerRef.current = null;
+    }
+    const recognition = phoneRecognitionRef.current;
+    if (!recognition) {
+      return;
+    }
+    phoneRecognitionRef.current = null;
+    try {
+      recognition.abort();
+    } catch {
+      try {
+        recognition.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function releasePhoneMic() {
+    phoneMicHeldRef.current = false;
+    if (!phoneActiveRef.current) {
+      return;
+    }
+    startPhoneRecognition();
+  }
+
   function startPhoneRecognition() {
-    if (!phoneActiveRef.current || phoneRecognitionRef.current) {
+    if (!phoneActiveRef.current || phoneRecognitionRef.current || phoneMicHeldRef.current) {
       return;
     }
 
@@ -4641,6 +4781,9 @@ export default function ChatWindow({
     recognition.lang = "en-US";
 
     recognition.onresult = (event) => {
+      if (phoneMicHeldRef.current || phonePlaybackRef.current) {
+        return;
+      }
       const latest = event.results?.[event.results.length - 1];
       const text = String(latest?.[0]?.transcript || "").trim();
       if (!text) {
@@ -4669,7 +4812,7 @@ export default function ChatWindow({
       if (phoneRecognitionRef.current === recognition) {
         phoneRecognitionRef.current = null;
       }
-      if (!phoneActiveRef.current) {
+      if (!phoneActiveRef.current || phoneMicHeldRef.current) {
         return;
       }
       phoneRestartTimerRef.current = window.setTimeout(() => {
@@ -4691,6 +4834,7 @@ export default function ChatWindow({
     const playToken = {};
     phonePlayTokenRef.current = playToken;
     phonePlaybackRef.current = true;
+    holdPhoneMic();
     setAudioUrl(url);
     const startPlayback = () => {
       if (phonePlayTokenRef.current !== playToken || !phonePlaybackRef.current) {
@@ -4708,6 +4852,9 @@ export default function ChatWindow({
         if (phonePlayTokenRef.current !== playToken) {
           return;
         }
+        phonePlaybackRef.current = false;
+        phoneSessionRef.current?.releaseInput();
+        releasePhoneMic();
         onStatus?.({
           type: "info",
           message: `Audio ready — press play on the audio control below. ${playError?.message ? `(${playError.message})` : ""}`.trim(),
@@ -4757,6 +4904,15 @@ export default function ChatWindow({
         if (phoneActiveRef.current) {
           setPhonePhase(phase);
         }
+        if (phase === "thinking" || phase === "speaking") {
+          holdPhoneMic();
+          phoneSessionRef.current?.holdInput();
+          return;
+        }
+        if (phase === "listening") {
+          phoneSessionRef.current?.releaseInput();
+          releasePhoneMic();
+        }
       },
       onPlayback: ({ audioUrl }) => {
         if (audioUrl) {
@@ -4771,15 +4927,26 @@ export default function ChatWindow({
           audioElement.pause();
         }
         setIsAudioPlaying(false);
+        phoneSessionRef.current?.releaseInput();
+        releasePhoneMic();
       },
       onError: (error) => {
         onStatus?.({ type: "error", message: error?.message || "Voice turn failed." });
+      },
+      onUnrecognized: (text) => {
+        if (!phoneActiveRef.current) {
+          return;
+        }
+        const heard = String(text || "").trim().slice(0, 120);
+        if (heard) {
+          setPhoneCaption(`Heard “${heard}”. Say hey voxis to start.`);
+        }
       },
     });
     startPhoneRecognition();
     onStatus?.({
       type: "info",
-      message: "Live call started. Say hey voxis, then talk. You can interrupt while the reply plays.",
+      message: "Live call started. Say hey voxis, then talk. The mic pauses while a reply plays so the call does not cut itself off.",
     });
   }
 
@@ -4825,12 +4992,60 @@ export default function ChatWindow({
   const liveCallStatusCopy = !isLiveCallActive
     ? ""
     : phonePhase === "speaking"
-      ? (phoneCaption ? phoneCaption.slice(0, 180) : "Speaking. Talk to interrupt.")
+      ? (phoneCaption ? phoneCaption.slice(0, 180) : "Speaking. The mic is paused until this line finishes.")
       : phonePhase === "thinking"
-        ? "Working on a reply."
+        ? "Working on a reply. The mic is paused."
         : phonePhase === "listening"
-          ? "Listening. Talk to interrupt while a reply plays."
-          : "Say hey voxis to open the call.";
+          ? "Listening."
+          : (phoneCaption || "Say hey voxis to open the call.");
+
+  const contextMeter = activeUsage ? (
+    <div
+      className={`context-meter${usagePercent >= 90 ? " danger" : usagePercent >= 75 ? " warn" : ""}${contextMeterBox ? " is-docked" : ""}`}
+      style={contextMeterBox ? {
+        top: contextMeterBox.top,
+        left: contextMeterBox.left,
+        width: contextMeterBox.width,
+      } : undefined}
+      title="Estimated context window usage for this chat turn."
+    >
+      <div className="context-meter-header">
+        <span className="context-meter-label">Context Window</span>
+        <span className="context-meter-actions">
+          <span className="context-meter-value">{usagePercent}%</span>
+          <button
+            type="button"
+            className="context-meter-info"
+            aria-label="Show context usage details"
+          >
+            i
+          </button>
+        </span>
+      </div>
+      <div className="context-meter-track" aria-hidden="true">
+        <div className="context-meter-fill" style={{ width: `${usagePercent}%` }} />
+      </div>
+      <div className="context-meter-meta">
+        <span>{Number(activeUsage.totalTokens || 0).toLocaleString()} / {Number(activeUsage.maxTokens || 0).toLocaleString()} tokens</span>
+        <span>{String(activeUsage.source || "estimate")}</span>
+      </div>
+      <div className="context-meter-details" role="tooltip">
+        <div className="context-meter-details-title">Turn Usage Breakdown</div>
+        <dl className="context-meter-details-grid">
+          <dt>Model</dt>
+          <dd>{usageModelLabel}</dd>
+          <dt>Input</dt>
+          <dd>{Number(activeUsage.inputTokens || 0).toLocaleString()} tokens</dd>
+          <dt>Output</dt>
+          <dd>{Number(activeUsage.outputTokens || 0).toLocaleString()} tokens</dd>
+          <dt>Total</dt>
+          <dd>{Number(activeUsage.totalTokens || 0).toLocaleString()} tokens</dd>
+          <dt>Source</dt>
+          <dd>{usageSourceLabel}</dd>
+        </dl>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <>
@@ -5260,21 +5475,28 @@ export default function ChatWindow({
                   <>
                     <option value="auto">{TTS_DISABLE_KOKORO ? "Auto (cartesia only)" : "Auto (cartesia → kokoro)"}</option>
                     {TTS_DISABLE_KOKORO ? null : <option value="kokoro">Kokoro (local, free)</option>}
+                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
                     <option value="cartesia">Cartesia</option>
                   </>
                 ) : (
                   <>
                     <option value="auto">Auto (server default)</option>
                     <option value="cloud">Cloud (OpenAI)</option>
-                    <option value="kokoro">Kokoro (local, free)</option>
+                    {TTS_DISABLE_KOKORO ? null : <option value="kokoro">Kokoro (local, free)</option>}
                     <option value="piper">Piper (local)</option>
+                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
                     <option value="elevenlabs">ElevenLabs</option>
                     <option value="cartesia">Cartesia</option>
                   </>
                 )}
               </select>
-              <label htmlFor="voice-quick-select">Voice:</label>
-              {voiceProfile.engine === "kokoro" ? (
+              {voiceProfile.engine === "openvoice" ? (
+                <p id="voice-quick-select" style={{ margin: "4px 0 0", fontSize: "0.78rem", lineHeight: 1.45, color: "#88ecff" }}>
+                  Uses the Clone Voice clip from Voice Lab. The first line can take a few minutes on this machine.
+                </p>
+              ) : null}
+              {voiceProfile.engine === "openvoice" ? null : <label htmlFor="voice-quick-select">Voice:</label>}
+              {voiceProfile.engine === "openvoice" ? null : voiceProfile.engine === "kokoro" ? (
                 <select
                   id="voice-quick-select"
                   value={voiceProfile.kokoroVoice || "af_heart"}
@@ -5829,56 +6051,17 @@ export default function ChatWindow({
             )}
           </div>
 
-          {activeUsage ? (
-            <div
-              className={`context-meter${usagePercent >= 90 ? " danger" : usagePercent >= 75 ? " warn" : ""}`}
-              title="Estimated context window usage for this chat turn."
-            >
-              <div className="context-meter-header">
-                <span className="context-meter-label">Context Window</span>
-                <span className="context-meter-actions">
-                  <span className="context-meter-value">{usagePercent}%</span>
-                  <button
-                    type="button"
-                    className="context-meter-info"
-                    aria-label="Show context usage details"
-                  >
-                    i
-                  </button>
-                </span>
-              </div>
-              <div className="context-meter-track" aria-hidden="true">
-                <div className="context-meter-fill" style={{ width: `${usagePercent}%` }} />
-              </div>
-              <div className="context-meter-meta">
-                <span>{Number(activeUsage.totalTokens || 0).toLocaleString()} / {Number(activeUsage.maxTokens || 0).toLocaleString()} tokens</span>
-                <span>{String(activeUsage.source || "estimate")}</span>
-              </div>
-              <div className="context-meter-details" role="tooltip">
-                <div className="context-meter-details-title">Turn Usage Breakdown</div>
-                <dl className="context-meter-details-grid">
-                  <dt>Model</dt>
-                  <dd>{usageModelLabel}</dd>
-                  <dt>Input</dt>
-                  <dd>{Number(activeUsage.inputTokens || 0).toLocaleString()} tokens</dd>
-                  <dt>Output</dt>
-                  <dd>{Number(activeUsage.outputTokens || 0).toLocaleString()} tokens</dd>
-                  <dt>Total</dt>
-                  <dd>{Number(activeUsage.totalTokens || 0).toLocaleString()} tokens</dd>
-                  <dt>Source</dt>
-                  <dd>{usageSourceLabel}</dd>
-                </dl>
-              </div>
-            </div>
-          ) : null}
+          {contextMeterBox ? createPortal(contextMeter, document.body) : null}
 
-          <form 
+          <form
+            ref={composerRef}
             className={`composer ${isDragging ? "dragging" : ""}`}
             onSubmit={handleSubmit}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
+            {contextMeterBox ? null : contextMeter}
             {isLiveCallActive ? (
               <div className="live-call-hud">
                 <div className="live-call-hud-head">

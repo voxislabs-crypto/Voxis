@@ -178,7 +178,10 @@ describe("phone session comparison", () => {
     expect(turn).not.toHaveBeenCalled();
 
     expect(containsWake("hey voxis", LIVEKIT_TURN_POLICY.wakePhrase)).toBe(true);
+    expect(containsWake("Hey, Voxis", LIVEKIT_TURN_POLICY.wakePhrase)).toBe(true);
+    expect(containsWake("hey vox is", LIVEKIT_TURN_POLICY.wakePhrase)).toBe(true);
     expect(stripWake("hey voxis what is the harbor plan", "hey voxis")).toBe("what is the harbor plan");
+    expect(stripWake("Hey, Voxis, what is the harbor plan", "hey voxis")).toBe("what is the harbor plan");
     session.noteTranscript({ text: "hey voxis", final: true });
     await vi.advanceTimersByTimeAsync(1000);
     expect(turn).not.toHaveBeenCalled();
@@ -209,6 +212,32 @@ describe("phone session comparison", () => {
       { role: "user", content: "what is the harbor plan" },
       { role: "assistant", content: "echo what is the harbor plan" },
     ]);
+
+    session.stop();
+    vi.useRealTimers();
+  });
+
+  it("drops microphone text while input is held so playback cannot barge in on itself", async () => {
+    vi.useFakeTimers();
+    const turn = vi.fn(async () => ({ text: "reply", audioUrl: "/a" }));
+    const interrupts = [];
+    const session = createLiveKitVoiceSession({
+      turn,
+      onInterrupt: () => interrupts.push(true),
+      policy: { wakePhrase: "" },
+    });
+
+    session.holdInput();
+    session.noteTranscript({ text: "this is the speaker leaking into the mic", final: true });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(turn).not.toHaveBeenCalled();
+    expect(interrupts).toHaveLength(0);
+
+    session.releaseInput();
+    session.noteTranscript({ text: "what is the harbor plan", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(turn.mock.calls[0][0].transcript).toBe("what is the harbor plan");
 
     session.stop();
     vi.useRealTimers();

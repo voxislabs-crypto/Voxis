@@ -1,6 +1,7 @@
 import { getPersonalityById } from "../models/personalityModel.js";
 import {
   generateSpeechAudio,
+  personaHasOpenVoiceReference,
   getTtsHealthStatus,
   isTtsConfigured,
   listPiperVoiceOptions,
@@ -38,8 +39,15 @@ function isTtsDebugLockEnabled() {
 }
 
 const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 60_000;
+const OPENVOICE_REQUEST_TIMEOUT_MS = 12 * 60 * 1000;
 
-function getTtsRequestTimeoutMs() {
+function getTtsRequestTimeoutMs(voiceProfile, personality) {
+  const engine = inferRequestedEngine(voiceProfile);
+  const usesClone = engine === "openvoice"
+    || ((engine === "auto" || engine === "kokoro") && personaHasOpenVoiceReference(personality));
+  if (usesClone) {
+    return OPENVOICE_REQUEST_TIMEOUT_MS;
+  }
   const configured = Number(process.env.TTS_REQUEST_TIMEOUT_MS || DEFAULT_TTS_REQUEST_TIMEOUT_MS);
   if (!Number.isFinite(configured)) {
     return DEFAULT_TTS_REQUEST_TIMEOUT_MS;
@@ -96,7 +104,9 @@ function summarizeRouting(health = null) {
     allowedEngines,
     requestedEngine,
     cartesiaAvailable,
-    cartesiaOnly: debugLockEnabled && allowedEngines.length === 1 && allowedEngines[0] === "cartesia",
+    cartesiaOnly: debugLockEnabled
+      && allowedEngines.filter((engine) => engine !== "openvoice").every((engine) => engine === "cartesia")
+      && allowedEngines.includes("cartesia"),
   };
 }
 
@@ -182,7 +192,7 @@ export async function generateSpeechHandler(req, res, next) {
       text,
       voiceProfile,
       speechHint,
-    }, getTtsRequestTimeoutMs());
+    }, getTtsRequestTimeoutMs(voiceProfile, personality));
 
     res.setHeader("Content-Type", audio.contentType);
     res.setHeader("Cache-Control", "no-store");

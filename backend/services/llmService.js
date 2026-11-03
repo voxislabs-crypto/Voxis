@@ -16,12 +16,13 @@ const CONTEXT_BUDGET_ENV_KEYS = {
   morally_complex: "PERSONA_PROMPT_CHAR_BUDGET_MORALLY_COMPLEX",
   tragic_villain: "PERSONA_PROMPT_CHAR_BUDGET_TRAGIC_VILLAIN",
 };
-import { getLlmRuntimeConfig, setLlmRuntimeConfig, getProfaneFilterConfig } from "../models/settingsModel.js";
+import { getLlmRuntimeConfig, setLlmRuntimeConfig, getSavedLlmCredentials, getProfaneFilterConfig } from "../models/settingsModel.js";
 import { getPersonalityMemoryByType } from "../models/memoryModel.js";
 import { fetchProviderModels } from "./providerDiscoveryService.js";
 import { buildEPFAudioConstraintNote, normalizeSingingProfile, resolveEmotionNode } from "./singingEngine.js";
 import { deriveDefaultResponseFocusProfile } from "./hybridPersonalityService.js";
 import { buildStateFlawPromptSection } from "./stateFlawService.js";
+import { dominanceSpeechPercent } from "./spokenShift.js";
 
 export function getLlmConfig() {
   const envApiKey = String(process.env.LLM_API_KEY || "").trim();
@@ -298,6 +299,7 @@ async function createLlmRequestError(response, model) {
   }
 
   const providerMessage =
+    (typeof providerPayload?.error === "string" ? providerPayload.error : "") ||
     providerPayload?.error?.metadata?.raw ||
     providerPayload?.error?.message ||
     errorText ||
@@ -313,12 +315,18 @@ async function createLlmRequestError(response, model) {
   error.providerPayload = providerPayload;
   error.model = model;
   error.isRateLimit = response.status === 429;
+  error.isBillingBlocked = response.status === 402 || isBillingBlockedMessage(providerMessage);
   error.isModelUnavailable = isRetryableModelAvailabilityError({
     providerStatus: response.status,
     providerPayload,
     message: providerMessage,
   });
   return error;
+}
+
+function isBillingBlockedMessage(message) {
+  const text = String(message || "").toLowerCase();
+  return /spending limit|used all available credits|purchase more credits|insufficient[_\s-]?quota|credit balance|exceeded your current quota|payment required|out of credits/.test(text);
 }
 
 function isRetryableModelAvailabilityError({ providerStatus = 0, providerPayload = null, message = "" } = {}) {
@@ -340,7 +348,208 @@ function isRetryableModelAvailabilityError({ providerStatus = 0, providerPayload
 }
 
 function shouldRetryWithFallback(error) {
+  if (error?.isBillingBlocked) {
+    return false;
+  }
   return Boolean(error?.isRateLimit || error?.isModelUnavailable);
+}
+
+function providerAttemptKey(config) {
+  const baseUrl = String(config?.baseUrl || "").trim().replace(/\/$/, "").toLowerCase();
+  const apiKey = String(config?.apiKey || "").trim();
+  return `${baseUrl}::${apiKey}`;
+}
+
+function defaultModelForProvider(provider, baseUrl) {
+  const id = String(provider || "").trim().toLowerCase();
+  const url = String(baseUrl || "").trim().toLowerCase();
+  if (id === "openrouter" || url.includes("openrouter.ai")) {
+    return String(process.env.LLM_MODEL || "").trim() || "meta-llama/llama-3.3-8b-instruct:free";
+  }
+  if (id === "openai" || url.includes("api.openai.com")) {
+    return "gpt-4o-mini";
+  }
+  if (id === "ollama" || url.includes(":11434")) {
+    return "llama3.1:8b";
+  }
+  if (id === "groq" || url.includes("api.groq.com")) {
+    return "llama-3.3-70b-versatile";
+  }
+  return "";
+}
+
+function getEnvProviderConfig() {
+  const apiKey = String(process.env.LLM_API_KEY || "").trim();
+  const baseUrl = String(process.env.LLM_BASE_URL || "").trim().replace(/\/$/, "");
+  const model = String(process.env.LLM_MODEL || "").trim();
+  if (!apiKey || !baseUrl || !model) {
+    return null;
+  }
+
+  const url = baseUrl.toLowerCase();
+  const provider = url.includes("openrouter.ai")
+    ? "openrouter"
+    : url.includes("api.openai.com")
+      ? "openai"
+      : url.includes("api.x.ai")
+        ? "grok"
+        : url.includes(":11434")
+          ? "ollama"
+          : "custom";
+
+  return {
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    models: [{ id: model, name: model, isFree: model.includes(":free") }],
+    isRuntimeConfig: true,
+  };
+}
+
+function listBillingFallbackConfigs(failedConfig) {
+  const configs = [];
+  const seen = new Set([providerAttemptKey(failedConfig)]);
+
+  function push(config) {
+    const key = providerAttemptKey(config);
+    const baseUrl = String(config?.baseUrl || "").trim();
+    if (!baseUrl || seen.has(key)) {
+      return;
+    }
+    if (providerRequiresApiKey(config) && !String(config?.apiKey || "").trim()) {
+      return;
+    }
+    seen.add(key);
+    configs.push(config);
+  }
+
+  const envConfig = getEnvProviderConfig();
+  if (envConfig) {
+    push(envConfig);
+  }
+
+  let saved = [];
+  try {
+    saved = typeof getSavedLlmCredentials === "function" ? getSavedLlmCredentials() : [];
+  } catch {
+    saved = [];
+  }
+
+  for (const credential of Array.isArray(saved) ? saved : []) {
+    const provider = String(credential?.provider || "custom").trim().toLowerCase() || "custom";
+    const baseUrl = String(credential?.baseUrl || "").trim().replace(/\/$/, "");
+    const model = defaultModelForProvider(provider, baseUrl);
+    push({
+      provider,
+      baseUrl,
+      apiKey: String(credential?.apiKey || "").trim(),
+      model,
+      models: model ? [{ id: model, name: model, isFree: model.includes(":free") }] : [],
+      isRuntimeConfig: true,
+    });
+  }
+
+  push({
+    provider: "ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    apiKey: "",
+    model: "llama3.1:8b",
+    models: [{ id: "llama3.1:8b", name: "llama3.1:8b", isFree: true }],
+    isRuntimeConfig: true,
+  });
+
+  return configs;
+}
+
+async function resolveFallbackModel(config) {
+  const preset = String(config?.model || "").trim();
+  if (preset) {
+    return {
+      model: preset,
+      models: Array.isArray(config.models) && config.models.length
+        ? config.models
+        : [{ id: preset, name: preset, isFree: preset.includes(":free") || config.provider === "ollama" }],
+    };
+  }
+
+  try {
+    const detected = await fetchProviderModels({
+      providerId: "custom",
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+    });
+    const model = String(detected?.model || detected?.models?.[0]?.id || "").trim();
+    if (!model) {
+      return null;
+    }
+    return {
+      model,
+      models: Array.isArray(detected?.models) ? detected.models : [{ id: model, name: model, isFree: false }],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function recoverFromBillingBlock({ failedConfig, messages, temperature, onToken, stream }) {
+  const failures = [];
+  for (const candidate of listBillingFallbackConfigs(failedConfig)) {
+    const resolved = await resolveFallbackModel(candidate);
+    if (!resolved?.model) {
+      failures.push(`${candidate.provider || candidate.baseUrl}: no model`);
+      continue;
+    }
+
+    const attemptConfig = {
+      ...candidate,
+      model: resolved.model,
+      models: resolved.models,
+    };
+
+    try {
+      const result = stream
+        ? await requestChatCompletionStreamOnce({
+          messages,
+          temperature,
+          onToken,
+          config: attemptConfig,
+        })
+        : await requestChatCompletionOnce({
+          messages,
+          temperature,
+          config: attemptConfig,
+        });
+
+      try {
+        setLlmRuntimeConfig({
+          provider: attemptConfig.provider,
+          baseUrl: attemptConfig.baseUrl,
+          apiKey: attemptConfig.apiKey,
+          model: result.model || attemptConfig.model,
+          models: attemptConfig.models,
+        });
+      } catch {
+        // Keeping the recovered provider is best-effort.
+      }
+
+      console.info(
+        `[LLM] ${failedConfig?.provider || failedConfig?.baseUrl} is out of credits. Switched to ${attemptConfig.provider} (${result.model || attemptConfig.model}).`,
+      );
+      return result;
+    } catch (error) {
+      failures.push(`${candidate.provider || candidate.baseUrl}: ${error?.providerStatus || error?.statusCode || "failed"}`);
+    }
+  }
+
+  const note = failures.length
+    ? `The active chat provider is out of credits, and the backup providers did not take over (${failures.join("; ")}).`
+    : "The active chat provider is out of credits, and no backup provider is configured.";
+  const error = new Error(note);
+  error.statusCode = 402;
+  error.isBillingBlocked = true;
+  error.backupNote = note;
+  return { error };
 }
 
 function getFallbackModels(config) {
@@ -529,6 +738,25 @@ async function requestChatCompletion({ messages, temperature = 0.85, includeMeta
       return result.reply;
     } catch (error) {
       lastError = error;
+      if (error?.isBillingBlocked) {
+        const recovered = await recoverFromBillingBlock({
+          failedConfig: config,
+          messages,
+          temperature,
+          stream: false,
+        });
+        if (recovered?.reply) {
+          if (includeMeta) {
+            return {
+              reply: recovered.reply,
+              usage: recovered.usage,
+              model: recovered.model,
+            };
+          }
+          return recovered.reply;
+        }
+        throw recovered?.error || error;
+      }
       if (!shouldRetryWithFallback(error)) {
         throw error;
       }
@@ -697,6 +925,26 @@ async function requestChatCompletionStream({ messages, temperature = 0.85, onTok
       return result.reply;
     } catch (error) {
       lastError = error;
+      if (error?.isBillingBlocked) {
+        const recovered = await recoverFromBillingBlock({
+          failedConfig: config,
+          messages,
+          temperature,
+          onToken,
+          stream: true,
+        });
+        if (recovered?.reply) {
+          if (includeMeta) {
+            return {
+              reply: recovered.reply,
+              usage: recovered.usage,
+              model: recovered.model,
+            };
+          }
+          return recovered.reply;
+        }
+        throw recovered?.error || error;
+      }
       if (!shouldRetryWithFallback(error)) {
         throw error;
       }
@@ -1539,6 +1787,14 @@ function formatExpressionStyle(style = {}) {
     parts.push(`energy=${style.energy}`);
   }
 
+  if (Number.isFinite(Number(style.energyScore))) {
+    parts.push(`energyScore=${Math.round(Math.min(1, Math.max(0, Number(style.energyScore))) * 100)}%`);
+  }
+
+  if (Number.isFinite(Number(style.quirkDensity))) {
+    parts.push(`quirkDensity=${Math.round(Math.min(1, Math.max(0, Number(style.quirkDensity))) * 100)}%`);
+  }
+
   const rules = Array.isArray(style.rules)
     ? style.rules.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5)
     : [];
@@ -1829,6 +2085,7 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     expressionStyle,
   });
 
+  const dominancePercent = dominanceSpeechPercent(personality?.moodBaseline?.dominance);
   const bigFiveSection = formatBigFiveRegister(bigFiveProfile);
   const alignmentSection = formatAlignmentOverlay(alignmentProfile);
   const expressionStyleSection = formatExpressionStyle(expressionStyle);
@@ -1935,6 +2192,7 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     "",
     "== CURRENT EMOTIONAL REGISTER ==",
     personalizedMood || "Neutral",
+    dominancePercent == null ? "" : `Dominance: ${dominancePercent}%`,
     normalizedUserName
       ? `\n== USER ANCHOR ==\nTreat ${normalizedUserName} as the user's name in this session. If legacy companion placeholders (for example, Morty) appear in backstory text, map them to ${normalizedUserName} unless the user explicitly asks to keep the original name.`
       : "",

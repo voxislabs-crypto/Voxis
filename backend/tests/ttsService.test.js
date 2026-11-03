@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 function createTestWav(sampleCount = 8, sampleRate = 16000) {
@@ -664,6 +664,44 @@ describe("tts credit-safe engine selection", () => {
     } finally {
       vi.useRealTimers();
       global.fetch = originalFetch;
+      restoreEnv(previous);
+    }
+  });
+});
+
+describe("resolveSpeechEngine cloned voice", () => {
+  function restoreEnv(previous) {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  it("uses the uploaded clip for auto and skips it for an explicit Cartesia voice", async () => {
+    const previous = {
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+      TTS_DISABLE_KOKORO: process.env.TTS_DISABLE_KOKORO,
+    };
+    process.env.TTS_ENGINE = "auto";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    process.env.TTS_DISABLE_KOKORO = "true";
+
+    const { getVoiceCloneDir } = await import("../services/voiceCloneService.js");
+    const { resolveSpeechEngine } = await import("../services/ttsService.js");
+    const id = 990123;
+    const dir = getVoiceCloneDir(id);
+    await mkdir(dir, { recursive: true });
+    const refPath = path.join(dir, "openvoice-reference.wav");
+    await writeFile(refPath, createTestWav());
+
+    try {
+      expect(resolveSpeechEngine({ engine: "auto" }, { id })).toBe("openvoice");
+      expect(resolveSpeechEngine({ engine: "kokoro" }, { id })).toBe("openvoice");
+      expect(resolveSpeechEngine({ engine: "cartesia" }, { id })).toBe("cartesia");
+      expect(resolveSpeechEngine({ engine: "auto" }, { id: 990124 })).not.toBe("openvoice");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
       restoreEnv(previous);
     }
   });

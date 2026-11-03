@@ -18,13 +18,13 @@ function isAllowedVoiceEngine(engine) {
   const normalized = String(engine || "").trim().toLowerCase();
   if (!isTtsLockEnabled()) {
     const openEngines = isKokoroDisabledByEnv()
-      ? ["auto", "cloud", "openai", "piper", "elevenlabs", "cartesia"]
-      : ["auto", "cloud", "openai", "piper", "kokoro", "elevenlabs", "cartesia"];
+      ? ["auto", "cloud", "openai", "piper", "elevenlabs", "cartesia", "openvoice"]
+      : ["auto", "cloud", "openai", "piper", "kokoro", "elevenlabs", "cartesia", "openvoice"];
     return openEngines.includes(normalized);
   }
   return isKokoroDisabledByEnv()
-    ? ["auto", "cartesia"].includes(normalized)
-    : ["auto", "kokoro", "cartesia"].includes(normalized);
+    ? ["auto", "cartesia", "openvoice"].includes(normalized)
+    : ["auto", "kokoro", "cartesia", "openvoice"].includes(normalized);
 }
 
 function normalizeRealismPreset(value, fallback = "conversational") {

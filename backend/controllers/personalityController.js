@@ -6,9 +6,17 @@ import {
   getLegacyPersonalityCount,
   getPersonalityById,
   resetPersonalityState,
+  insertPersonaShiftAudit,
   updatePersonality,
   updatePersonalityVoiceProfile,
 } from "../models/personalityModel.js";
+import {
+  applySpokenShifts,
+  carryPersonality,
+  pickCoreValues,
+  previewSpokenShifts,
+  SpokenShiftError,
+} from "../services/spokenShift.js";
 import { generateChatCompletion } from "../services/llmService.js";
 import { clearChatMessagesForPersonality } from "../models/chatModel.js";
 import { clearPersonalityMemory } from "../models/memoryModel.js";
@@ -503,15 +511,30 @@ function sanitizeAlignmentProfile(input) {
   };
 }
 
+function optionalUnit(value) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return undefined;
+  }
+  return Math.min(1, Math.max(0, n));
+}
+
 function sanitizeExpressionStyle(input) {
   const style = input && typeof input === "object" ? input : {};
   const energy = String(style.energy || "medium").trim().toLowerCase();
+  const quirkDensity = optionalUnit(style.quirkDensity);
+  const energyScore = optionalUnit(style.energyScore);
   return {
     sentenceStyle: String(style.sentenceStyle || "").trim(),
     interruptionRate: clamp01(style.interruptionRate, 0.3),
     energy: VALID_EXPRESSION_ENERGY.has(energy) ? energy : "medium",
     rules: sanitizeItems(style.rules).slice(0, 12),
     cadenceRegulator: sanitizeCadenceRegulator(style.cadenceRegulator),
+    ...(quirkDensity !== undefined ? { quirkDensity } : {}),
+    ...(energyScore !== undefined ? { energyScore } : {}),
   };
 }
 
@@ -565,6 +588,9 @@ function mergeExpressionStyle(baseStyle, overrideStyle) {
   const baseRules = Array.isArray(baseStyle?.rules) ? baseStyle.rules : [];
   const overrideRules = Array.isArray(overrideStyle?.rules) ? overrideStyle.rules : [];
 
+  const quirkDensity = optionalUnit(overrideStyle?.quirkDensity) ?? optionalUnit(baseStyle?.quirkDensity);
+  const energyScore = optionalUnit(overrideStyle?.energyScore) ?? optionalUnit(baseStyle?.energyScore);
+
   return {
     sentenceStyle: overrideStyle?.sentenceStyle || baseStyle?.sentenceStyle || "",
     interruptionRate:
@@ -578,7 +604,61 @@ function mergeExpressionStyle(baseStyle, overrideStyle) {
     cadenceRegulator: sanitizeCadenceRegulator(
       overrideStyle?.cadenceRegulator || baseStyle?.cadenceRegulator,
     ),
+    ...(quirkDensity !== undefined ? { quirkDensity } : {}),
+    ...(energyScore !== undefined ? { energyScore } : {}),
   };
+}
+
+function sanitizeMoodAxis(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    const base = Number(fallback);
+    return Number.isFinite(base) ? Math.min(1, Math.max(-1, base)) : 0;
+  }
+  return Math.min(1, Math.max(-1, n));
+}
+
+function sanitizeMoodBaseline(input, fallback) {
+  const source = input && typeof input === "object" ? input : {};
+  const base = fallback && typeof fallback === "object" ? fallback : {};
+  return {
+    ...base,
+    valence: sanitizeMoodAxis(source.valence !== undefined ? source.valence : base.valence, 0),
+    arousal: sanitizeMoodAxis(source.arousal !== undefined ? source.arousal : base.arousal, 0),
+    dominance: sanitizeMoodAxis(source.dominance !== undefined ? source.dominance : base.dominance, 0),
+  };
+}
+
+function hasMoodAxis(baseline) {
+  return Boolean(
+    baseline
+    && typeof baseline === "object"
+    && [baseline.valence, baseline.arousal, baseline.dominance].some((value) => Number.isFinite(Number(value))),
+  );
+}
+
+function copyObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function recordSpokenAudit(personalityId, ownerId, action, applied) {
+  return insertPersonaShiftAudit({
+    personalityId,
+    ownerId,
+    action,
+    magnitude: applied.magnitude,
+    shifts: applied.keys,
+    sentence: applied.sentence,
+    before: applied.changes.map((change) => ({
+      field: change.field,
+      display: change.beforeDisplay,
+    })),
+    after: applied.changes.map((change) => ({
+      field: change.field,
+      display: change.afterDisplay,
+    })),
+    confirmedAt: new Date().toISOString(),
+  });
 }
 
 const VALID_EXPRESSION_PRESETS = new Set([
@@ -676,7 +756,7 @@ export function createPersonalityHandler(req, res, next) {
     const notablePhrases = sanitizeItems(req.body.notablePhrases);
     const behaviorRules = sanitizeItems(req.body.behaviorRules);
     const goals = sanitizeItems(req.body.goals);
-    const values = sanitizeItems(req.body.values);
+    const values = sanitizeItems(pickCoreValues(req.body));
     const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile);
     const expressionProfile = sanitizeExpressionProfile(req.body.expressionProfile);
     const bigFiveProfile = sanitizeBigFiveProfile(req.body.bigFiveProfile);
@@ -710,7 +790,33 @@ export function createPersonalityHandler(req, res, next) {
       ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
       : hybridTuning?.moodSensitivity || 1.0;
 
-    const moodBaseline = hybridTuning?.moodBaseline || moodFromLabel(mood);
+    let moodBaseline = hybridTuning?.moodBaseline || moodFromLabel(mood);
+    let bigFiveForCreate = bigFiveProfile;
+    let expressionForCreate = expressionStyle;
+    let spokenAudit = null;
+    if (req.body.spokenShift) {
+      if (req.body.spokenShift.confirm !== true) {
+        return res.status(400).json({ error: "Nothing is written until you confirm the shift." });
+      }
+      try {
+        const applied = applySpokenShifts({
+          traits,
+          quirks,
+          bigFiveProfile,
+          expressionStyle,
+          moodBaseline,
+        }, req.body.spokenShift.shifts ?? req.body.spokenShift, req.body.spokenShift.magnitude);
+        bigFiveForCreate = applied.personality.bigFiveProfile;
+        expressionForCreate = applied.personality.expressionStyle;
+        moodBaseline = applied.personality.moodBaseline;
+        spokenAudit = applied;
+      } catch (error) {
+        if (error instanceof SpokenShiftError) {
+          return res.status(400).json({ error: error.message });
+        }
+        throw error;
+      }
+    }
     const moodState = { ...moodBaseline };
     const responseFocusProfile =
       responseFocusProfileInput && responseFocusProfileInput.lenses.length > 0
@@ -760,18 +866,22 @@ export function createPersonalityHandler(req, res, next) {
       moodState,
       moodSensitivity,
       expressionProfile,
-      bigFiveProfile,
+      bigFiveProfile: bigFiveForCreate,
       alignmentProfile,
       responseFocusProfile,
-      expressionStyle,
+      expressionStyle: expressionForCreate,
       stateFlaws,
       vocalMannerisms,
       ownerId: req.voxisUser?.id ?? null,
     });
 
+    const audit = spokenAudit
+      ? recordSpokenAudit(personality.id, req.voxisUser?.id ?? null, "create_persona", spokenAudit)
+      : null;
+
     void prefetchPersonaSfx(vocalMannerisms);
 
-    return res.status(201).json(personality);
+    return res.status(201).json(audit ? { ...personality, spokenAudit: audit } : personality);
   } catch (error) {
     return next(error);
   }
@@ -843,8 +953,11 @@ export function updatePersonalityHandler(req, res, next) {
         ? sanitizeItems(req.body.behaviorRules)
         : sanitizeItems(existing.behaviorRules);
     const goals = req.body.goals !== undefined ? sanitizeItems(req.body.goals) : sanitizeItems(existing.goals);
-    const values =
-      req.body.values !== undefined ? sanitizeItems(req.body.values) : sanitizeItems(existing.values);
+    const values = req.body.values !== undefined
+      ? sanitizeItems(req.body.values)
+      : req.body.coreValues !== undefined
+        ? sanitizeItems(req.body.coreValues)
+        : sanitizeItems(existing.values);
     const voiceProfile =
       req.body.voiceProfile !== undefined
         ? sanitizeVoiceProfile(req.body.voiceProfile)
@@ -895,14 +1008,26 @@ export function updatePersonalityHandler(req, res, next) {
         ? sanitizeCreativeContext(req.body.creativeContext)
         : hybridTuning?.creativeContext || sanitizeCreativeContext(existing.creativeContext);
 
-    const expressionStyle = mergeExpressionStyle(hybridTuning?.expressionStyle, expressionStyleInput);
+    const expressionStyle = mergeExpressionStyle(
+      {
+        ...(existing.expressionStyle || {}),
+        ...(hybridTuning?.expressionStyle || {}),
+      },
+      expressionStyleInput,
+    );
 
     const moodSensitivity =
       req.body.moodSensitivity !== undefined
         ? Math.min(3.0, Math.max(0.1, Number(req.body.moodSensitivity) || 1.0))
         : hybridTuning?.moodSensitivity || Math.min(3.0, Math.max(0.1, Number(existing.moodSensitivity) || 1.0));
 
-    const moodBaseline = hybridTuning?.moodBaseline || moodFromLabel(mood);
+    const moodChanged = mood !== String(existing.mood || "").trim();
+    const moodBaseline = hybridTuning?.moodBaseline
+      || (req.body.moodBaseline !== undefined
+        ? sanitizeMoodBaseline(req.body.moodBaseline, existing.moodBaseline)
+        : (moodChanged || !hasMoodAxis(existing.moodBaseline)
+          ? moodFromLabel(mood)
+          : sanitizeMoodBaseline(existing.moodBaseline, {})));
     const shouldResetMoodState = Boolean(req.body.resetMoodState || autoTuneHybrid);
     const moodState = shouldResetMoodState
       ? { ...moodBaseline }
@@ -926,18 +1051,35 @@ export function updatePersonalityHandler(req, res, next) {
       return res.status(400).json({ error: "Description is required." });
     }
 
-    const systemPrompt = generateSystemPrompt({
-      name,
-      description,
-      traits,
-      quirks,
-      mood,
-      speechStyle,
-      notablePhrases,
-      stateFlaws,
-      vocalMannerisms,
-      researchSummary,
-    });
+    const systemPrompt = typeof req.body.systemPrompt === "string"
+      ? req.body.systemPrompt
+      : generateSystemPrompt({
+        name,
+        description,
+        traits,
+        quirks,
+        mood,
+        speechStyle,
+        notablePhrases,
+        stateFlaws,
+        vocalMannerisms,
+        researchSummary,
+      });
+    const gender = req.body.gender !== undefined
+      ? String(req.body.gender || "").trim()
+      : String(existing.gender || "").trim();
+    const avatarImageUrl = req.body.avatarImageUrl !== undefined
+      ? String(req.body.avatarImageUrl || "").trim()
+      : String(existing.avatarImageUrl || "").trim();
+    const singingProfile = req.body.singingProfile !== undefined
+      ? copyObject(req.body.singingProfile)
+      : copyObject(existing.singingProfile);
+    const emotionDrift = req.body.emotionDrift !== undefined
+      ? copyObject(req.body.emotionDrift)
+      : copyObject(existing.emotionDrift);
+    const llmConfig = req.body.llmConfig !== undefined
+      ? copyObject(req.body.llmConfig)
+      : copyObject(existing.llmConfig);
 
     const updated = updatePersonality(personalityId, {
       name,
@@ -967,6 +1109,11 @@ export function updatePersonalityHandler(req, res, next) {
       expressionStyle,
       stateFlaws,
       vocalMannerisms,
+      gender,
+      avatarImageUrl,
+      singingProfile,
+      emotionDrift,
+      llmConfig,
     });
 
     void prefetchPersonaSfx(vocalMannerisms);
@@ -974,6 +1121,68 @@ export function updatePersonalityHandler(req, res, next) {
     return res.json(updated);
   } catch (error) {
     return next(error);
+  }
+}
+
+function spokenShiftError(res, error) {
+  if (error instanceof SpokenShiftError) {
+    return res.status(400).json({ error: error.message });
+  }
+  return null;
+}
+
+export function previewSpokenShiftHandler(req, res, next) {
+  try {
+    const ownerId = req.voxisUser?.id ?? null;
+    const personalityId = Number(req.body?.personalityId);
+    let personality = null;
+    if (Number.isInteger(personalityId) && personalityId > 0) {
+      personality = getPersonalityById(personalityId, ownerId);
+      if (!personality) {
+        return res.status(404).json({ error: "Personality not found." });
+      }
+    }
+
+    const preview = previewSpokenShifts(personality, req.body?.shifts ?? req.body);
+    return res.json(preview);
+  } catch (error) {
+    return spokenShiftError(res, error) || next(error);
+  }
+}
+
+export function applySpokenShiftHandler(req, res, next) {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ error: "Nothing is written until you confirm the shift." });
+    }
+
+    const personalityId = Number(req.params.id);
+    const ownerId = req.voxisUser?.id ?? null;
+    if (!Number.isInteger(personalityId)) {
+      return res.status(400).json({ error: "A valid personality id is required." });
+    }
+
+    const existing = getPersonalityById(personalityId, ownerId);
+    if (!existing) {
+      return res.status(404).json({ error: "Personality not found." });
+    }
+
+    const applied = applySpokenShifts(existing, req.body?.shifts ?? req.body, req.body?.magnitude);
+    const updated = updatePersonality(personalityId, carryPersonality(existing, {
+      bigFiveProfile: applied.personality.bigFiveProfile,
+      expressionStyle: applied.personality.expressionStyle,
+      moodBaseline: applied.personality.moodBaseline,
+    }));
+    const audit = recordSpokenAudit(personalityId, ownerId, "update_persona", applied);
+
+    return res.json({
+      personality: updated,
+      audit,
+      sentence: applied.sentence,
+      changes: applied.changes,
+    });
+  } catch (error) {
+    return spokenShiftError(res, error) || next(error);
   }
 }
 
