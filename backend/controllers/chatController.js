@@ -98,6 +98,7 @@ import { buildUtterancePlan } from "../services/utterancePlanService.js";
 import { extractRefinementSuggestions } from "../services/refinementSuggestionService.js";
 import { buildVoxisPrompt } from "../prompts/voxisSystemPrompt.js";
 import { runUserContextTurn } from "../services/userContextTurn.js";
+import { classifyResponseStrategy, isResponseStrategyEnabled } from "../services/responseStrategy.js";
 import { runPerceptionEmotionHook, runResponseLayer } from "../services/neuralHandshakeService.js";
 import {
   normalizeDriftState,
@@ -621,6 +622,7 @@ async function generateReplyWithRecovery({
   streamedDebugData,
   inputTokenEstimate,
   contextWindow,
+  maxTokens = null,
 }) {
   try {
     if (stream.enabled) {
@@ -641,7 +643,7 @@ async function generateReplyWithRecovery({
           debug: streamedDebugData,
           usage: liveUsage,
         });
-      });
+      }, { maxTokens });
 
       const usage = buildUsageSnapshot({
         model: generation.model,
@@ -665,7 +667,7 @@ async function generateReplyWithRecovery({
       };
     }
 
-    const generation = await generateChatCompletionWithMeta(messages);
+    const generation = await generateChatCompletionWithMeta(messages, { maxTokens });
     const usage = buildUsageSnapshot({
       model: generation.model,
       contextWindow,
@@ -720,7 +722,7 @@ async function generateReplyWithRecovery({
     rateLimit.retryMessageCount = retryMessages.length;
 
     try {
-      const retryGeneration = await generateChatCompletionWithMeta(retryMessages);
+      const retryGeneration = await generateChatCompletionWithMeta(retryMessages, { maxTokens });
       const retryReply = retryGeneration.reply;
       rateLimit.retrySucceeded = true;
       streamedDebugData.rateLimit = rateLimit;
@@ -1140,6 +1142,21 @@ export async function chatHandler(req, res, next) {
     }
     streamedDebugData.userContext = userContext;
 
+    let responseStrategy = null;
+    if (!isVoxisGuide) {
+      responseStrategy = classifyResponseStrategy({
+        message,
+        history,
+        affect: userContext?.affect || null,
+        mood: newMood,
+        energy: personality?.expressionStyle?.energy || "",
+        goals: personality?.goals,
+        memoryFacts,
+        enabled: isResponseStrategyEnabled(),
+      });
+    }
+    streamedDebugData.responseStrategy = responseStrategy;
+
     let promptPackage;
     const guideMode = Boolean(
       req.body?.guideMode || 
@@ -1174,6 +1191,7 @@ export async function chatHandler(req, res, next) {
         userName: req.voxisUser?.displayName || "",
         companionAliases: resolveCompanionAliasesForPrompt(),
         userContext,
+        responseStrategy,
       });
     }
     const systemPrompt = promptPackage.prompt;
@@ -1462,6 +1480,7 @@ export async function chatHandler(req, res, next) {
       streamedDebugData,
       inputTokenEstimate,
       contextWindow,
+      maxTokens: responseStrategy?.maxTokensHint ?? null,
     });
     let reply = generation.reply;
     let usage = generation.usage;
