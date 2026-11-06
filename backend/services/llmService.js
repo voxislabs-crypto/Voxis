@@ -23,6 +23,7 @@ import { buildEPFAudioConstraintNote, normalizeSingingProfile, resolveEmotionNod
 import { deriveDefaultResponseFocusProfile } from "./hybridPersonalityService.js";
 import { buildStateFlawPromptSection } from "./stateFlawService.js";
 import { dominanceSpeechPercent } from "./spokenShift.js";
+import { buildUserContextPromptSection } from "./userContextPrompt.js";
 
 export function getLlmConfig() {
   const envApiKey = String(process.env.LLM_API_KEY || "").trim();
@@ -2125,6 +2126,7 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     emptyText: "No prior context established.",
   });
   const contextSection = contextMemory.text;
+  const userContextSection = buildUserContextPromptSection(options.userContext);
 
   const schemeMemory = schemeFacts.length
     ? buildMemorySection(schemeFacts, { maxChars: 900, includeType: true, emptyText: "" })
@@ -2210,6 +2212,8 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
     "",
     "== ESTABLISHED CONTEXT ==",
     contextSection,
+    userContextSection ? "" : null,
+    userContextSection || null,
     goalPrompt ? "" : null,
     goalPrompt,
     "",
@@ -2297,6 +2301,10 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
           used: contextMemory.usedFacts.length,
           approxTokens: estimateTokenCount(contextSection),
           compressed: contextMemory.omittedFacts.length > 0,
+        },
+        userContext: {
+          included: Boolean(userContextSection),
+          approxTokens: estimateTokenCount(userContextSection),
         },
       },
       injectedMemories: [

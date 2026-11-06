@@ -97,6 +97,7 @@ import { regulateReplyCadence } from "../services/cadenceRegulator.js";
 import { buildUtterancePlan } from "../services/utterancePlanService.js";
 import { extractRefinementSuggestions } from "../services/refinementSuggestionService.js";
 import { buildVoxisPrompt } from "../prompts/voxisSystemPrompt.js";
+import { runUserContextTurn } from "../services/userContextTurn.js";
 import { runPerceptionEmotionHook, runResponseLayer } from "../services/neuralHandshakeService.js";
 import {
   normalizeDriftState,
@@ -1123,6 +1124,22 @@ export async function chatHandler(req, res, next) {
     const rawHistoryTurns = isPersonalQuery(message)
       ? await searchRawChatHistory(personalityId, message, 3).catch(() => [])
       : [];
+    let userContext = null;
+    if (!isVoxisGuide) {
+      try {
+        userContext = runUserContextTurn({
+          message,
+          history,
+          userId: userScopedId,
+          personalityId,
+          sessionKey: `${personalityId}:${userScopedId ?? "anon"}`,
+        });
+      } catch (error) {
+        console.error("[VOXIS] user context layers failed:", error?.message || error);
+      }
+    }
+    streamedDebugData.userContext = userContext;
+
     let promptPackage;
     const guideMode = Boolean(
       req.body?.guideMode || 
@@ -1156,6 +1173,7 @@ export async function chatHandler(req, res, next) {
         conversationKey: `${personalityId}:${userScopedId ?? "anon"}`,
         userName: req.voxisUser?.displayName || "",
         companionAliases: resolveCompanionAliasesForPrompt(),
+        userContext,
       });
     }
     const systemPrompt = promptPackage.prompt;

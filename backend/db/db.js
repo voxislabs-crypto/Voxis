@@ -336,6 +336,35 @@ db.exec(`
   ON personality_user_mood (userId, updatedAt DESC)
 `);
 
+// User model beside memory. Stores preferences, topics, interaction patterns,
+// and time signals for the user. It is not a character mood record.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_context_models (
+    personalityId INTEGER NOT NULL,
+    scopeKey TEXT NOT NULL,
+    preferences TEXT NOT NULL DEFAULT '[]',
+    topics TEXT NOT NULL DEFAULT '[]',
+    patterns TEXT NOT NULL DEFAULT '{}',
+    timeSignals TEXT NOT NULL DEFAULT '{}',
+    createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (personalityId, scopeKey),
+    FOREIGN KEY (personalityId) REFERENCES personalities(id)
+  )
+`);
+
+ensureColumn("user_context_models", "preferences", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("user_context_models", "topics", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("user_context_models", "patterns", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("user_context_models", "timeSignals", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("user_context_models", "createdAt", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+ensureColumn("user_context_models", "updatedAt", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_user_context_models_scope
+  ON user_context_models (scopeKey, updatedAt DESC)
+`);
+
 // ---------------------------------------------------------------------------
 // Extended user memory types for emotional preferences:
 // 'user_likes' | 'user_dislikes' | 'user_trigger_positive' | 'user_trigger_negative'
