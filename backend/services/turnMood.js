@@ -126,6 +126,7 @@ export async function stepAndPersistTurnMood({
     moodStep,
     newMood,
     moodLabel,
+    moodIntensity,
     driftState,
     loadedMoodHistory,
   };

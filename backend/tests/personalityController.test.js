@@ -284,7 +284,85 @@ describe("personalityController", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(mockCreatePersonality.mock.calls[0][0].values).toEqual(["honesty", "nerve"]);
+    expect(mockCreatePersonality.mock.calls[0][0].narrativeMode).toBe(false);
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it("stores narration mode only from the request, not from hybrid creative context", async () => {
+    mockMoodFromLabel.mockReturnValue({ valence: 0, arousal: 0, dominance: 0 });
+    mockMapToVoxisPersonality.mockReturnValue({
+      creativeContext: "narrative_antagonist",
+      moodSensitivity: 1,
+      moodBaseline: { valence: 0, arousal: 0, dominance: 0 },
+      expressionStyle: { sentenceStyle: "", interruptionRate: 0.2, energy: "low", rules: [] },
+    });
+    mockCreatePersonality.mockImplementation((payload) => ({ id: 8, ...payload }));
+
+    const { createPersonalityHandler } = await import("../controllers/personalityController.js");
+    const res = createResponse();
+    const next = vi.fn();
+
+    createPersonalityHandler({
+      voxisUser: { id: 4 },
+      body: {
+        name: "Lumen",
+        description: "A bedtime storyteller.",
+        autoTuneHybrid: true,
+        narrativeMode: "yes",
+      },
+    }, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    const created = mockCreatePersonality.mock.calls[0][0];
+    expect(created.creativeContext).toBe("narrative_antagonist");
+    expect(created.narrativeMode).toBe(true);
+
+    mockCreatePersonality.mockClear();
+    createPersonalityHandler({
+      voxisUser: { id: 4 },
+      body: {
+        name: "Lumen",
+        description: "A bedtime storyteller.",
+        autoTuneHybrid: true,
+      },
+    }, createResponse(), vi.fn());
+
+    expect(mockCreatePersonality.mock.calls[0][0].creativeContext).toBe("narrative_antagonist");
+    expect(mockCreatePersonality.mock.calls[0][0].narrativeMode).toBe(false);
+  });
+
+  it("keeps narration mode when an update omits it", async () => {
+    mockGetPersonalityById.mockReturnValue({ ...savedPersona(), narrativeMode: true });
+    mockUpdatePersonality.mockImplementation((_id, payload) => payload);
+
+    const { updatePersonalityHandler } = await import("../controllers/personalityController.js");
+    const res = createResponse();
+
+    updatePersonalityHandler({
+      params: { id: "42" },
+      voxisUser: { id: 4 },
+      body: {
+        name: "Joker",
+        description: "A laugh in the dark.",
+        mood: "cold",
+      },
+    }, res, vi.fn());
+
+    expect(mockUpdatePersonality.mock.calls[0][1].narrativeMode).toBe(true);
+
+    mockUpdatePersonality.mockClear();
+    updatePersonalityHandler({
+      params: { id: "42" },
+      voxisUser: { id: 4 },
+      body: {
+        name: "Joker",
+        description: "A laugh in the dark.",
+        mood: "cold",
+        narrativeMode: false,
+      },
+    }, createResponse(), vi.fn());
+
+    expect(mockUpdatePersonality.mock.calls[0][1].narrativeMode).toBe(false);
   });
 
   it("does not create a spoken persona until the shift is confirmed", async () => {
@@ -358,7 +436,7 @@ describe("personalityController", () => {
   });
 
   it("applies a confirmed spoken shift onto the existing record and audits it", async () => {
-    mockGetPersonalityById.mockReturnValue(savedPersona());
+    mockGetPersonalityById.mockReturnValue({ ...savedPersona(), narrativeMode: true });
     mockUpdatePersonality.mockImplementation((_id, payload) => ({ id: 42, ...payload }));
     const { applySpokenShiftHandler } = await import("../controllers/personalityController.js");
     const res = createResponse();
@@ -373,6 +451,7 @@ describe("personalityController", () => {
     expect(next).not.toHaveBeenCalled();
     const saved = mockUpdatePersonality.mock.calls[0][1];
     expect(saved.traits).toEqual(["dry"]);
+    expect(saved.narrativeMode).toBe(true);
     expect(saved.gender).toBe("male");
     expect(saved.avatarImageUrl).toBe("/avatars/joker.png");
     expect(saved.singingProfile).toEqual({ archetype: "tenor" });

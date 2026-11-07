@@ -48,6 +48,8 @@ ensureColumn("personalities", "behaviorRules", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "goals", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "coreValues", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("personalities", "creativeContext", "TEXT NOT NULL DEFAULT 'default'");
+ensureColumn("personalities", "narrativeMode", "INTEGER NOT NULL DEFAULT 0");
+db.prepare("UPDATE personalities SET narrativeMode = 0 WHERE narrativeMode IS NULL").run();
 ensureColumn("personalities", "moodBaseline", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("personalities", "moodState", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("personalities", "moodSensitivity", "REAL NOT NULL DEFAULT 1.0");

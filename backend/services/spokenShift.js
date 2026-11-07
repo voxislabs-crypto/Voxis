@@ -375,6 +375,7 @@ const CARRIED_FIELDS = [
   "goals",
   "values",
   "creativeContext",
+  "narrativeMode",
   "moodBaseline",
   "moodState",
   "moodSensitivity",

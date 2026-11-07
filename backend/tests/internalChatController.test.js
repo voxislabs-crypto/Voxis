@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BRIEF_SAFETY_CEILING } from "../services/responseStrategy.js";
+
 const mockGetPersonalityById = vi.fn();
 const mockGetRelevantPersonalityMemory = vi.fn();
 const mockBuildPersonaPromptPackage = vi.fn();
@@ -42,6 +44,10 @@ vi.mock("../services/turnMood.js", () => ({
 
 vi.mock("../services/userContextTurn.js", () => ({
   runUserContextTurn: (...args) => mockRunUserContextTurn(...args),
+}));
+
+vi.mock("../services/personalityMemoryWrite.js", () => ({
+  writeExtractedPersonalityMemories: vi.fn(async () => []),
 }));
 
 const { internalChatHandler } = await import("../controllers/internalChatController.js");
@@ -150,13 +156,14 @@ describe("internalChatHandler", () => {
         }),
         responseStrategy: expect.objectContaining({
           length: "brief",
-          maxTokensHint: 120,
+          maxTokensHint: BRIEF_SAFETY_CEILING,
+          target: expect.objectContaining({ minSentences: 1, maxSentences: 3, minTokens: 40 }),
         }),
       }),
     );
 
     const [llmMessages, options] = mockGenerateChatCompletionWithMeta.mock.calls[0];
-    expect(options).toEqual({ temperature: 0.4, maxTokens: 120 });
+    expect(options).toEqual({ temperature: 0.4, maxTokens: BRIEF_SAFETY_CEILING });
     expect(llmMessages.map((message) => message.role)).toEqual([
       "system",
       "system",
@@ -284,11 +291,12 @@ describe("internalChatHandler", () => {
     const strategy = mockBuildPersonaPromptPackage.mock.calls[0][3].responseStrategy;
     expect(strategy).toEqual(expect.objectContaining({
       length: "brief",
-      maxTokensHint: 120,
+      maxTokensHint: BRIEF_SAFETY_CEILING,
+      target: expect.objectContaining({ minSentences: 1, maxSentences: 3 }),
     }));
     expect(mockGenerateChatCompletionWithMeta.mock.calls[0][1]).toEqual({
       temperature: 0.85,
-      maxTokens: 120,
+      maxTokens: BRIEF_SAFETY_CEILING,
     });
     expect(res.body).not.toHaveProperty("responseStrategy");
   });

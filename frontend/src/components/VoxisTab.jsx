@@ -2452,6 +2452,7 @@ export default function VoxisTab({
             quirks: spec.quirks || [],
             speechStyle: spec.speechStyle || "",
             creativeContext: spec.creativeContext || "default",
+            ...(spec.narrativeMode !== undefined ? { narrativeMode: spec.narrativeMode } : {}),
             goals: spec.goals || [],
             values: spec.values || [],
             coreValues: spec.coreValues?.length ? spec.coreValues : (spec.values || []),

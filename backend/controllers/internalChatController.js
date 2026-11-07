@@ -8,6 +8,7 @@ import {
 import { moodFromLabel, moodToLabel, moodToPromptFragment } from "../services/moodEngine.js";
 import { classifyResponseStrategy, isResponseStrategyEnabled } from "../services/responseStrategy.js";
 import { advanceTurnMood } from "../services/turnMood.js";
+import { writeExtractedPersonalityMemories } from "../services/personalityMemoryWrite.js";
 import { runUserContextTurn } from "../services/userContextTurn.js";
 
 const MAX_MESSAGES = 40;
@@ -113,7 +114,7 @@ export function buildInternalChatMessages({
 // Reads the current persona, memory, and mood into the prompt.
 // Does not add residual or micro-variation.
 // Council and the live call both step mood, run the user-context layers, and classify reply length.
-// Chat history and the mood fields on the JSON stay on the live call (req.advanceMood).
+// Chat history, personality-memory extraction, and the mood fields on the JSON stay on the live call (req.advanceMood).
 // A council fanout still does not write the user transcript.
 export async function internalChatHandler(req, res, next) {
   try {
@@ -258,6 +259,20 @@ export async function internalChatHandler(req, res, next) {
       setImmediate(() => {
         embedChatMessageAsync(storedUser?.id, queryText).catch(() => {});
         embedChatMessageAsync(storedAssistant?.id, text).catch(() => {});
+      });
+      setImmediate(() => {
+        writeExtractedPersonalityMemories({
+          personality,
+          personalityId,
+          userMessage: queryText,
+          assistantReply: text,
+          existingFacts: memoryFacts,
+        }).catch((error) => {
+          console.warn("[internal-chat] memory extraction failed (non-fatal)", {
+            personalityId,
+            error: String(error?.message || error || "unknown"),
+          });
+        });
       });
     }
 

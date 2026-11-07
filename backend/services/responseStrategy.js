@@ -3,7 +3,20 @@
 // EmotionFrame, or memory.
 
 const OFF = new Set(["0", "false", "off", "no"]);
-const BRIEF_MAX_TOKENS = 120;
+
+// Soft aim for a medium-energy persona with no extra goals or memory.
+// The token window moves. The sentence window does not.
+const SOFT_TARGETS = {
+  brief: { minSentences: 1, maxSentences: 3, minTokens: 40, maxTokens: 80 },
+  normal: { minSentences: 2, maxSentences: 6, minTokens: 80, maxTokens: 180 },
+  expansive: { minSentences: 4, maxSentences: 10, minTokens: 160, maxTokens: 360 },
+};
+
+// Brief is the only length that still sends max_tokens. This sits above the
+// soft window so a short reply can finish. It is not the length target.
+export const BRIEF_SAFETY_CEILING = 320;
+
+const FINISH_CLEANLY = "Finish the thought cleanly, then stop. Do not pad toward a longer reply. Do not stop mid-sentence.";
 
 const STOP = new Set([
   "this", "that", "with", "from", "have", "about", "your", "what", "when",
@@ -18,12 +31,6 @@ const DEEP = /\b(explain|walk me through|help me understand|what do you think|te
 // A hello can carry a real request. "Hey, tell me a joke" is not a check-in.
 // The persona name is not read. This applies to every chat persona.
 const CONTENT_ASK = /\b(?:tell|give|show|sing|joke|jokes|story|stories|poem|poems|song|songs|riddle|riddles|example|punchline|continue|go on|keep going|say more|another one|one more)\b/i;
-
-export const RESPONSE_LENGTH_DIRECTIVES = {
-  brief: "Reply in 1–2 short sentences. Match the energy of a quick acknowledgment. Do not expand unless the user asks.",
-  normal: "Use your normal reply length and style.",
-  expansive: "This warrants a fuller response. Use your normal style and length.",
-};
 
 export function isResponseStrategyEnabled(env = process.env) {
   const value = env.VOXIS_RESPONSE_STRATEGY;
@@ -108,6 +115,59 @@ function affectIsLight(affect, message) {
   return intent === "gratitude" && calm && wordCount(message) <= 8;
 }
 
+function countSignals(value) {
+  if (!Array.isArray(value)) return 0;
+  return value.reduce((count, item) => {
+    if (typeof item === "string") return item.trim() ? count + 1 : count;
+    if (item && typeof item === "object") {
+      const text = String(item.content || item.goal || item.text || "").trim();
+      return text ? count + 1 : count;
+    }
+    return count;
+  }, 0);
+}
+
+function energySlack(energy) {
+  const value = String(energy || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (value === "very_high") return 40;
+  if (value === "high") return 20;
+  if (value === "low") return -20;
+  return 0;
+}
+
+function complexitySlack(length, goals, memoryFacts) {
+  const goalCount = countSignals(goals);
+  const memoryDepth = countSignals(memoryFacts);
+  let slack = 0;
+  if (goalCount >= 3 || memoryDepth >= 3) slack += 20;
+  if (goalCount >= 6 || memoryDepth >= 5) slack += 20;
+  if (length === "brief") return Math.min(20, slack);
+  return slack;
+}
+
+export function resolveLengthTarget({ length = "normal", energy = "", goals = [], memoryFacts = [] } = {}) {
+  const band = SOFT_TARGETS[length] || SOFT_TARGETS.normal;
+  const slack = energySlack(energy) + complexitySlack(length, goals, memoryFacts);
+  return {
+    minSentences: band.minSentences,
+    maxSentences: band.maxSentences,
+    minTokens: band.minTokens,
+    maxTokens: Math.max(band.minTokens + 20, band.maxTokens + slack),
+  };
+}
+
+function finishStrategy(length, reason, input) {
+  const target = resolveLengthTarget({
+    length,
+    energy: input.energy,
+    goals: input.goals,
+    memoryFacts: input.memoryFacts,
+  });
+  const strategy = { length, reason, target };
+  if (length === "brief") strategy.maxTokensHint = BRIEF_SAFETY_CEILING;
+  return strategy;
+}
+
 export function classifyResponseStrategy(input = {}) {
   if (input.enabled === false) return null;
 
@@ -116,24 +176,20 @@ export function classifyResponseStrategy(input = {}) {
   const history = Array.isArray(input.history) ? input.history : [];
 
   if (!message) {
-    return {
-      length: "brief",
-      reason: "The user turn is empty.",
-      maxTokensHint: BRIEF_MAX_TOKENS,
-    };
+    return finishStrategy("brief", "The user turn is empty.", input);
   }
 
   const asks = asksForContent(message);
   const deep = isDeepQuestion(message);
   const light = !asks && (isPureBrief(message) || (affectIsLight(affect, message) && !deep));
   if (light && !deep) {
-    return {
-      length: "brief",
-      reason: isPureBrief(message)
+    return finishStrategy(
+      "brief",
+      isPureBrief(message)
         ? "Short greeting, acknowledgment, or check-in."
         : "User affect is a short, low-stakes signal.",
-      maxTokensHint: BRIEF_MAX_TOKENS,
-    };
+      input,
+    );
   }
 
   const matched = relevance(message, input.goals, input.memoryFacts);
@@ -147,24 +203,28 @@ export function classifyResponseStrategy(input = {}) {
     else if (aroused) reason = "The topic is high-arousal.";
     else if (highlyRelevant) reason = "The turn is highly relevant to goals or memory.";
     else reason = "Character energy is high on a substantive turn.";
-    return { length: "expansive", reason };
+    return finishStrategy("expansive", reason, input);
   }
 
   if (isShortLowStakes(message) && !asks && !assistantJustAsked(history)) {
-    return {
-      length: "brief",
-      reason: "Short, low-relevance check-in.",
-      maxTokensHint: BRIEF_MAX_TOKENS,
-    };
+    return finishStrategy("brief", "Short, low-relevance check-in.", input);
   }
 
-  return { length: "normal", reason: "Ordinary exchange." };
+  return finishStrategy("normal", "Ordinary exchange.", input);
 }
 
 export function buildResponseStrategyPromptSection(strategy) {
-  const directive = RESPONSE_LENGTH_DIRECTIVES[strategy?.length];
-  if (!directive) return "";
-  return ["== RESPONSE LENGTH ==", directive].join("\n");
+  const target = strategy?.target;
+  if (!target || !Number.isFinite(Number(target.minSentences))) return "";
+  const lines = [
+    "== RESPONSE LENGTH ==",
+    `Aim for ${target.minSentences}–${target.maxSentences} sentences, about ${target.minTokens}–${target.maxTokens} tokens.`,
+    FINISH_CLEANLY,
+  ];
+  if (Number.isInteger(strategy.maxTokensHint) && strategy.maxTokensHint > target.maxTokens) {
+    lines.push("A higher generation limit exists only so the last sentence can finish. It is not a target.");
+  }
+  return lines.join("\n");
 }
 
 export function applyMaxTokensHint(payload, hint) {

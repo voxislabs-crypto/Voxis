@@ -124,6 +124,7 @@ export const createPersonaFromConversation = (messages, voxisFinalReply) => {
     quirks: [...new Set(quirks)],
     speechStyle: "Calm and polite on the surface, with sharp dark humor underneath",
     creativeContext,
+    narrativeMode: false,
     moodBaseline: { 
       valence: darkHumor ? -0.3 : -0.5, 
       arousal: energyLevel - 0.2, 

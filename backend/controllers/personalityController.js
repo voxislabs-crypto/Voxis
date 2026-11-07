@@ -585,6 +585,18 @@ function hasDefinedValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
+function readNarrativeMode(value, fallback = false) {
+  if (value === undefined || value === null || value === "") {
+    return fallback === true;
+  }
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  const text = String(value).trim().toLowerCase();
+  if (text === "1" || text === "true" || text === "on" || text === "yes") return true;
+  if (text === "0" || text === "false" || text === "off" || text === "no") return false;
+  return fallback === true;
+}
+
 function mergeExpressionStyle(baseStyle, overrideStyle) {
   const baseRules = Array.isArray(baseStyle?.rules) ? baseStyle.rules : [];
   const overrideRules = Array.isArray(overrideStyle?.rules) ? overrideStyle.rules : [];
@@ -784,6 +796,7 @@ export function createPersonalityHandler(req, res, next) {
     const creativeContext = hasDefinedValue(req.body.creativeContext)
       ? sanitizeCreativeContext(req.body.creativeContext)
       : hybridTuning?.creativeContext || "default";
+    const narrativeMode = readNarrativeMode(req.body.narrativeMode, false);
 
     const expressionStyle = mergeExpressionStyle(hybridTuning?.expressionStyle, expressionStyleInput);
 
@@ -863,6 +876,7 @@ export function createPersonalityHandler(req, res, next) {
       goals,
       values,
       creativeContext,
+      narrativeMode,
       moodBaseline,
       moodState,
       moodSensitivity,
@@ -1008,6 +1022,7 @@ export function updatePersonalityHandler(req, res, next) {
       req.body.creativeContext !== undefined
         ? sanitizeCreativeContext(req.body.creativeContext)
         : hybridTuning?.creativeContext || sanitizeCreativeContext(existing.creativeContext);
+    const narrativeMode = readNarrativeMode(req.body.narrativeMode, existing.narrativeMode === true);
 
     const expressionStyle = mergeExpressionStyle(
       {
@@ -1100,6 +1115,7 @@ export function updatePersonalityHandler(req, res, next) {
       goals,
       values,
       creativeContext,
+      narrativeMode,
       moodBaseline,
       moodState,
       moodSensitivity,

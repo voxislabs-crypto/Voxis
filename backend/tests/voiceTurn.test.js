@@ -1,6 +1,8 @@
 import { readFileSync } from "fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BRIEF_SAFETY_CEILING } from "../services/responseStrategy.js";
+
 const mockGetPersonalityById = vi.fn();
 const mockGetRelevantPersonalityMemory = vi.fn();
 const mockUpsertMemoryFact = vi.fn();
@@ -60,6 +62,10 @@ vi.mock("../services/turnMood.js", () => ({
 
 vi.mock("../services/userContextTurn.js", () => ({
   runUserContextTurn: (...args) => mockRunUserContextTurn(...args),
+}));
+
+vi.mock("../services/personalityMemoryWrite.js", () => ({
+  writeExtractedPersonalityMemories: vi.fn(async () => []),
 }));
 
 const { resetVoiceAudioStore } = await import("../services/voiceAudioStore.js");
@@ -301,7 +307,7 @@ describe("voice turn route", () => {
       message: "hello",
       sessionKey: "7:7",
     }));
-    expect(mockGenerateChatCompletionWithMeta.mock.calls.at(-1)[1].maxTokens).toBe(120);
+    expect(mockGenerateChatCompletionWithMeta.mock.calls.at(-1)[1].maxTokens).toBe(BRIEF_SAFETY_CEILING);
     expect(mockCreateChatMessage).toHaveBeenCalledWith(expect.objectContaining({
       personalityId: 7,
       role: "user",

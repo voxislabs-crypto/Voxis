@@ -18,8 +18,6 @@ import {
 import {
   backfillMissingMemoryEmbeddings,
   getRelevantPersonalityMemory,
-  upsertMemoryFactWithEmbedding,
-  pruneMemory,
 } from "../models/memoryModel.js";
 import {
   generateChatCompletion,
@@ -30,9 +28,9 @@ import {
   buildPersonaAnchor,
   estimateModelContextWindow,
   estimateTokenCount,
-  extractMemoryFacts,
   isEmbeddingConfigured,
 } from "../services/llmService.js";
+import { writeExtractedPersonalityMemories } from "../services/personalityMemoryWrite.js";
 import {
   moodFromLabel,
   moodToPromptFragment,
@@ -375,6 +373,15 @@ export async function personaOpenerHandler(req, res, next) {
         affect: userContext?.affect?.intent || null,
         length: responseStrategy?.length || null,
       });
+    } else {
+      responseStrategy = classifyResponseStrategy({
+        message: seed,
+        history,
+        energy: personality?.expressionStyle?.energy || "",
+        goals: personality?.goals,
+        memoryFacts,
+        enabled: isResponseStrategyEnabled(),
+      });
     }
 
     let promptPackage;
@@ -404,7 +411,10 @@ export async function personaOpenerHandler(req, res, next) {
 
       const emotionContext = `Current emotional lens from handshake: valence=${handshake.emotion.valence}, arousal=${handshake.emotion.arousal}, dominant=${handshake.emotion.dominant.join(", ")}. Suggested cues: ${JSON.stringify(handshake.emotion.suggestedCues)}. Response layer: ${responseLayer.negotiationNote || ""}`;
 
-      const voxisSys = buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`);
+      const voxisSys = [
+        buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`),
+        buildResponseStrategyPromptSection(responseStrategy),
+      ].filter(Boolean).join("\n\n");
       promptPackage = {
         prompt: voxisSys,
         directedText: "",
@@ -906,10 +916,14 @@ export async function chatHandler(req, res, next) {
       if (!personality) return;
     }
 
+    // chat_messages.personalityId is NOT NULL. The guide has no chat persona id,
+    // so its transcript is stored on the guide mood row.
+    const recordPersonalityId = moodPersonalityId || personalityId;
+
     const sessionId = generateSessionId();
     if (personality) observePersonalityLoad(sessionId, personality);
 
-    const totalMessages = isVoxisGuide ? 0 : getChatMessageCount(personalityId);
+    const totalMessages = getChatMessageCount(recordPersonalityId);
 
     const stateFlawRuntime = getStateRuntimeConfig();
     const stateFlawStep = stepStateFlaws({
@@ -1022,14 +1036,14 @@ export async function chatHandler(req, res, next) {
           console.error("[VOXIS] kids-block mood step failed:", error?.message || error);
         }
         createChatMessage({
-          personalityId,
+          personalityId: recordPersonalityId,
           role: "user",
           content: message,
           userId: userScopedId,
           mode: policy.activeMode,
         });
         createChatMessage({
-          personalityId,
+          personalityId: recordPersonalityId,
           role: "assistant",
           content: safeReply,
           userId: userScopedId,
@@ -1059,7 +1073,7 @@ export async function chatHandler(req, res, next) {
     // ---------------------------------------------------------------------------
     // Fetch recent conversation history before mood stepping so the hybrid
     // adjudicator can use local context on ambiguous or manipulative turns.
-    const history = getRecentChatMessages(personalityId, 10).map((m) => ({
+    const history = getRecentChatMessages(recordPersonalityId, 10).map((m) => ({
       role: m.role,
       content: m.content,
     }));
@@ -1095,6 +1109,7 @@ export async function chatHandler(req, res, next) {
     const moodStep = steppedMood.moodStep;
     const newMood = steppedMood.newMood;
     const moodLabel = steppedMood.moodLabel;
+    const moodIntensity = steppedMood.moodIntensity;
     const driftState = steppedMood.driftState;
     const loadedMoodHistory = steppedMood.loadedMoodHistory;
 
@@ -1715,14 +1730,14 @@ export async function chatHandler(req, res, next) {
     });
 
     const storedUserMsg = createChatMessage({
-      personalityId,
+      personalityId: recordPersonalityId,
       role: "user",
       content: message,
       userId: userScopedId,
       mode: policy.activeMode,
     });
     const storedAssistantMsg = createChatMessage({
-      personalityId,
+      personalityId: recordPersonalityId,
       role: "assistant",
       content: reply,
       userId: userScopedId,
@@ -1935,27 +1950,14 @@ export async function chatHandler(req, res, next) {
       });
 
       try {
-        const newFacts = await extractMemoryFacts({
+        const newFacts = await writeExtractedPersonalityMemories({
           personality,
-          recentMessages: [
-            { role: "user", content: message },
-            { role: "assistant", content: reply },
-          ],
+          personalityId,
+          userMessage: message,
+          assistantReply: reply,
           existingFacts: memoryFacts,
+          memoryLimit: MEMORY_MAX,
         });
-
-        for (const fact of newFacts) {
-          await upsertMemoryFactWithEmbedding(
-            personalityId,
-            fact.content,
-            fact.memoryType,
-            fact.importance,
-          );
-        }
-
-        if (newFacts.length > 0) {
-          pruneMemory(personalityId, MEMORY_MAX);
-        }
 
         stream.write("debug", {
           phase: "memory-write",
@@ -2051,35 +2053,20 @@ export async function chatHandler(req, res, next) {
       });
     });
 
-    setImmediate(async () => {
-      try {
-        const newFacts = await extractMemoryFacts({
-          personality,
-          recentMessages: [
-            { role: "user", content: message },
-            { role: "assistant", content: reply },
-          ],
-          existingFacts: memoryFacts,
-        });
-
-        for (const fact of newFacts) {
-          await upsertMemoryFactWithEmbedding(
-            personalityId,
-            fact.content,
-            fact.memoryType,
-            fact.importance,
-          );
-        }
-
-        if (newFacts.length > 0) {
-          pruneMemory(personalityId, MEMORY_MAX);
-        }
-      } catch (err) {
+    setImmediate(() => {
+      writeExtractedPersonalityMemories({
+        personality,
+        personalityId,
+        userMessage: message,
+        assistantReply: reply,
+        existingFacts: memoryFacts,
+        memoryLimit: MEMORY_MAX,
+      }).catch((err) => {
         console.warn("[Chat] memory extraction failed (non-fatal)", {
           personalityId,
           error: String(err?.message || err || "unknown"),
         });
-      }
+      });
     });
 
     if (policy.userId) {

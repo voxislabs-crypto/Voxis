@@ -300,6 +300,10 @@ function parseBoolean(value) {
   return String(value || "").toLowerCase() === "true";
 }
 
+function narrativeFramingEnabled(personality) {
+  return personality?.narrativeMode === true || personality?.narrativeMode === 1;
+}
+
 function buildDraft(personality) {
   if (!personality) {
     return null;
@@ -355,6 +359,7 @@ function buildDraft(personality) {
     focusMessageLengthWeight: String(personality.stateFlaws?.focus?.triggerProfile?.messageLengthWeight ?? 0.18),
     focusPunctuationWeight: String(personality.stateFlaws?.focus?.triggerProfile?.punctuationWeight ?? 0.2),
     creativeContext: personality.creativeContext || "default",
+    narrativeMode: narrativeFramingEnabled(personality),
     mood: personality.mood || "neutral",
     moodLabel: personality.moodLabel || "",
     sourceUrls: listToText(personality.sourceUrls),
@@ -514,7 +519,7 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
   // Section field lists for dirty tracking
   const sectionFields = {
     basic: [
-      "name", "creativeContext", "mood", "moodLabel", "description", "systemPrompt", "sourceUrls", "prosodySourceUrl", "notablePhrases"
+      "name", "creativeContext", "narrativeMode", "mood", "moodLabel", "description", "systemPrompt", "sourceUrls", "prosodySourceUrl", "notablePhrases"
     ],
     behavior: [
       "speechStyle", "styleEnergy", "traits", "quirks", "goals", "values", "behaviorRules", "styleSentence", "styleInterruptionRate", "styleRules", "vocalMannerismItems", "vocalMannerismFrequency", "intoxicationEnabled", "intoxicationLevel", "intoxicationDecayPerTurn", "intoxicationTriggerGain", "intoxicationTriggerKeywords", "intoxicationKeywordWeight", "intoxicationLongConversationWeight", "intoxicationMessageLengthWeight", "intoxicationPunctuationWeight", "fatigueEnabled", "fatigueLevel", "fatigueDecayPerTurn", "fatiguePassiveGainPerTurn", "fatigueTriggerGain", "fatigueTriggerKeywords", "fatigueKeywordWeight", "fatigueLongConversationWeight", "fatigueMessageLengthWeight", "fatiguePunctuationWeight", "agitationEnabled", "agitationLevel", "agitationDecayPerTurn", "agitationTriggerGain", "agitationTriggerKeywords", "agitationKeywordWeight", "agitationLongConversationWeight", "agitationMessageLengthWeight", "agitationPunctuationWeight", "focusEnabled", "focusLevel", "focusDecayPerTurn", "focusRecoveryPerTurn", "focusTriggerGain", "focusTriggerKeywords", "focusKeywordWeight", "focusLongConversationWeight", "focusMessageLengthWeight", "focusPunctuationWeight"
@@ -630,6 +635,7 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
         },
       },
       creativeContext: draft.creativeContext,
+      narrativeMode: parseBoolean(draft.narrativeMode),
       mood: draft.mood,
       moodLabel: draft.moodLabel,
       sourceUrls: textToList(draft.sourceUrls),
@@ -940,6 +946,16 @@ export default function PersonaEditor({ personality, onUpdated, onStatus, initia
               value={draft.creativeContext}
               onChange={(event) => setDraft((current) => ({ ...current, creativeContext: event.target.value }))}
             />
+          </div>
+          <div className="persona-field">
+            <label>
+              <input
+                type="checkbox"
+                checked={Boolean(draft.narrativeMode)}
+                onChange={(event) => setDraft((current) => ({ ...current, narrativeMode: event.target.checked }))}
+              />
+              {" "}Narration mode
+            </label>
           </div>
           <div className="persona-field">
             <label>Mood</label>

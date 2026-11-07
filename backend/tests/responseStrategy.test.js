@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import { buildPersonaPromptPackage } from "../services/llmService.js";
 import {
   applyMaxTokensHint,
+  BRIEF_SAFETY_CEILING,
   buildResponseStrategyPromptSection,
   classifyResponseStrategy,
   isResponseStrategyEnabled,
-  RESPONSE_LENGTH_DIRECTIVES,
+  resolveLengthTarget,
 } from "../services/responseStrategy.js";
 
 const personality = {
@@ -30,10 +31,63 @@ describe("response length strategy", () => {
 
     expect(strategy.length).toBe("brief");
     expect(strategy.reason).toMatch(/greeting/i);
-    expect(strategy.maxTokensHint).toBe(120);
-    expect(buildResponseStrategyPromptSection(strategy)).toBe(
-      `== RESPONSE LENGTH ==\n${RESPONSE_LENGTH_DIRECTIVES.brief}`,
-    );
+    expect(strategy.target).toEqual({
+      minSentences: 1,
+      maxSentences: 3,
+      minTokens: 40,
+      maxTokens: 100,
+    });
+    expect(strategy.maxTokensHint).toBe(BRIEF_SAFETY_CEILING);
+    expect(BRIEF_SAFETY_CEILING).toBeGreaterThan(strategy.target.maxTokens);
+    const section = buildResponseStrategyPromptSection(strategy);
+    expect(section).toContain("== RESPONSE LENGTH ==");
+    expect(section).toContain("Aim for 1–3 sentences, about 40–100 tokens.");
+    expect(section).toContain("Finish the thought cleanly, then stop.");
+    expect(section).toContain("Do not pad toward a longer reply. Do not stop mid-sentence.");
+    expect(section).toContain("It is not a target.");
+  });
+
+  it("moves only the token window for energy and complexity", () => {
+    expect(resolveLengthTarget({ length: "brief" })).toEqual({
+      minSentences: 1,
+      maxSentences: 3,
+      minTokens: 40,
+      maxTokens: 80,
+    });
+    expect(resolveLengthTarget({ length: "brief", energy: "low" }).maxTokens).toBe(60);
+    expect(resolveLengthTarget({ length: "brief", energy: "very high" }).maxTokens).toBe(120);
+    expect(resolveLengthTarget({
+      length: "brief",
+      energy: "high",
+      goals: ["one", "two", "three", "four", "five", "six"],
+      memoryFacts: [{ content: "a" }, { content: "b" }, { content: "c" }, { content: "d" }, { content: "e" }],
+    }).maxTokens).toBe(120);
+    expect(resolveLengthTarget({
+      length: "normal",
+      goals: ["one", "two", "three"],
+      memoryFacts: [{ content: "a" }, { content: "b" }, { content: "c" }],
+    }).maxTokens).toBe(200);
+    expect(resolveLengthTarget({ length: "normal", energy: "low" })).toMatchObject({
+      minTokens: 80,
+      maxTokens: 160,
+    });
+    expect(resolveLengthTarget({ length: "expansive" }).maxTokens).toBe(360);
+
+    const named = classifyResponseStrategy({
+      message: "hey",
+      energy: "medium",
+      personalityName: "Rick Sanchez",
+      personalityId: 25,
+    });
+    const other = classifyResponseStrategy({
+      message: "hey",
+      energy: "medium",
+      personalityName: "Ara",
+      personalityId: 23,
+    });
+    expect(named).toEqual(other);
+    expect(named.maxTokensHint).toBe(BRIEF_SAFETY_CEILING);
+    expect(other.target.maxTokens).toBe(80);
   });
 
   it("lets a short request run at normal length for any persona", () => {
@@ -69,7 +123,10 @@ describe("response length strategy", () => {
     expect(strategy.length).toBe("expansive");
     expect(strategy.reason).toMatch(/deeper question/i);
     expect(strategy.maxTokensHint).toBeUndefined();
-    expect(buildResponseStrategyPromptSection(strategy)).toContain(RESPONSE_LENGTH_DIRECTIVES.expansive);
+    expect(strategy.target).toMatchObject({ minSentences: 4, maxSentences: 10, minTokens: 160, maxTokens: 360 });
+    const section = buildResponseStrategyPromptSection(strategy);
+    expect(section).toContain("Aim for 4–10 sentences, about 160–360 tokens.");
+    expect(section).not.toContain("It is not a target.");
   });
 
   it("expands a high-arousal topic and a goal-relevant turn", () => {
@@ -105,7 +162,8 @@ describe("response length strategy", () => {
     expect(hot.length).toBe("expansive");
     expect(hot.reason).toMatch(/character energy/i);
     expect(calm.length).toBe("normal");
-    expect(buildResponseStrategyPromptSection(calm)).toContain(RESPONSE_LENGTH_DIRECTIVES.normal);
+    expect(calm.maxTokensHint).toBeUndefined();
+    expect(buildResponseStrategyPromptSection(calm)).toContain("Aim for 2–6 sentences, about 80–160 tokens.");
   });
 
   it("does not treat a short answer to a question as a check-in", () => {
@@ -135,22 +193,29 @@ describe("response length strategy", () => {
     const withoutStrategy = buildPersonaPromptPackage(personality, [], "hey", {});
 
     expect(withStrategy.prompt).toContain("== RESPONSE LENGTH ==");
-    expect(withStrategy.prompt).toContain("Reply in 1–2 short sentences.");
+    expect(withStrategy.prompt).toContain("Aim for 1–3 sentences, about 40–80 tokens.");
+    expect(withStrategy.prompt).toContain("Finish the thought cleanly, then stop.");
     expect(withStrategy.debug.sections.responseStrategy.length).toBe("brief");
     expect(withoutStrategy.prompt).not.toContain("== RESPONSE LENGTH ==");
   });
 
-  it("adds a soft token hint only for a brief cap", () => {
-    expect(applyMaxTokensHint({ model: "m", messages: [], temperature: 0.85 }, 120)).toMatchObject({
-      max_tokens: 120,
+  it("sends a brief safety ceiling above the soft target", () => {
+    const brief = classifyResponseStrategy({ message: "hey" });
+    expect(applyMaxTokensHint({ model: "m", messages: [], temperature: 0.85 }, brief.maxTokensHint)).toMatchObject({
+      max_tokens: BRIEF_SAFETY_CEILING,
     });
-    const open = applyMaxTokensHint({ model: "m", temperature: 0.85 }, undefined);
+    const open = applyMaxTokensHint(
+      { model: "m", temperature: 0.85 },
+      classifyResponseStrategy({ message: "Tell me how the gate works in practice." }).maxTokensHint,
+    );
     expect(open.max_tokens).toBeUndefined();
   });
 
   it("stays off the mood and memory writers", () => {
     const source = readFileSync(new URL("../services/responseStrategy.js", import.meta.url), "utf8");
     expect(source).not.toMatch(/moodEngine|emotionSpectrum|interpretEmotionSpectrum|stepMood|upsertMemory/);
+    expect(source).not.toMatch(/Rick|Sanchez|personalityId\s*===|name\s*===/);
+    expect(source).not.toMatch(/BRIEF_MAX_TOKENS|maxTokensHint:\s*120/);
 
     const chat = readFileSync(new URL("../controllers/chatController.js", import.meta.url), "utf8");
     const chatStart = chat.indexOf("export async function chatHandler");
@@ -166,5 +231,8 @@ describe("response length strategy", () => {
     const openerBody = chat.slice(chat.indexOf("export async function personaOpenerHandler"), chatStart);
     expect(openerBody.indexOf("responseStrategy = classifyResponseStrategy")).toBeGreaterThan(openerBody.indexOf("advanceTurnMood"));
     expect(openerBody.indexOf("responseStrategy,")).toBeGreaterThan(openerBody.indexOf("userContext = runUserContextTurn"));
+    expect(openerBody).toContain("buildResponseStrategyPromptSection(responseStrategy)");
+    expect(chatBody).toContain("buildResponseStrategyPromptSection(responseStrategy)");
+    expect(chatBody).toContain("maxTokens: responseStrategy?.maxTokensHint ?? null");
   });
 });

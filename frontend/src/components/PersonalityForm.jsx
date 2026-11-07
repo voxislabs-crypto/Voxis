@@ -649,6 +649,10 @@ const SPEECH_PREVIEWS = {
   ],
 };
 
+function narrativeFramingEnabled(personality) {
+  return personality?.narrativeMode === true || personality?.narrativeMode === 1;
+}
+
 const initialForm = {
   name: "",
   description: "",
@@ -656,6 +660,7 @@ const initialForm = {
   quirks: "",
   mood: "",
   creativeContext: "default",
+  narrativeMode: false,
   behaviorRules: "",
   goals: "",
   values: "",
@@ -773,6 +778,7 @@ function mapPersonalityToForm(personality) {
     quirks: toCommaList(personality.quirks),
     mood: personality.mood || "",
     creativeContext: personality.creativeContext || "default",
+    narrativeMode: narrativeFramingEnabled(personality),
     behaviorRules: toLineList(personality.behaviorRules),
     goals: toCommaList(personality.goals),
     values: toCommaList(personality.values),
@@ -1328,6 +1334,7 @@ export default function PersonalityForm({
           goals: splitCommaSeparated(form.goals),
           values: splitCommaSeparated(form.values),
           creativeContext: form.creativeContext,
+          narrativeMode: Boolean(form.narrativeMode),
           moodSensitivity: Number(form.moodSensitivity) || 1.0,
           researchSources: researchSources.filter((source) => source.selected),
           voiceProfile: {
@@ -1711,7 +1718,7 @@ export default function PersonalityForm({
           <div className="field">
             <label htmlFor="creativeContext">
               Creative context
-              <Tip text="Controls how morally complex characters are framed. Use Narrative Antagonist or Tragic Villain for dark archetypes so the AI doesn't sanitize them. Default is fine for most characters." />
+              <Tip text="Suggests a specialized narrative frame such as antagonist, anti-hero, or tragic villain. Narration mode decides whether that frame is added to the prompt." />
             </label>
             <select
               id="creativeContext"
@@ -1727,6 +1734,21 @@ export default function PersonalityForm({
               <option value="tragic_villain">Tragic Villain</option>
             </select>
           </div>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={Boolean(form.narrativeMode)}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  narrativeMode: event.target.checked,
+                }))
+              }
+            />
+            Narration mode
+            <Tip text="For personas who tell or perform a story: D&D characters, storytellers (including for children), and narrative guides. When on, the prompt includes storytelling framing. A specialized creative context adds its own frame on top. When off, those sections stay out." />
+          </label>
 
           <div className="field">
             <label htmlFor="sourceQuery">

@@ -186,5 +186,6 @@ describe("user context turn", () => {
     expect(source).not.toMatch(/if \(req\.advanceMood === true\) \{\s*const recentMessages/s);
     expect(stored).toBeGreaterThan(reply);
     expect(source).not.toMatch(/residualContinuity|expressionSampler|extractMemoryFacts/);
+    expect(source.indexOf("writeExtractedPersonalityMemories({")).toBeGreaterThan(stored);
   });
 });

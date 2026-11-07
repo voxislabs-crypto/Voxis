@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { getPersonalityById } from "../models/personalityModel.js";
-import { buildPersonaPromptPackage } from "../services/llmService.js";
+import {
+  buildCompactPersonaSystemPrompt,
+  buildPersonaAnchor,
+  buildPersonaPromptPackage,
+} from "../services/llmService.js";
 import {
   createPersonaFromConversation,
   extractIdentityStatement,
@@ -38,6 +42,7 @@ describe("persona identity", () => {
     );
 
     expect(created.creativeContext).toBe("default");
+    expect(created.narrativeMode).toBe(false);
     expect(created.description).toBe(
       "You are Bunnyvore, the Supreme Ruler of All Things Cute and Evil, self-proclaimed, yet utterly delusional, and villainous.",
     );
@@ -52,9 +57,10 @@ describe("persona identity", () => {
     );
 
     expect(created.creativeContext).toBe("narrative_antagonist");
+    expect(created.narrativeMode).toBe(false);
   });
 
-  it("injects the cleaned identity and keeps an explicit antagonist frame on other personas", () => {
+  it("injects the cleaned identity and applies antagonist framing only when narration mode is on", () => {
     const cleaned = buildPersonaPromptPackage({
       id: 910004,
       name: "Reginald P",
@@ -84,7 +90,7 @@ describe("persona identity", () => {
     expect(cleaned.prompt).toContain("energy=low");
     expect(cleaned.prompt).toContain("rules=structured sentences | calculated pauses");
 
-    const framed = buildPersonaPromptPackage({
+    const darkAra = {
       id: 24,
       name: "Dark Ara",
       description: "A sleek cyberpunk operator with femme-fatale energy and hidden intent.",
@@ -99,8 +105,18 @@ describe("persona identity", () => {
         energy: "low",
         rules: ["calculated tone"],
       },
-    }, [], "hello");
+    };
 
+    const storedOnly = buildPersonaPromptPackage(darkAra, [], "hello");
+    expect(storedOnly.prompt).not.toContain("[NARRATIVE CONTEXT:");
+    expect(storedOnly.prompt).not.toContain("== STORYTELLING ==");
+    expect(storedOnly.prompt).not.toContain("OUTWARD PRESENTATION vs. INTERNAL CALCULUS");
+    expect(storedOnly.prompt).toContain("== BEHAVIORAL RULES ==");
+
+    const framed = buildPersonaPromptPackage({ ...darkAra, narrativeMode: true }, [], "hello");
+    expect(framed.prompt).toContain("[NARRATIVE CONTEXT: This persona tells and performs stories");
+    expect(framed.prompt).toContain("== STORYTELLING ==");
+    expect(framed.prompt).toContain("gentle children's tale");
     expect(framed.prompt).toContain("[NARRATIVE CONTEXT: This is a fictional antagonistic character");
     expect(framed.prompt).toContain("== OUTWARD PRESENTATION vs. INTERNAL CALCULUS ==");
     expect(framed.prompt).toContain("A sleek cyberpunk operator with femme-fatale energy and hidden intent.");
@@ -115,6 +131,7 @@ describe("persona identity", () => {
     expect(personality?.name).toBe("Reginald P");
     expect(personality.description).toBe(CLEAN_REGINALD);
     expect(personality.creativeContext).toBe("default");
+    expect(personality.narrativeMode).toBe(false);
     expect(personality.systemPrompt).toContain(CLEAN_REGINALD);
     expect(personality.systemPrompt).not.toContain("Let's bring this character");
 
@@ -122,9 +139,44 @@ describe("persona identity", () => {
     expect(prompt).toContain(CLEAN_REGINALD);
     expect(prompt).not.toContain("Let's bring this character");
     expect(prompt).not.toContain("[NARRATIVE CONTEXT:");
+    expect(prompt).not.toContain("== STORYTELLING ==");
     expect(prompt).not.toContain("OUTWARD PRESENTATION vs. INTERNAL CALCULUS");
     expect(prompt).toContain("== EXPRESSION STYLE ==");
     expect(prompt).toContain("interrupt=30%");
     expect(prompt).toContain("energy=medium");
+  });
+
+  it("uses general storytelling framing when narration mode is on without a villain frame", () => {
+    const storyteller = {
+      id: 31,
+      name: "Lumen",
+      description: "A bedtime storyteller who keeps tales gentle.",
+      traits: ["warm"],
+      behaviorRules: ["stay kind"],
+      quirks: [],
+      speechStyle: "soft",
+      creativeContext: "default",
+      narrativeMode: true,
+    };
+
+    const prompt = buildPersonaPromptPackage(storyteller, [], "tell me a story").prompt;
+    expect(prompt).toContain("== STORYTELLING ==");
+    expect(prompt).toContain("[NARRATIVE CONTEXT: This persona tells and performs stories");
+    expect(prompt).toContain("gentle children's tale");
+    expect(prompt).toContain("== BEHAVIORAL RULES ==");
+    expect(prompt).not.toContain("fictional antagonistic");
+    expect(prompt).not.toContain("OUTWARD PRESENTATION");
+
+    const off = buildPersonaPromptPackage({ ...storyteller, narrativeMode: false }, [], "tell me a story").prompt;
+    expect(off).not.toContain("== STORYTELLING ==");
+    expect(off).not.toContain("[NARRATIVE CONTEXT:");
+
+    const anchor = buildPersonaAnchor(storyteller);
+    expect(anchor).toContain("Keep performing in character.");
+    expect(anchor).not.toContain("You do not soften");
+
+    const compact = buildCompactPersonaSystemPrompt(storyteller, []);
+    expect(compact).toContain("Storytelling: This persona tells and performs stories");
+    expect(compact).not.toContain("fictional antagonistic");
   });
 });

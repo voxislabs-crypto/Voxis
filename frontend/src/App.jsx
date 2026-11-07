@@ -1818,6 +1818,7 @@ export default function App() {
           ? personality.stateFlaws
           : {},
       creativeContext: String(personality?.creativeContext || "default").trim() || "default",
+      narrativeMode: personality?.narrativeMode === true || personality?.narrativeMode === 1,
       moodSensitivity: Number(personality?.moodSensitivity) || 1,
       gender: String(personality?.gender || "").trim(),
       avatarImageUrl: String(personality?.avatarImageUrl || "").trim(),
@@ -1930,6 +1931,7 @@ export default function App() {
               ? template.stateFlaws
               : {},
           creativeContext: String(template?.creativeContext || "default").trim() || "default",
+          ...(template?.narrativeMode !== undefined ? { narrativeMode: template.narrativeMode } : {}),
           moodSensitivity: Number(template?.moodSensitivity) || 1,
           gender: String(template?.gender || "").trim(),
           avatarImageUrl: String(template?.avatarImageUrl || "").trim(),

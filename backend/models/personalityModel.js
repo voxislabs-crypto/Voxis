@@ -37,6 +37,14 @@ function parseResearchSources(value) {
   }
 }
 
+function narrativeModeToDb(value) {
+  return value === true || value === 1 ? 1 : 0;
+}
+
+function narrativeModeFromRow(value) {
+  return value === 1 || value === true;
+}
+
 function normalizeRow(row) {
   if (!row) {
     return null;
@@ -53,6 +61,7 @@ function normalizeRow(row) {
     goals: parseJsonArray(row.goals),
     values: parseJsonArray(row.coreValues),
     creativeContext: row.creativeContext || "default",
+    narrativeMode: narrativeModeFromRow(row.narrativeMode),
     moodBaseline: parseJsonObject(row.moodBaseline, {}),
     moodState: parseJsonObject(row.moodState, {}),
     moodSensitivity: typeof row.moodSensitivity === "number" ? row.moodSensitivity : 1.0,
@@ -163,6 +172,7 @@ export function createPersonality(personality) {
       goals,
       coreValues,
       creativeContext,
+      narrativeMode,
       moodBaseline,
       moodState,
       moodSensitivity,
@@ -195,6 +205,7 @@ export function createPersonality(personality) {
       @goals,
       @coreValues,
       @creativeContext,
+      @narrativeMode,
       @moodBaseline,
       @moodState,
       @moodSensitivity,
@@ -223,6 +234,7 @@ export function createPersonality(personality) {
     goals: JSON.stringify(personality.goals || []),
     coreValues: JSON.stringify(personality.values || []),
     creativeContext: personality.creativeContext || "default",
+    narrativeMode: narrativeModeToDb(personality.narrativeMode),
     moodBaseline: JSON.stringify(personality.moodBaseline || {}),
     moodState: JSON.stringify(personality.moodState || {}),
     moodSensitivity: typeof personality.moodSensitivity === "number" ? personality.moodSensitivity : 1.0,
@@ -283,7 +295,7 @@ export function getAllPersonalities(ownerId = null) {
           id, name, description, traits, quirks, mood, systemPrompt,
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
-          goals, coreValues, creativeContext, moodBaseline, moodState,
+          goals, coreValues, creativeContext, narrativeMode, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
           voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
@@ -296,7 +308,7 @@ export function getAllPersonalities(ownerId = null) {
           id, name, description, traits, quirks, mood, systemPrompt,
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
-          goals, coreValues, creativeContext, moodBaseline, moodState,
+          goals, coreValues, creativeContext, narrativeMode, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
           voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
@@ -382,7 +394,7 @@ export function getPersonalityById(id, ownerId = null) {
           id, name, description, traits, quirks, mood, systemPrompt,
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
-          goals, coreValues, creativeContext, moodBaseline, moodState,
+          goals, coreValues, creativeContext, narrativeMode, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
           voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
@@ -394,7 +406,7 @@ export function getPersonalityById(id, ownerId = null) {
           id, name, description, traits, quirks, mood, systemPrompt,
           sourceQuery, sourceUrls, researchSummary, speechStyle,
           notablePhrases, researchSources, voiceProfile, behaviorRules,
-          goals, coreValues, creativeContext, moodBaseline, moodState,
+          goals, coreValues, creativeContext, narrativeMode, moodBaseline, moodState,
           moodSensitivity, expressionProfile, bigFiveProfile, alignmentProfile, responseFocusProfile, expressionStyle, stateFlaws, vocalMannerisms,
           prosodyTemplate, prosodyTemplatePath, prosodySourceUrl, prosodyUpdatedAt,
           voiceSampleAnalysis, voiceSampleSelectedAt, gender, avatarImageUrl, singingProfile, emotionDrift, llmConfig, ownerId
@@ -486,6 +498,7 @@ export function updatePersonality(id, personality) {
       goals = @goals,
       coreValues = @coreValues,
       creativeContext = @creativeContext,
+      narrativeMode = @narrativeMode,
       moodBaseline = @moodBaseline,
       moodState = @moodState,
       moodSensitivity = @moodSensitivity,
@@ -517,6 +530,7 @@ export function updatePersonality(id, personality) {
     goals: JSON.stringify(personality.goals || []),
     coreValues: JSON.stringify(personality.values || []),
     creativeContext: personality.creativeContext || "default",
+    narrativeMode: narrativeModeToDb(personality.narrativeMode),
     moodBaseline: JSON.stringify(personality.moodBaseline || {}),
     moodState: JSON.stringify(personality.moodState || {}),
     moodSensitivity:
