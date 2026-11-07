@@ -2400,11 +2400,34 @@ export default function App() {
     setStatus({ type: "", message: "" });
   }
 
-  function handleRecordLiveExchange({ personalityId, userText, assistantText }) {
+  function applyTurnMood(personalityId, moodState, moodLabel) {
+    if (!moodState && !moodLabel) {
+      return;
+    }
     const id = Number(personalityId);
     if (!Number.isInteger(id) || id <= 0) {
       return;
     }
+    setPersonalities((current) =>
+      current.map((persona) =>
+        persona.id === id
+          ? {
+              ...persona,
+              moodState: moodState || persona.moodState,
+              moodLabel: moodLabel || persona.moodLabel,
+            }
+          : persona
+      )
+    );
+  }
+
+  function handleRecordLiveExchange({ personalityId, userText, assistantText, moodState, moodLabel }) {
+    const id = Number(personalityId);
+    if (!Number.isInteger(id) || id <= 0) {
+      return;
+    }
+
+    applyTurnMood(id, moodState, moodLabel);
 
     const additions = [];
     const spoken = String(userText || "").trim();
@@ -2521,6 +2544,11 @@ export default function App() {
                 setNeuralToast(toast);
               }
 
+              const steppedMood = payload.debug?.mood;
+              if (steppedMood?.after) {
+                applyTurnMood(personalityId, steppedMood.after, steppedMood.label);
+              }
+
               setLiveChatState((current) => {
                 const prev = current[personalityId] || {};
                 let stateDriftHistory = prev.stateDriftHistory || [];
@@ -2598,13 +2626,7 @@ export default function App() {
                 }));
 
                 if (payload.moodState || payload.moodLabel) {
-                  setPersonalities((current) =>
-                    current.map((p) =>
-                      p.id === personalityId
-                        ? { ...p, moodState: payload.moodState, moodLabel: payload.moodLabel }
-                        : p
-                    )
-                  );
+                  applyTurnMood(personalityId, payload.moodState, payload.moodLabel);
                 }
 
                 if (payload.policy) {
@@ -2672,13 +2694,7 @@ export default function App() {
         }));
 
         if (data.moodState || data.moodLabel) {
-          setPersonalities((current) =>
-            current.map((p) =>
-              p.id === personalityId
-                ? { ...p, moodState: data.moodState, moodLabel: data.moodLabel }
-                : p
-            )
-          );
+          applyTurnMood(personalityId, data.moodState, data.moodLabel);
         }
 
         if (data.policy) {

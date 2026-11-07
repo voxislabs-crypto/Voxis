@@ -96,6 +96,21 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true,
         secure: false,
       },
+      // Live call posts here after the wake word, then fetches /voice-audio/:id.
+      // Both routes live on the backend. Without these entries Vite answers
+      // the POST with an empty 404 and the call shows "Voice turn failed."
+      "/voice-turn": {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: false,
+        timeout: 900000,
+        proxyTimeout: 900000,
+      },
+      "/voice-audio": {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: false,
+      },
       "/settings": {
         target: backendUrl,
         changeOrigin: true,

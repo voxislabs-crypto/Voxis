@@ -15,6 +15,9 @@ const GREETING = /^(hey+|hi+|hello+|yo+|sup|howdy|hiya|good (?:morning|afternoon
 const ACK = /^(ok|okay|k+|kk|thanks|thank you|thx|ty|cool|got it|bet|word|nice|lol|lmao|haha|nm|nvm|sure|yep|yeah|yes|no|nope|alright|all right)[.!?\s]*$/i;
 const CHECKIN = /^(how are you|how're you|how's it going|hows it going|you good|u good)[.!?\s]*$/i;
 const DEEP = /\b(explain|walk me through|help me understand|what do you think|tell me about|compare|why do|why does|how does|how do|break down|in depth|elaborate)\b/i;
+// A hello can carry a real request. "Hey, tell me a joke" is not a check-in.
+// The persona name is not read. This applies to every chat persona.
+const CONTENT_ASK = /\b(?:tell|give|show|sing|joke|jokes|story|stories|poem|poems|song|songs|riddle|riddles|example|punchline|continue|go on|keep going|say more|another one|one more)\b/i;
 
 export const RESPONSE_LENGTH_DIRECTIVES = {
   brief: "Reply in 1–2 short sentences. Match the energy of a quick acknowledgment. Do not expand unless the user asks.",
@@ -42,6 +45,10 @@ function tokenize(value) {
 
 function isPureBrief(text) {
   return GREETING.test(text) || ACK.test(text) || CHECKIN.test(text);
+}
+
+function asksForContent(text) {
+  return CONTENT_ASK.test(String(text || ""));
 }
 
 function isShortLowStakes(text) {
@@ -116,8 +123,9 @@ export function classifyResponseStrategy(input = {}) {
     };
   }
 
+  const asks = asksForContent(message);
   const deep = isDeepQuestion(message);
-  const light = isPureBrief(message) || (affectIsLight(affect, message) && !deep);
+  const light = !asks && (isPureBrief(message) || (affectIsLight(affect, message) && !deep));
   if (light && !deep) {
     return {
       length: "brief",
@@ -142,7 +150,7 @@ export function classifyResponseStrategy(input = {}) {
     return { length: "expansive", reason };
   }
 
-  if (isShortLowStakes(message) && !assistantJustAsked(history)) {
+  if (isShortLowStakes(message) && !asks && !assistantJustAsked(history)) {
     return {
       length: "brief",
       reason: "Short, low-relevance check-in.",

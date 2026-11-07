@@ -1732,6 +1732,7 @@ export default function NeuralCore({
   personality,
   mode = "scientist",
   latestDebug,
+  displayedMood = null,
   livePhase = "",
   liveSeq = 0,
   performanceTier: requestedPerformanceTier,
@@ -1854,7 +1855,9 @@ export default function NeuralCore({
     }
   }
   
-  const mood = debugMood || parsedPersonalityMood || { valence: 0, arousal: 0, dominance: 0 };
+  const mood = displayedMood && typeof displayedMood === "object"
+    ? displayedMood
+    : (debugMood || parsedPersonalityMood || { valence: 0, arousal: 0, dominance: 0 });
   const valence = Number(mood?.valence || 0);
   const arousal = Number(mood?.arousal || 0);
   const dominance = Number(mood?.dominance || 0);

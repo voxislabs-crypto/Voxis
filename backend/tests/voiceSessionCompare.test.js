@@ -7,9 +7,11 @@ import {
   createLiveCallHearing,
   createLiveKitVoiceSession,
   endpointCommitDelayMs,
+  isAssistantEcho,
   runLiveKitPhoneScript,
   shouldInterrupt,
   stripWake,
+  textAfterWake,
 } from "../services/livekitVoiceSession.js";
 
 // Removed ChatWindow live-call policy, kept here so the comparison stays fixed.
@@ -254,6 +256,9 @@ describe("phone session comparison", () => {
     expect(stripWake("Hey, Ara, what is the harbor plan", phrase)).toBe("what is the harbor plan");
     expect(stripWake("hey focus what is the harbor plan", phrase)).toBe("what is the harbor plan");
     expect(stripWake("Focus, what is the harbor plan", phrase)).toBe("what is the harbor plan");
+    expect(textAfterWake("hello hello hello focus open the door", phrase)).toBe("open the door");
+    expect(textAfterWake("hello, hello. Focus, open the door", phrase)).toBe("open the door");
+    expect(textAfterWake("hello hello hello", phrase)).toBeNull();
 
     vi.useFakeTimers();
     const turn = vi.fn(async ({ transcript }) => ({ text: `echo ${transcript}`, audioUrl: "/a" }));
@@ -333,6 +338,26 @@ describe("phone session comparison", () => {
     await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS);
     expect(emitted.at(-1).final).toBe(false);
 
+    const gap = [];
+    const gapped = createLiveCallHearing({
+      onTranscript: (utterance) => gap.push(utterance),
+    });
+    gapped.pushResults([
+      { 0: { transcript: "focus tell me about" }, isFinal: true },
+    ]);
+    await vi.advanceTimersByTimeAsync(400);
+    gapped.finishSegment();
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS);
+    expect(gap.every((item) => item.final === false)).toBe(true);
+    gapped.resumeListening();
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS - 1);
+    expect(gap.at(-1).final).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(gap.at(-1)).toEqual({ text: "focus tell me about", final: true });
+    gapped.resumeListening();
+    await vi.advanceTimersByTimeAsync(LIVE_CALL_ENDPOINT_SILENCE_MS);
+    expect(gap.filter((item) => item.final)).toHaveLength(1);
+
     const turn = vi.fn(async () => ({ text: "ok", audioUrl: "/a" }));
     const session = createLiveKitVoiceSession({ turn });
     session.noteTranscript({ text: "focus", final: true });
@@ -362,6 +387,95 @@ describe("phone session comparison", () => {
 
     session.stop();
     vi.useRealTimers();
+  });
+
+  it("drops speech from before the wake word and does not send it with the command", async () => {
+    vi.useFakeTimers();
+    const drafts = [];
+    const turn = vi.fn(() => new Promise(() => {}));
+    const unrecognized = [];
+    const session = createLiveKitVoiceSession({
+      turn,
+      onDraft: ({ text }) => drafts.push(text),
+      onUnrecognized: (heard) => unrecognized.push(heard),
+    });
+
+    session.noteTranscript({ text: "hello hello hello", final: false });
+    session.noteTranscript({ text: "hello hello hello", final: true });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(turn).not.toHaveBeenCalled();
+    expect(unrecognized).toEqual(["hello hello hello"]);
+    expect(drafts.at(-1)).toBe("");
+
+    session.noteTranscript({ text: "hello hello hello focus open the door", final: true });
+    expect(drafts.at(-1)).toBe("open the door");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(turn.mock.calls[0][0].transcript).toBe("open the door");
+    expect(session.getPhase()).toBe("thinking");
+
+    session.noteTranscript({ text: "hello hello hello focus open the door please", final: true });
+    expect(drafts.at(-1)).toBe("open the door please");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(2);
+    expect(turn.mock.calls[1][0].transcript).toBe("open the door please");
+
+    session.stop();
+    vi.useRealTimers();
+  });
+
+  it("cancels a short in-flight turn when the caller keeps talking", async () => {
+    vi.useFakeTimers();
+    let finishFirst;
+    const turn = vi.fn(({ transcript }) => new Promise((resolve) => {
+      if (transcript === "hello there") {
+        finishFirst = resolve;
+        return;
+      }
+      resolve({ text: "full", audioUrl: "/a" });
+    }));
+    const interrupts = [];
+    const session = createLiveKitVoiceSession({
+      turn,
+      onInterrupt: () => interrupts.push("stop"),
+      policy: { wakePhrase: "" },
+    });
+
+    session.noteTranscript({ text: "hello there", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(session.getPhase()).toBe("thinking");
+
+    session.noteTranscript({ text: "hello there", final: true });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(interrupts).toHaveLength(0);
+    expect(turn).toHaveBeenCalledTimes(1);
+
+    session.noteTranscript({ text: "hello there friend how are you", final: false });
+    expect(interrupts).toEqual(["stop"]);
+    expect(session.getPhase()).toBe("listening");
+    session.noteTranscript({ text: "hello there friend how are you", final: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(turn).toHaveBeenCalledTimes(2);
+    expect(turn.mock.calls[1][0].transcript).toBe("hello there friend how are you");
+    expect(session.getPhase()).toBe("speaking");
+
+    finishFirst?.({ text: "short", audioUrl: "/a" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.getPhase()).toBe("speaking");
+
+    session.stop();
+    vi.useRealTimers();
+  });
+
+  it("treats the assistant line as echo and a short barge-in as the caller", () => {
+    const reply = "Morning Kai. You are still out there.";
+    expect(isAssistantEcho("Morning", reply)).toBe(true);
+    expect(isAssistantEcho("morning kai you are still", reply)).toBe(true);
+    expect(isAssistantEcho("still out there", reply)).toBe(true);
+    expect(isAssistantEcho("wait", reply)).toBe(false);
+    expect(isAssistantEcho("hold on", reply)).toBe(false);
+    expect(isAssistantEcho("you are wrong", reply)).toBe(false);
   });
 
   it("drops microphone text while input is held so playback cannot barge in on itself", async () => {

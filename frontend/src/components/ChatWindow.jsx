@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/react";
 import { useAuthFetch } from "../hooks/useAuthFetch.js";
 import { getApiErrorMessage, readApiResponsePayload } from "../lib/apiResponse.js";
-import { readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
+import { ensureTtsPlaybackCache, readReusableTtsClip, rememberTtsClip } from "../utils/ttsCache.js";
 import {
   choosePiperVoice,
   formatQuickPiperLabel,
@@ -29,12 +29,13 @@ import {
   takeNextReady,
 } from "../voice/speechPlaybackQueue.js";
 import { stripSfxCues } from "../voice/sfxCueText.js";
+import { sfxTargetSeconds } from "../voice/sfxSchedule.js";
 import NeuralCore from "./NeuralCore.jsx";
 import AvatarCore from "./AvatarCore.jsx";
 import PerformancePlayer from "./PerformancePlayer.jsx";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion.js";
 import { interpretEmotionSpectrum } from "../lib/emotionSpectrum.js";
-import { createLiveCallHearing, createLiveKitVoiceSession, LIVEKIT_TURN_POLICY, stripWake } from "../../../backend/services/livekitVoiceSession.js";
+import { createLiveCallHearing, createLiveKitVoiceSession } from "../../../backend/services/livekitVoiceSession.js";
 
 const TTS_DEBUG_PROVIDER_LOCK = String(import.meta.env.VITE_TTS_DEBUG_PROVIDER_LOCK ?? "true").trim().toLowerCase() !== "false";
 const TTS_DISABLE_KOKORO = String(import.meta.env.VITE_TTS_DISABLE_KOKORO ?? "false").trim().toLowerCase() === "true";
@@ -2150,8 +2151,10 @@ function buildTtsErrorMessage(error) {
         ? "Cartesia rate limit hit. Retry in a moment or switch providers."
         : providerStatus === 504 || providerCode === "timeout"
           ? "Cartesia timed out. Try shorter text or verify model/voice settings."
-          : providerStatus === 400 || /voice|model|invalid/.test(providerCode)
-            ? "Cartesia rejected the voice/model combo. Verify voice ID (UUID) and model."
+          : providerStatus === 400 && /speed level|voice controls|invalid speed/i.test(base)
+            ? "Cartesia rejected the speaking-speed control."
+            : providerStatus === 400 || /voice|model/.test(providerCode)
+              ? "Cartesia rejected the voice/model combo. Verify voice ID (UUID) and model."
             : "Cartesia request failed. Verify provider credentials and voice/model settings."
     : provider === "elevenlabs"
       ? providerCode === "quota_exceeded" || httpStatus === 402
@@ -2260,6 +2263,24 @@ function coalescePersonalityEvents(events, nowMs = Date.now()) {
   return Array.from(map.values());
 }
 
+function usableServerEmotionFrame(frame) {
+  const zone = frame?.zone;
+  const normalized = frame?.normalized;
+  return Boolean(
+    frame
+    && typeof frame.displayLabel === "string"
+    && Number.isFinite(Number(frame.intensity))
+    && zone
+    && typeof zone === "object"
+    && typeof zone.label === "string"
+    && typeof zone.accent === "string"
+    && normalized
+    && typeof normalized === "object"
+    && Number.isFinite(Number(normalized.valence))
+    && Number.isFinite(Number(normalized.arousal))
+  );
+}
+
 export default function ChatWindow({
   personality,
   messages,
@@ -2288,6 +2309,8 @@ export default function ChatWindow({
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const authFetch = useAuthFetch();
   const [draft, setDraft] = useState("");
+  const [liveSteppedMood, setLiveSteppedMood] = useState(null);
+  const [liveServerFrame, setLiveServerFrame] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveCallActive, setIsLiveCallActive] = useState(false);
@@ -2367,6 +2390,9 @@ export default function ChatWindow({
   const phoneMicHeldRef = useRef(false);
   const phoneHearingRef = useRef(null);
   const phonePlayTokenRef = useRef(null);
+  const phoneReplyTextRef = useRef("");
+  const phoneCapturePausedRef = useRef(false);
+  const phonePersonalityIdRef = useRef(personality?.id ?? null);
   const composerRef = useRef(null);
   const personalityIdRef = useRef(personality?.id ?? null);
   personalityIdRef.current = personality?.id ?? null;
@@ -2389,6 +2415,7 @@ export default function ChatWindow({
   const sfxScheduleRef = useRef([]); // precomputed {tag, targetTime, event, played} 
   const sfxAfterRef = useRef([]);
   const sfxCheckerRef = useRef(null);
+  const sfxClockRef = useRef(null);
   const sfxArmedRef = useRef(false);
   const lastTimeRef = useRef(0);
   const lastCheckTimeRef = useRef(0);
@@ -2399,67 +2426,100 @@ export default function ChatWindow({
   // Reusable-ish arming logic (can be extracted to a hook/utils for other SFX types later)
   // Currently closed over sfxEarlyOffset and the refs for this component.
 
-  function armSfxSchedule(el) {
-    if (!el || sfxArmedRef.current) return;
-    sfxArmedRef.current = true;
-    // reset time trackers for this playback
-    lastTimeRef.current = el.currentTime || 0;
-    lastCheckTimeRef.current = Date.now();
-    let schedule = sfxScheduleRef.current;
-    if (!schedule || schedule.length === 0) {
-      const pending = pendingSfxTimelineRef.current || [];
-      const dur = el.duration || 0;
-      schedule = pending.map((evt, idx) => {
-        let t = computeSfxDelayMs(evt, idx, el);
-        t = toSfxTargetSeconds(t);
-        if (evt.progress != null && dur > 0) {
-          t = evt.progress * dur; // authoritative seconds
-        }
-        let targetTime = Math.max(sfxEarlyOffset, t);
-        const tagStr = String(evt.tag || evt || '').toLowerCase();
-        if (tagStr.includes('burp')) {
-          // Stronger lead for drunk interjections so they don't land after 3-4 words.
-          const progress = Number(evt?.progress || 0);
-          const lead = progress < 0.08 ? 0.08 : 0.28; // less aggressive for absolute start cues
-          targetTime = Math.max(0.05, targetTime - lead);
-        }
-        return {
-          tag: evt.tag || evt,
-          targetTime,
-          event: evt,
-          played: false
-        };
-      });
-      sfxScheduleRef.current = schedule;
+  function clearSfxClock() {
+    if (sfxClockRef.current) {
+      window.clearInterval(sfxClockRef.current);
+      sfxClockRef.current = null;
     }
-    if (new URLSearchParams(window.location.search).has('debug=sfx')) {
-      console.log('SFX PLAYING', el.currentTime);
-      console.log('SFX TARGETS', schedule.map(x => ({tag: x.tag, target: x.targetTime})));
+  }
+
+  function sweepArmedSfx(el) {
+    if (!(el instanceof HTMLAudioElement)) {
+      return;
     }
-    if (schedule.length > 0) {
-      const checker = () => {
-        if (!el) return;
-        const now = Date.now();
-        if (now - lastCheckTimeRef.current < 50) return;
-        lastCheckTimeRef.current = now;
-        const ct = el.currentTime;
-        const prev = lastTimeRef.current;
-        lastTimeRef.current = ct;
-        schedule.forEach((item) => {
-          if (!item.played && prev < item.targetTime && ct >= item.targetTime) {
-            item.played = true;
-            if (new URLSearchParams(window.location.search).has('debug=sfx')) {
-              console.log('SFX FIRED', item.tag, ct);
-            }
-            playSfxTag(item.tag, el, item.event);
-          }
-        });
+    const schedule = sfxScheduleRef.current || [];
+    const ct = Number(el.currentTime) || 0;
+    schedule.forEach((item) => {
+      if (!item || item.played || !(item.targetTime >= 0)) {
+        return;
+      }
+      if (ct + 0.04 >= item.targetTime) {
+        item.played = true;
+        playSfxTag(item.tag, el, item.event);
+      }
+    });
+  }
+
+  function ensureSfxClock(el) {
+    sweepArmedSfx(el);
+    if (sfxClockRef.current) {
+      return;
+    }
+    sfxClockRef.current = window.setInterval(() => {
+      const current = audioRef.current;
+      if (!(current instanceof HTMLAudioElement) || current.paused) {
+        return;
+      }
+      sweepArmedSfx(current);
+    }, 50);
+  }
+
+  function rebuildSfxSchedule(el) {
+    const pending = pendingSfxTimelineRef.current || [];
+    const dur = Number(el?.duration);
+    if (!pending.length || !Number.isFinite(dur) || dur <= 0) {
+      return false;
+    }
+    const previous = sfxScheduleRef.current || [];
+    const sched = [];
+    const afters = [];
+    pending.forEach((evt, idx) => {
+      const delayMs = computeSfxDelayMs(evt, idx, el);
+      const progress = Number(evt?.progress);
+      let targetTime = Number.isFinite(progress)
+        ? progress * dur
+        : sfxTargetSeconds(delayMs);
+      const item = {
+        tag: evt.tag || evt,
+        targetTime,
+        event: evt,
+        played: Boolean(previous[idx]?.played),
       };
-      el.addEventListener('timeupdate', checker);
+      if (delayMs < 0) {
+        item.targetTime = -1;
+        afters.push(item);
+        return;
+      }
+      targetTime = Math.max(sfxEarlyOffset, targetTime);
+      const tagStr = String(evt.tag || "").toLowerCase();
+      if (tagStr.includes("burp")) {
+        const lead = Number.isFinite(progress) && progress < 0.08 ? 0.08 : 0.28;
+        item.targetTime = Math.max(0.02, targetTime - lead);
+      } else {
+        item.targetTime = targetTime;
+      }
+      sched.push(item);
+    });
+    sfxScheduleRef.current = sched;
+    sfxAfterRef.current = afters;
+    return true;
+  }
+
+  function armSfxSchedule(el) {
+    if (!el) return;
+    rebuildSfxSchedule(el);
+    if (!sfxArmedRef.current) {
+      sfxArmedRef.current = true;
+      const checker = () => sweepArmedSfx(el);
+      el.addEventListener("timeupdate", checker);
       sfxCheckerRef.current = checker;
-    } else {
-      triggerSfxForCurrentPlayback(el);
     }
+    const schedule = sfxScheduleRef.current || [];
+    if (new URLSearchParams(window.location.search).has("debug=sfx")) {
+      console.log("SFX PLAYING", el.currentTime);
+      console.log("SFX TARGETS", schedule.map((item) => ({ tag: item.tag, target: item.targetTime })));
+    }
+    ensureSfxClock(el);
   }
   const autoplayAssistantBaselineRef = useRef(0);
   const prevZoneKeyRef = useRef("");
@@ -2656,6 +2716,11 @@ export default function ChatWindow({
 
   const displayDebug = liveDebug || latestAssistantDebug;
 
+  useEffect(() => {
+    setLiveSteppedMood(null);
+    setLiveServerFrame(null);
+  }, [displayDebug]);
+
   // Keep voice adjustment refs in sync with incoming live props so they're
   // available inside requestSpeechAudio without needing a re-render.
   useEffect(() => {
@@ -2846,7 +2911,7 @@ export default function ChatWindow({
   );
 
   const neuralSignal = useMemo(() => {
-    const debugMood = displayDebug?.mood?.after;
+    const debugMood = liveSteppedMood || displayDebug?.mood?.after;
     const personalityMood = personality?.moodState;
     
     // Parse personality.moodState if it's a JSON string
@@ -2871,10 +2936,10 @@ export default function ChatWindow({
       intentActive,
       identityActive,
     };
-  }, [displayDebug, personality?.moodState]);
+  }, [displayDebug, liveSteppedMood, personality?.moodState]);
 
   const avatarMood = useMemo(() => {
-    const debugMood = displayDebug?.mood?.after;
+    const debugMood = liveSteppedMood || displayDebug?.mood?.after;
     const personalityMood = personality?.moodState;
     
     // Parse personality.moodState if it's a JSON string
@@ -2888,12 +2953,24 @@ export default function ChatWindow({
     }
     
     return debugMood || parsedPersonalityMood || { valence: 0, arousal: 0, dominance: 0 };
-  }, [displayDebug, personality?.moodState]);
+  }, [displayDebug, liveSteppedMood, personality?.moodState]);
 
   const emotionSpectrum = useMemo(
-    () => interpretEmotionSpectrum(avatarMood),
-    [avatarMood],
+    () => (usableServerEmotionFrame(liveServerFrame) ? liveServerFrame : interpretEmotionSpectrum(avatarMood)),
+    [avatarMood, liveServerFrame],
   );
+
+  const indicatorMood = useMemo(() => {
+    if (!usableServerEmotionFrame(liveServerFrame)) {
+      return avatarMood;
+    }
+    return {
+      ...avatarMood,
+      valence: Number(liveServerFrame.normalized.valence),
+      arousal: Number(liveServerFrame.normalized.arousal),
+      dominance: Number(liveServerFrame.normalized.dominance) || 0,
+    };
+  }, [avatarMood, liveServerFrame]);
 
   const emotionDriftPath = useMemo(() => {
     if (emotionDrift.length <= 1) {
@@ -2955,12 +3032,12 @@ export default function ChatWindow({
 
   // Mood CSS variables — whole UI breathes with personality emotion
   useEffect(() => {
-    const arousal = Number(avatarMood.arousal || 0);
-    const valence = Number(avatarMood.valence || 0);
+    const arousal = Number(indicatorMood.arousal || 0);
+    const valence = Number(indicatorMood.valence || 0);
     document.documentElement.style.setProperty("--mood-glow", `${(0.2 + Math.abs(arousal) * 0.5).toFixed(3)}`);
     document.documentElement.style.setProperty("--mood-hue", `${Math.round(180 + valence * 60)}`);
     document.documentElement.style.setProperty("--mood-valence", valence.toFixed(3));
-  }, [avatarMood.arousal, avatarMood.valence]);
+  }, [indicatorMood.arousal, indicatorMood.valence]);
 
   // Reply pulse — micro-trigger on new messages arriving
   useEffect(() => {
@@ -3442,6 +3519,7 @@ export default function ChatWindow({
     // Reset pause counter; caller of queue should have resumed if necessary
     activeSfxInterruptCountRef.current = 0;
 
+    clearSfxClock();
     sfxArmedRef.current = false;
     sfxScheduleRef.current = [];
     sfxAfterRef.current = [];
@@ -3452,14 +3530,6 @@ export default function ChatWindow({
       audioRef.current.removeEventListener('timeupdate', sfxCheckerRef.current);
       sfxCheckerRef.current = null;
     }
-  }
-
-  function toSfxTargetSeconds(raw) {
-    // Normalize delay/target values (compute returns ms numbers, schedule targets must be seconds for currentTime)
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return 0;
-    if (n < 0) return n;
-    return n > 30 ? n / 1000 : n; // ms values >30s unlikely for offsets; convert
   }
 
   function computeSfxDelayMs(event, index, audioElement = null) {
@@ -3760,6 +3830,7 @@ export default function ChatWindow({
     const effectiveProfile = meta?.voiceProfileOverride
       ? { ...voiceProfile, ...meta.voiceProfileOverride }
       : voiceProfile;
+    await ensureTtsPlaybackCache();
     const cachedEntry = readReusableTtsClip(personality.id, text, effectiveProfile);
     if (cachedEntry?.blob instanceof Blob) {
       return {
@@ -3891,6 +3962,11 @@ export default function ChatWindow({
       blob,
       telemetry,
       sfxTimeline: parsedSfxTimeline,
+    }, {
+      // Last 3 responses per provider. Streamed sentences share one response
+      // key so they do not push earlier replies out of the ring.
+      retain: true,
+      responseKey: meta?.responseKey,
     });
 
     return {
@@ -3903,12 +3979,13 @@ export default function ChatWindow({
 
   function playNextQueuedStreamAudio({ silentAutoplayBlock = true } = {}) {
     const generation = speechSessionRef.current.generation;
-    const nextId = speechSessionRef.current.readyIds[0];
+    let nextId = speechSessionRef.current.readyIds[0];
+    while (nextId != null && !speechAudioByIdRef.current.get(nextId)?.url) {
+      speechSessionRef.current.readyIds.shift();
+      nextId = speechSessionRef.current.readyIds[0];
+    }
     const peeked = nextId == null ? null : speechAudioByIdRef.current.get(nextId);
     if (!peeked?.url) {
-      if (nextId != null) {
-        speechSessionRef.current.readyIds.shift();
-      }
       streamPlaybackActiveRef.current = false;
       return;
     }
@@ -3945,6 +4022,7 @@ export default function ChatWindow({
     }
 
     // Ensure fresh SFX arming for this chunk (in case previous left armed=true)
+    clearSfxClock();
     sfxArmedRef.current = false;
     sfxScheduleRef.current = [];
     sfxAfterRef.current = [];
@@ -4060,6 +4138,7 @@ export default function ChatWindow({
           segmentIndex: nextSentence.segmentIndex,
           queueDepthAtRequest: getStreamQueueDepth(),
           streamingSegment: true,
+          responseKey: streamAutoplaySessionRef.current || `${personality.id}:live`,
         };
 
         let audioResult;
@@ -4110,7 +4189,11 @@ export default function ChatWindow({
         }
 
         speechAudioByIdRef.current.set(nextSentence.id, audioResult);
-        if (!streamPlaybackActiveRef.current && !isAudioPlaying && turnStillOwnsQueue()) {
+        // isAudioPlaying belongs to the render that started this processor.
+        // The opening lines of a reply are short, so they can finish before
+        // the next Cartesia clip returns and leave that flag true while
+        // nothing is actually playing. The ref tracks the clip itself.
+        if (!streamPlaybackActiveRef.current && turnStillOwnsQueue()) {
           playNextQueuedStreamAudio({ silentAutoplayBlock: true });
         }
       }
@@ -4133,6 +4216,9 @@ export default function ChatWindow({
         return;
       }
       setIsGeneratingAudio(false);
+      if (!streamPlaybackActiveRef.current && session.readyIds.length > 0) {
+        playNextQueuedStreamAudio({ silentAutoplayBlock: true });
+      }
       if (!pausedForPlayback && session.pendingIds.length > 0) {
         void processStreamingSentenceQueue();
       }
@@ -4217,7 +4303,9 @@ export default function ChatWindow({
     ttsRequestAbortRef.current = controller;
 
     try {
-      const audioResult = await requestSpeechAudio(text, controller);
+      const audioResult = await requestSpeechAudio(text, controller, {
+        responseKey: `${personality.id}:reply:${text}`,
+      });
       if (speechSessionRef.current.generation !== generationAtStart) {
         if (audioResult?.url) {
           URL.revokeObjectURL(audioResult.url);
@@ -4353,6 +4441,7 @@ export default function ChatWindow({
       el.removeEventListener('timeupdate', sfxCheckerRef.current);
       sfxCheckerRef.current = null;
     }
+    clearSfxClock();
     sfxArmedRef.current = false;
     sfxScheduleRef.current = [];
 
@@ -4806,6 +4895,8 @@ export default function ChatWindow({
     phonePlaybackRef.current = false;
     phoneMicHeldRef.current = false;
     phonePlayTokenRef.current = null;
+    phoneReplyTextRef.current = "";
+    phoneCapturePausedRef.current = false;
     phoneHearingRef.current?.reset();
     phoneHearingRef.current = null;
     if (phoneRestartTimerRef.current) {
@@ -4824,13 +4915,40 @@ export default function ChatWindow({
         /* ignore */
       }
     }
+    const audioElement = audioRef.current;
+    if (audioElement instanceof HTMLAudioElement) {
+      audioElement.pause();
+    }
+    setIsAudioPlaying(false);
     setIsLiveCallActive(false);
     setPhonePhase("idle");
     setLiveCallDraft("");
   }
 
-  function holdPhoneMic() {
+  useEffect(() => {
+    const nextId = personality?.id ?? null;
+    const previousId = phonePersonalityIdRef.current;
+    phonePersonalityIdRef.current = nextId;
+    if (previousId == null || nextId === previousId || !phoneActiveRef.current) {
+      return;
+    }
+    stopPhoneSession();
+  }, [personality?.id]);
+
+  function releasePhoneMic() {
+    phoneMicHeldRef.current = false;
+    phoneCapturePausedRef.current = false;
+    if (!phoneActiveRef.current) {
+      return;
+    }
+    startPhoneRecognition();
+  }
+
+  function pausePhoneCapture() {
+    phoneCapturePausedRef.current = true;
     phoneMicHeldRef.current = true;
+    setLiveCallDraft("");
+    phoneHearingRef.current?.reset();
     if (phoneRestartTimerRef.current) {
       window.clearTimeout(phoneRestartTimerRef.current);
       phoneRestartTimerRef.current = null;
@@ -4851,14 +4969,6 @@ export default function ChatWindow({
     }
   }
 
-  function releasePhoneMic() {
-    phoneMicHeldRef.current = false;
-    if (!phoneActiveRef.current) {
-      return;
-    }
-    startPhoneRecognition();
-  }
-
   function startPhoneRecognition() {
     if (!phoneActiveRef.current || phoneRecognitionRef.current || phoneMicHeldRef.current) {
       return;
@@ -4877,11 +4987,11 @@ export default function ChatWindow({
     recognition.lang = "en-US";
 
     recognition.onresult = (event) => {
-      if (phoneMicHeldRef.current || phonePlaybackRef.current) {
+      if (phoneMicHeldRef.current || phoneCapturePausedRef.current || phonePlaybackRef.current || !phoneActiveRef.current) {
         return;
       }
       // isFinal from the browser means the current phrase stabilized, not that
-      // the user finished. Ending the turn here aborts the mic mid-sentence.
+      // the user finished. Keep collecting until the silence timer ends the turn.
       phoneHearingRef.current?.pushResults(event.results);
     };
 
@@ -4899,11 +5009,13 @@ export default function ChatWindow({
     };
 
     recognition.onend = () => {
-      phoneHearingRef.current?.finishSegment();
+      if (!phoneCapturePausedRef.current && !phonePlaybackRef.current) {
+        phoneHearingRef.current?.finishSegment();
+      }
       if (phoneRecognitionRef.current === recognition) {
         phoneRecognitionRef.current = null;
       }
-      if (!phoneActiveRef.current || phoneMicHeldRef.current) {
+      if (!phoneActiveRef.current || phoneMicHeldRef.current || phoneCapturePausedRef.current || phonePlaybackRef.current) {
         return;
       }
       phoneRestartTimerRef.current = window.setTimeout(() => {
@@ -4914,6 +5026,7 @@ export default function ChatWindow({
     phoneRecognitionRef.current = recognition;
     try {
       recognition.start();
+      phoneHearingRef.current?.resumeListening();
     } catch {
       phoneRecognitionRef.current = null;
       stopPhoneSession();
@@ -4925,7 +5038,6 @@ export default function ChatWindow({
     const playToken = {};
     phonePlayTokenRef.current = playToken;
     phonePlaybackRef.current = true;
-    holdPhoneMic();
     setAudioUrl(url);
     const startPlayback = () => {
       if (phonePlayTokenRef.current !== playToken || !phonePlaybackRef.current) {
@@ -4974,11 +5086,9 @@ export default function ChatWindow({
     phoneHearingRef.current?.reset();
     phoneHearingRef.current = createLiveCallHearing({
       onTranscript: ({ text, final }) => {
-        if (phoneMicHeldRef.current || !phoneActiveRef.current) {
+        if (phoneMicHeldRef.current || phoneCapturePausedRef.current || !phoneActiveRef.current) {
           return;
         }
-        const command = stripWake(text, LIVEKIT_TURN_POLICY.wakePhrase);
-        setLiveCallDraft(command);
         phoneSessionRef.current?.noteTranscript({ text, final });
       },
     });
@@ -5005,7 +5115,6 @@ export default function ChatWindow({
         if (!response.ok) {
           throw new Error(payload?.error || "Voice turn failed.");
         }
-        const reply = String(payload.text || "").trim();
         if (payload.audioUrl) {
           const audioResponse = await authFetch(payload.audioUrl);
           if (!audioResponse.ok) {
@@ -5014,22 +5123,17 @@ export default function ChatWindow({
           const audioBlob = await audioResponse.blob();
           payload.audioUrl = URL.createObjectURL(audioBlob);
         }
-        if (phoneActiveRef.current && reply) {
-          onRecordLiveExchange?.({
-            personalityId: personalityIdRef.current,
-            assistantText: reply,
-          });
-        }
         return payload;
       },
       onPhase: (phase) => {
         if (phoneActiveRef.current) {
           setPhonePhase(phase);
         }
-        if (phase === "thinking" || phase === "speaking") {
-          phoneHearingRef.current?.reset();
-          holdPhoneMic();
+        if (phase === "speaking") {
+          // The persona is audible. Stop the recognizer so its voice is not
+          // written into the draft or the next turn.
           phoneSessionRef.current?.holdInput();
+          pausePhoneCapture();
           return;
         }
         if (phase === "listening") {
@@ -5037,7 +5141,27 @@ export default function ChatWindow({
           releasePhoneMic();
         }
       },
-      onPlayback: ({ audioUrl }) => {
+      onDraft: ({ text }) => {
+        if (!phoneActiveRef.current || phoneCapturePausedRef.current) {
+          return;
+        }
+        setLiveCallDraft(String(text || ""));
+      },
+      onPlayback: ({ audioUrl, text, moodState, moodLabel, emotionFrame }) => {
+        const reply = String(text || "").trim();
+        phoneReplyTextRef.current = reply;
+        if (moodState && typeof moodState === "object") {
+          setLiveSteppedMood(moodState);
+        }
+        setLiveServerFrame(usableServerEmotionFrame(emotionFrame) ? emotionFrame : null);
+        if (phoneActiveRef.current && reply) {
+          onRecordLiveExchange?.({
+            personalityId: personalityIdRef.current,
+            assistantText: reply,
+            moodState,
+            moodLabel,
+          });
+        }
         if (audioUrl) {
           playPhoneAudio(audioUrl);
         }
@@ -5045,6 +5169,7 @@ export default function ChatWindow({
       onInterrupt: () => {
         phonePlaybackRef.current = false;
         phonePlayTokenRef.current = null;
+        phoneReplyTextRef.current = "";
         const audioElement = audioRef.current;
         if (audioElement instanceof HTMLAudioElement) {
           audioElement.pause();
@@ -5056,20 +5181,11 @@ export default function ChatWindow({
       onError: (error) => {
         onStatus?.({ type: "error", message: error?.message || "Voice turn failed." });
       },
-      onUnrecognized: (text) => {
-        if (!phoneActiveRef.current) {
-          return;
-        }
-        const heard = String(text || "").trim();
-        if (heard) {
-          setLiveCallDraft(heard);
-        }
-      },
     });
     startPhoneRecognition();
     onStatus?.({
       type: "info",
-      message: "Live call started. Say hey voxis, then talk. The mic pauses while a reply plays so the call does not cut itself off.",
+      message: "Live call started. Say hey voxis, then talk. Speech before the wake word is ignored, and the mic pauses while a reply plays.",
     });
   }
 
@@ -5177,6 +5293,7 @@ export default function ChatWindow({
             personality={personality}
             mode={activeMode || "scientist"}
             latestDebug={displayDebug}
+            displayedMood={indicatorMood}
             livePhase={livePhase}
             liveSeq={liveSeq}
             performanceTier={performanceTier}
@@ -5203,8 +5320,8 @@ export default function ChatWindow({
                   )}
                   <AvatarCore
                     size="compact"
-                    valence={avatarMood.valence}
-                    arousal={avatarMood.arousal}
+                    valence={indicatorMood.valence}
+                    arousal={indicatorMood.arousal}
                     phase={livePhase}
                     speaking={avatarSpeaking}
                     mode={activeMode || "scientist"}
@@ -5244,11 +5361,11 @@ export default function ChatWindow({
                 <div className="mood-vad-pair">
                   <div className="mood-vad-stat">
                     <span className="mood-vad-label">V</span>
-                    <span className="mood-vad-value">{(avatarMood.valence >= 0 ? "+" : "") + Number(avatarMood.valence || 0).toFixed(2)}</span>
+                    <span className="mood-vad-value">{(indicatorMood.valence >= 0 ? "+" : "") + Number(indicatorMood.valence || 0).toFixed(2)}</span>
                   </div>
                   <div className="mood-vad-stat">
                     <span className="mood-vad-label">A</span>
-                    <span className="mood-vad-value">{(avatarMood.arousal >= 0 ? "+" : "") + Number(avatarMood.arousal || 0).toFixed(2)}</span>
+                    <span className="mood-vad-value">{(indicatorMood.arousal >= 0 ? "+" : "") + Number(indicatorMood.arousal || 0).toFixed(2)}</span>
                   </div>
                 </div>
                 {emotionDriftPath && (
@@ -5884,38 +6001,11 @@ export default function ChatWindow({
                   armSfxSchedule(el);
                 }}
                 onLoadedMetadata={() => {
-                  // Precompute targets using real duration for accurate scheduling.
-                  // Targets must be in seconds (currentTime scale). compute returns ms; normalize.
                   const el = audioRef.current;
-                  const pending = pendingSfxTimelineRef.current;
-                  if (el && pending && pending.length) {
-                    const sched = [];
-                    const afters = [];
-                    pending.forEach((evt, idx) => {
-                      const d = computeSfxDelayMs(evt, idx, el);
-                      const tSec = toSfxTargetSeconds(d);
-                      const item = {
-                        tag: evt.tag || evt,
-                        targetTime: tSec,
-                        event: evt,
-                        played: false
-                      };
-                      if (d < 0) {
-                        afters.push(item);
-                      } else {
-                        let tt = Math.max(sfxEarlyOffset, tSec);
-                        const tagStr = String(evt.tag || evt || '').toLowerCase();
-                        if (tagStr.includes('burp')) {
-                          const progress = Number(evt?.progress || 0);
-                          const lead = progress < 0.08 ? 0.08 : 0.28;
-                          tt = Math.max(0.05, tt - lead);
-                        }
-                        item.targetTime = tt;
-                        sched.push(item);
-                      }
-                    });
-                    sfxScheduleRef.current = sched;
-                    sfxAfterRef.current = afters;
+                  if (!el) return;
+                  rebuildSfxSchedule(el);
+                  if (sfxArmedRef.current) {
+                    sweepArmedSfx(el);
                   }
                 }}
                 onPause={() => setIsAudioPlaying(false)}
@@ -5978,8 +6068,8 @@ export default function ChatWindow({
             <div className={`avatar-panel-orb${neuralActivity > 0.45 ? " thinking-tilt" : ""}`}>
               <AvatarCore
                 size="large"
-                valence={avatarMood.valence}
-                arousal={avatarMood.arousal}
+                valence={indicatorMood.valence}
+                arousal={indicatorMood.arousal}
                 phase={livePhase}
                 speaking={avatarSpeaking}
                 mode={activeMode || "scientist"}
@@ -6038,7 +6128,7 @@ export default function ChatWindow({
                   <div
                     className="avatar-panel-bar-fill"
                     style={{
-                      width: `${Math.round((Number(avatarMood.valence || 0) + 1) / 2 * 100)}%`,
+                      width: `${Math.round((Number(indicatorMood.valence || 0) + 1) / 2 * 100)}%`,
                       background: "linear-gradient(90deg, #00d4ff, #4ade80)",
                     }}
                   />
@@ -6050,7 +6140,7 @@ export default function ChatWindow({
                   <div
                     className="avatar-panel-bar-fill"
                     style={{
-                      width: `${Math.round(Math.abs(Number(avatarMood.arousal || 0)) * 100)}%`,
+                      width: `${Math.round(Math.abs(Number(indicatorMood.arousal || 0)) * 100)}%`,
                       background: "linear-gradient(90deg, #9b59ff, #ff2d78)",
                     }}
                   />

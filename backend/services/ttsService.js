@@ -14,6 +14,7 @@ import {
 } from "./prosodyCompiler.js";
 import { shapeForKokoro } from "./kokoroShaper.js";
 import { interpretEmotionSpectrum } from "./emotionSpectrum.js";
+import { withSpeechMood } from "./turnMood.js";
 import { splitIntoChunks } from "./chunkSpeech.js";
 import { getKokoroHfToken, getKokoroLocalPath, getTtsCredential, getVoiceDefaults } from "../models/settingsModel.js";
 import { cleanLyricsForTts } from "./singingEngine.js";
@@ -638,6 +639,23 @@ function buildSpeakerOptions(metadata) {
   return [];
 }
 
+// Single-speaker Piper voices crash on Windows (exit 3221226505) if a speaker
+// id is sent. Only forward an id the model metadata actually lists.
+export function selectPiperSpeakerId(metadata, requested) {
+  const speakers = buildSpeakerOptions(metadata);
+  if (!speakers.length) {
+    return null;
+  }
+  if (requested == null || requested === "") {
+    return null;
+  }
+  const requestedId = Number(requested);
+  if (!Number.isInteger(requestedId) || requestedId < 0) {
+    return null;
+  }
+  return speakers.some((speaker) => speaker.id === requestedId) ? requestedId : null;
+}
+
 export async function listPiperVoiceOptions({ searchDirs = [] } = {}) {
   const config = getPiperConfig();
   const directories = getPiperSearchDirectories(searchDirs);
@@ -1099,7 +1117,6 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
   
   // Collect explicit markers with progress first (from original positions)
   const explicitMarkers = [];
-  let searchPos = 0;
   const markerRegex = /\[SFX:([a-zA-Z0-9_-]+)\]\s*/gi;
   let m;
   while ((m = markerRegex.exec(originalForMarkers)) !== null) {
@@ -1107,10 +1124,15 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
     const pos = m.index;
     const progress = Math.min(0.98, Math.max(0.02, pos / origLen));
     explicitMarkers.push({ tag, position: "inline", progress });
-    searchPos = m.index + m[0].length;
   }
-  sfxTimeline.push(...explicitMarkers);
-  
+  // Packet events already cover explicit cues. Scanning the same markers
+  // again schedules every burp twice.
+  if (sfxEvents.length > 0) {
+    sfxTimeline.push(...sfxEvents);
+  } else {
+    sfxTimeline.push(...explicitMarkers);
+  }
+
   // Remove all [SFX:tag] markers (tolerate minor nesting)
   directedText = String(directedText || "");
   let safety = 0;
@@ -1127,11 +1149,6 @@ export function prepareSpeechSynthesis({ personality, text, voiceProfile, speech
     sfxTimeline.push({ tag: "burp", position: "inline" });
     return "";
   }).trim();
-  
-  // If speechPacket has sfxEvents with timing info, use those
-  if (sfxEvents.length > 0) {
-    sfxTimeline.push(...sfxEvents);
-  }
   
   directedText = stripInlineMetadataTokens(directedText);
   directedText = normalizeDashesForSpeech(directedText);
@@ -1546,6 +1563,7 @@ async function generateSinglePiperSpeechAudio({ text, voiceProfile, config }) {
 
   const tmpFile = path.join(os.tmpdir(), `voxis-piper-${randomUUID()}.wav`);
   const speakerValue = String(voiceProfile?.piperSpeaker ?? config.speaker ?? "").trim();
+  const speakerId = selectPiperSpeakerId(await readPiperMetadata(modelPath), speakerValue);
   const rate = Math.min(1.6, Math.max(0.6, Number(voiceProfile?.rate) || 1));
   const lengthScale = Math.min(
     1.6,
@@ -1571,7 +1589,7 @@ async function generateSinglePiperSpeechAudio({ text, voiceProfile, config }) {
       modelPath,
       text,
       outputPath: tmpFile,
-      speaker: speakerValue,
+      speaker: speakerId == null ? "" : String(speakerId),
       lengthScale: String(lengthScale),
       noiseScale,
       noiseW,
@@ -1988,34 +2006,39 @@ async function generateElevenLabsSpeechAudio({ text, voiceProfile }) {
 // === CARTESIA TTS ===
 // Pricing: ~$0.65/million chars (Sonic-2). Free tier + API key at https://cartesia.ai
 
+// Cartesia __experimental_controls.speed is a number in [-1, 1]
+// (0 is the default) or one of slowest|slow|normal|fast|fastest.
+// Named levels such as slightly_fast and slightly_slow are rejected with HTTP 400.
+function cartesiaExperimentalSpeed(rateDelta) {
+  const delta = Number(rateDelta);
+  if (!Number.isFinite(delta) || (delta < 0.06 && delta > -0.05)) return null;
+  const numeric = Number(Math.min(1, Math.max(-1, delta)).toFixed(3));
+  return numeric === 0 ? null : numeric;
+}
+
 // Maps voiceAdjustments deltas to Cartesia's __experimental_controls object.
 // Returns null when no meaningful adjustments apply (cleaner API payload).
-function buildCartesiaExperimentalControls(adj) {
+export function buildCartesiaExperimentalControls(adj) {
   if (!adj) return null;
 
   const { rateDelta = 0, style = "neutral", energyBoost = 0 } = adj;
+  const speed = cartesiaExperimentalSpeed(rateDelta);
 
-  // Map rate delta to Cartesia speed string
-  let speed = null;
-  if (rateDelta >= 0.12) speed = "fast";
-  else if (rateDelta >= 0.06) speed = "slightly_fast";
-  else if (rateDelta <= -0.10) speed = "slow";
-  else if (rateDelta <= -0.05) speed = "slightly_slow";
-
-  // Map style label to Cartesia emotion tag
+  // Emotion tags are "name" or "name:level". "medium" is not a Cartesia level.
   const STYLE_TO_EMOTION = {
-    assertive:  [{ name: "anger",      level: "low"    }],
-    angry:      [{ name: "anger",      level: "high"   }],
-    excited:    [{ name: "positivity", level: "high"   }],
-    cheerful:   [{ name: "positivity", level: "medium" }],
-    warm:       [{ name: "positivity", level: "low"    }],
-    curious:    [{ name: "curiosity",  level: "medium" }],
+    assertive: ["anger:low"],
+    angry: ["anger:high"],
+    excited: ["positivity:high"],
+    cheerful: ["positivity"],
+    warm: ["positivity:low"],
+    curious: ["curiosity"],
   };
   const emotion = energyBoost !== 0 ? (STYLE_TO_EMOTION[style] || null) : null;
 
-  if (!speed && !emotion) return null;
+  if (speed == null && !emotion) return null;
   const controls = {};
-  if (speed) controls.speed = speed;
+  if (speed != null) controls.speed = speed;
+  else if (emotion) controls.speed = "normal";
   if (emotion) controls.emotion = emotion;
   return controls;
 }
@@ -2123,13 +2146,16 @@ async function generateCartesiaSpeechAudio({ text, voiceProfile }) {
     ).trim();
     const baseMessage = providerMessage || errText || response.statusText || "Unknown provider error.";
 
+    const speedControlRejected = /speed level|voice controls|invalid speed/i.test(baseMessage);
     const hint = response.status === 401 || response.status === 403
       ? "Check your Cartesia API key in Voice Provider Credentials."
       : response.status === 429
         ? "Cartesia rate limit reached; retry shortly."
-        : response.status === 400
-          ? "Validate Cartesia voice ID (UUID) and model selection."
-          : "Verify Cartesia provider settings and network access.";
+        : response.status === 400 && speedControlRejected
+          ? "Cartesia rejected the speaking-speed control for this model."
+          : response.status === 400
+            ? "Validate Cartesia voice ID (UUID) and model selection."
+            : "Verify Cartesia provider settings and network access.";
 
     const error = new Error(`Cartesia TTS failed (${response.status}${providerCode ? `/${providerCode}` : ""}): ${baseMessage} ${hint}`.trim());
     error.statusCode = response.status === 401 || response.status === 403 || response.status === 429
@@ -2264,6 +2290,29 @@ function rememberServerSpeech(cacheKey, requested, response, personality, text) 
   setCachedTtsResponse(aliasKey, response);
 }
 
+function hasEmotionFrame(frame) {
+  return Boolean(
+    frame
+    && typeof frame === "object"
+    && typeof frame.displayLabel === "string"
+    && frame.normalized
+    && typeof frame.normalized === "object"
+  );
+}
+
+function responseWithEmotionFrame(response, personality) {
+  if (hasEmotionFrame(response?.telemetry?.emotionFrame)) {
+    return response;
+  }
+  return {
+    ...response,
+    telemetry: {
+      ...(response?.telemetry || {}),
+      emotionFrame: interpretEmotionSpectrum(resolveMood(personality)),
+    },
+  };
+}
+
 function isElevenLabsQuotaFailure(error) {
   const provider = String(error?.ttsProvider || "").toLowerCase();
   if (provider !== "elevenlabs") {
@@ -2283,7 +2332,8 @@ function isElevenLabsQuotaFailure(error) {
   );
 }
 
-export async function generateSpeechAudio({ personality, text, voiceProfile, speechHint }) {
+export async function generateSpeechAudio({ personality, text, voiceProfile, speechHint, userId = null }) {
+  personality = withSpeechMood(personality, userId);
   if (!isTtsConfigured(voiceProfile)) {
     const error = new Error(
       "No TTS engine is configured. Set TTS_API_KEY (cloud), PIPER_MODEL_PATH (piper), ELEVENLABS_API_KEY, or CARTESIA_API_KEY. Kokoro is always available as a built-in fallback.",
@@ -2314,10 +2364,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
   });
   const cachedResponse = getCachedTtsResponse(cacheKey);
   if (cachedSpeechMatchesRequest(requested, cachedResponse) && cachedEngineMatches(engine, cachedResponse)) {
-    return {
+    return responseWithEmotionFrame({
       ...cachedResponse,
       cached: true,
-    };
+    }, personality);
   }
   if (cachedResponse?.buffer && requested === "cartesia") {
     ttsResponseCache.delete(cacheKey);
@@ -2332,10 +2382,10 @@ export async function generateSpeechAudio({ personality, text, voiceProfile, spe
     });
     const aliasHit = getCachedTtsResponse(aliasKey);
     if (cachedSpeechMatchesRequest(requested, aliasHit) && cachedEngineMatches(engine, aliasHit)) {
-      return {
+      return responseWithEmotionFrame({
         ...aliasHit,
         cached: true,
-      };
+      }, personality);
     }
   }
   const emotionFrame = interpretEmotionSpectrum(resolveMood(personality));

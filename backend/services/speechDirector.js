@@ -199,14 +199,41 @@ function emphasizeTerms(text, terms, maxReplacements = 3) {
   return output;
 }
 
+function markerEvents(text) {
+  const events = [];
+  const source = String(text || "");
+  const origLen = source.length || 1;
+  const markerRegex = /\[SFX:([a-zA-Z0-9_-]+)\]/gi;
+  let match;
+  while ((match = markerRegex.exec(source)) !== null) {
+    const tag = normalizeSfxTag(match[1]) || String(match[1] || "").trim();
+    if (!tag) {
+      continue;
+    }
+    events.push({
+      tag,
+      position: "inline",
+      progress: Number(Math.min(0.98, Math.max(0.02, match.index / origLen)).toFixed(3)),
+    });
+  }
+  return events;
+}
+
 function stripSpeechMarkup(text) {
-  return String(text || "")
+  const markers = [];
+  const protectedText = String(text || "").replace(/\[SFX:[^\]]+\]/gi, (match) => {
+    const token = `\u0000${markers.length}\u0000`;
+    markers.push(match);
+    return token;
+  });
+  const stripped = protectedText
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*([^*\n]+)\*/g, "$1")
     .replace(/__([^_\n]+)__/g, "$1")
     .replace(/_([^_\n]+)_/g, "$1")
     .replace(/`[^`\n]+`/g, (match) => match.slice(1, -1))
     .replace(/^#{1,6}\s+/gm, "");
+  return stripped.replace(/\u0000(\d+)\u0000/g, (_match, index) => markers[Number(index)] || "");
 }
 
 /**
@@ -602,7 +629,7 @@ export function buildSpeechPacket(rawText, personality = {}, moodOverride = null
   // utterance (prevents nesting like [SFX:[SFX:burp]] which breaks stripping).
   const alreadyHasSfxMarker = /\[SFX:[^\]]+\]/i.test(output);
   const sfxInjection = alreadyHasSfxMarker
-    ? { text: output, sfxEvents: [] }
+    ? { text: output, sfxEvents: markerEvents(output) }
     : injectSfxMarkers(output, workingPersonality, rawInput, precisionMode);
   output = sfxInjection.text;
   const sfxEvents = sfxInjection.sfxEvents;

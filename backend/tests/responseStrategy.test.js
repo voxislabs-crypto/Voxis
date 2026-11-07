@@ -36,6 +36,22 @@ describe("response length strategy", () => {
     );
   });
 
+  it("lets a short request run at normal length for any persona", () => {
+    const greet = { valence: 0.1, arousal: 0.3, intent: "greet", confidence: 0.7 };
+    const joke = classifyResponseStrategy({
+      message: "Hey Ara tell me a joke",
+      affect: greet,
+    });
+    const story = classifyResponseStrategy({ message: "Hey, tell me a story" });
+    const oneWord = classifyResponseStrategy({ message: "joke" });
+
+    expect(joke.length).toBe("normal");
+    expect(joke.maxTokensHint).toBeUndefined();
+    expect(story.length).toBe("normal");
+    expect(oneWord.length).toBe("normal");
+    expect(classifyResponseStrategy({ message: "Hey Ara", affect: greet }).length).toBe("brief");
+  });
+
   it("keeps acknowledgments and short check-ins brief", () => {
     expect(classifyResponseStrategy({ message: "thanks" }).length).toBe("brief");
     expect(classifyResponseStrategy({ message: "you there?" }).length).toBe("brief");
@@ -137,12 +153,18 @@ describe("response length strategy", () => {
     expect(source).not.toMatch(/moodEngine|emotionSpectrum|interpretEmotionSpectrum|stepMood|upsertMemory/);
 
     const chat = readFileSync(new URL("../controllers/chatController.js", import.meta.url), "utf8");
-    const mood = chat.indexOf("stepMoodDetailed");
-    const affect = chat.indexOf("userContext = runUserContextTurn");
-    const strategy = chat.indexOf("responseStrategy = classifyResponseStrategy");
-    const prompt = chat.indexOf("responseStrategy,");
+    const chatStart = chat.indexOf("export async function chatHandler");
+    const chatBody = chat.slice(chatStart);
+    const mood = chatBody.indexOf("stepAndPersistTurnMood({");
+    const affect = chatBody.indexOf("userContext = runUserContextTurn");
+    const strategy = chatBody.indexOf("responseStrategy = classifyResponseStrategy");
+    const prompt = chatBody.indexOf("responseStrategy,");
     expect(strategy).toBeGreaterThan(mood);
     expect(strategy).toBeGreaterThan(affect);
     expect(prompt).toBeGreaterThan(strategy);
+
+    const openerBody = chat.slice(chat.indexOf("export async function personaOpenerHandler"), chatStart);
+    expect(openerBody.indexOf("responseStrategy = classifyResponseStrategy")).toBeGreaterThan(openerBody.indexOf("advanceTurnMood"));
+    expect(openerBody.indexOf("responseStrategy,")).toBeGreaterThan(openerBody.indexOf("userContext = runUserContextTurn"));
   });
 });

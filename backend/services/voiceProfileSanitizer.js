@@ -27,6 +27,17 @@ function isAllowedVoiceEngine(engine) {
     : ["auto", "kokoro", "cartesia", "openvoice"].includes(normalized);
 }
 
+function readOptionalSpeaker(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
 function normalizeRealismPreset(value, fallback = "conversational") {
   const normalized = String(value || fallback).trim().toLowerCase();
   return ["cinematic", "conversational", "intimate", "energetic"].includes(normalized)
@@ -38,7 +49,7 @@ export function sanitizeVoiceProfile(input, fallbackProfile = {}) {
   const source = input && typeof input === "object" ? input : fallbackProfile;
   const fallback = fallbackProfile && typeof fallbackProfile === "object" ? fallbackProfile : {};
   const engine = String(source.engine || fallback.engine || "auto").trim().toLowerCase();
-  const piperSpeaker = Number(source.piperSpeaker ?? fallback.piperSpeaker);
+  const piperSpeaker = readOptionalSpeaker(source.piperSpeaker ?? fallback.piperSpeaker);
   const selectedSampleIndex = Number(source.selectedSampleIndex ?? fallback.selectedSampleIndex);
   const selectedVoiceConfidence = Number(source.selectedVoiceConfidence ?? fallback.selectedVoiceConfidence);
 

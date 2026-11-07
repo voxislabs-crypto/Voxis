@@ -151,9 +151,54 @@ export function stripWake(text, phrase) {
     .trim();
 }
 
-// Browser SpeechRecognition marks isFinal at the first short pause. The live
-// call keeps collecting until this silence, then sends one final transcript.
-export const LIVE_CALL_ENDPOINT_SILENCE_MS = 1200;
+// Words spoken before the wake stay out of the turn. "hello hello focus open
+// the door" keeps "open the door" and drops the greeting.
+export function textAfterWake(text, phrase) {
+  const source = String(text || "");
+  const pattern = wakeExpression(phrase);
+  if (!pattern) {
+    return source.trim();
+  }
+  const match = pattern.exec(source);
+  if (!match) {
+    return null;
+  }
+  return source
+    .slice(match.index + match[0].length)
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,!.?:;]+/, "")
+    .trim();
+}
+
+// Browser SpeechRecognition marks isFinal at the first short pause, and on
+// Chrome it then ends the session. That gap is not the user going quiet.
+// The live call keeps collecting until this much silence passes while the
+// recognizer is actually listening, then sends one final transcript.
+export const LIVE_CALL_ENDPOINT_SILENCE_MS = 1000;
+
+function normalizeEchoText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Playback leaks into the mic. The assistant's own line, including the first
+// words of it, is echo. A short new phrase is the caller talking over the reply.
+export function isAssistantEcho(heard, reply) {
+  const spokenWords = normalizeEchoText(heard).split(" ").filter(Boolean);
+  const answerWords = normalizeEchoText(reply).split(" ").filter(Boolean);
+  if (!spokenWords.length || !answerWords.length) {
+    return false;
+  }
+  const spoken = spokenWords.join(" ");
+  const answer = answerWords.join(" ");
+  if (answerWords.slice(0, spokenWords.length).join(" ") === spoken) {
+    return true;
+  }
+  return spokenWords.length >= 3 && answer.includes(spoken);
+}
 
 export function createLiveCallHearing({
   silenceMs = LIVE_CALL_ENDPOINT_SILENCE_MS,
@@ -164,6 +209,7 @@ export function createLiveCallHearing({
   let heard = "";
   let live = "";
   let timer = null;
+  let settled = false;
 
   function hypothesis() {
     return [heard, live].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
@@ -176,11 +222,23 @@ export function createLiveCallHearing({
     }
   }
 
+  function armSilence() {
+    clearSilence();
+    timer = setTimer(() => {
+      timer = null;
+      emit(true);
+    }, silenceMs);
+  }
+
   function emit(final) {
     const text = hypothesis();
     if (!text) {
       return;
     }
+    if (final && settled) {
+      return;
+    }
+    settled = Boolean(final);
     onTranscript?.({ text, final: Boolean(final) });
   }
 
@@ -199,24 +257,31 @@ export function createLiveCallHearing({
       if (!hypothesis()) {
         return;
       }
+      settled = false;
       emit(false);
-      clearSilence();
-      timer = setTimer(() => {
-        timer = null;
-        emit(true);
-      }, silenceMs);
+      armSilence();
     },
     finishSegment() {
+      // The recognizer stopped. Do not let the silence clock run out while
+      // nobody is listening, or a short phrase becomes the whole turn.
+      clearSilence();
       if (!live) {
         return;
       }
       heard = hypothesis();
       live = "";
     },
+    resumeListening() {
+      if (settled || !hypothesis()) {
+        return;
+      }
+      armSilence();
+    },
     reset() {
       clearSilence();
       heard = "";
       live = "";
+      settled = false;
     },
   };
 }
@@ -244,6 +309,7 @@ export function createLiveKitVoiceSession({
   onInterrupt,
   onError,
   onUnrecognized,
+  onDraft,
   policy: policyInput,
   now = () => Date.now(),
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -262,8 +328,44 @@ export function createLiveKitVoiceSession({
   let interruptTimer = null;
   let falseTimer = null;
   let turnToken = 0;
+  let activeTranscript = "";
+  let wakeLead = "";
   let stopped = false;
   let inputHeld = false;
+
+  function startsWithLead(text) {
+    return Boolean(wakeLead) && text.toLowerCase().startsWith(wakeLead.toLowerCase());
+  }
+
+  function rememberWakeLead(text) {
+    const pattern = wakeExpression(wakePhrase);
+    if (!pattern) {
+      return text.trim();
+    }
+    const match = pattern.exec(text);
+    if (!match) {
+      return null;
+    }
+    wakeLead = text.slice(0, match.index + match[0].length);
+    return textAfterWake(text, wakePhrase);
+  }
+
+  function commandFromTranscript(text) {
+    let incoming = String(text || "");
+    // The opening line can carry everything said before the wake. Cut once
+    // at that wake, and keep cutting while the recognizer is still repeating
+    // that same buffered line. Later sentences only lose the wake word itself.
+    if (!wakeLead || startsWithLead(incoming)) {
+      const after = rememberWakeLead(incoming);
+      if (after != null) {
+        incoming = after;
+      }
+    }
+    if (stripWakeFromUtterance && containsWake(incoming, wakePhrase)) {
+      incoming = stripWake(incoming, wakePhrase);
+    }
+    return incoming.replace(/\s+/g, " ").trim();
+  }
 
   function emitPhase(next) {
     phase = next;
@@ -352,7 +454,9 @@ export function createLiveKitVoiceSession({
     pending = "";
     speechStartedAt = null;
     utteranceFinal = false;
+    activeTranscript = transcript;
     if (!transcript || !awake || stopped) {
+      activeTranscript = "";
       return;
     }
     if (phase === "speaking" || phase === "thinking") {
@@ -376,6 +480,9 @@ export function createLiveKitVoiceSession({
       onPlayback?.({
         audioUrl: result?.audioUrl || "",
         text: String(result?.text || ""),
+        moodState: result?.moodState || null,
+        moodLabel: result?.moodLabel || null,
+        emotionFrame: result?.emotionFrame || null,
       });
     } catch (error) {
       if (stopped || token !== turnToken) {
@@ -399,6 +506,17 @@ export function createLiveKitVoiceSession({
     inputHeld = false;
   }
 
+  function discardBarge() {
+    if (phase !== "speaking" && phase !== "thinking") {
+      return;
+    }
+    clearInterruptWatch();
+    clearEndpoint();
+    pending = "";
+    speechStartedAt = null;
+    utteranceFinal = false;
+  }
+
   function noteTranscript({ text, final = false, at, speechMs } = {}) {
     if (stopped || inputHeld) {
       return;
@@ -414,15 +532,15 @@ export function createLiveKitVoiceSession({
         if (final) {
           onUnrecognized?.(incoming);
         }
+        onDraft?.({ text: "" });
         return;
       }
       awake = true;
       emitPhase("listening");
     }
 
-    const command = stripWakeFromUtterance && containsWake(incoming, wakePhrase)
-      ? stripWake(incoming, wakePhrase)
-      : incoming;
+    const command = commandFromTranscript(incoming);
+    onDraft?.({ text: command });
     if (!command) {
       pending = "";
       speechStartedAt = null;
@@ -431,7 +549,29 @@ export function createLiveKitVoiceSession({
       return;
     }
 
-    const assistantBusy = phase === "speaking" || phase === "thinking";
+    if (phase === "thinking") {
+      if (command === activeTranscript) {
+        return;
+      }
+      // The caller was still going when the short phrase was sent. Drop that
+      // turn and keep the longer line instead of talking over them.
+      clearInterruptWatch();
+      activeTranscript = "";
+      pending = command;
+      speechStartedAt = stamp;
+      utteranceFinal = Boolean(final);
+      turnToken += 1;
+      emitPhase("listening");
+      onInterrupt?.();
+      if (final) {
+        scheduleEndpoint(true);
+      } else {
+        clearEndpoint();
+      }
+      return;
+    }
+
+    const assistantBusy = phase === "speaking";
     if (speechStartedAt == null) {
       speechStartedAt = stamp;
       utteranceFinal = false;
@@ -492,6 +632,8 @@ export function createLiveKitVoiceSession({
     pending = "";
     speechStartedAt = null;
     utteranceFinal = false;
+    activeTranscript = "";
+    wakeLead = "";
     awake = !wakePhrase;
     inputHeld = false;
     emitPhase("idle");
@@ -504,6 +646,7 @@ export function createLiveKitVoiceSession({
     notifyPlaybackEnded,
     holdInput,
     releaseInput,
+    discardBarge,
     stop,
     getPhase: () => phase,
   };

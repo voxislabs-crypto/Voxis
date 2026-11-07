@@ -10,6 +10,8 @@ const mockUpdateMemoryFact = vi.fn();
 const mockGetAllPersonalities = vi.fn();
 const mockUpdatePersonality = vi.fn();
 const mockUpdateMoodState = vi.fn();
+const mockGetUserMood = vi.fn();
+const mockUpsertUserMood = vi.fn();
 
 const mockGetCognitionLoopConfig = vi.fn();
 
@@ -32,6 +34,11 @@ vi.mock("../models/personalityModel.js", () => ({
   getAllPersonalities: mockGetAllPersonalities,
   updatePersonality: mockUpdatePersonality,
   updateMoodState: mockUpdateMoodState,
+}));
+
+vi.mock("../models/moodModel.js", () => ({
+  getUserMood: mockGetUserMood,
+  upsertUserMood: mockUpsertUserMood,
 }));
 
 vi.mock("../models/settingsModel.js", () => ({
@@ -97,6 +104,9 @@ describe("cognitionLoopService", () => {
     mockGetAllPersonalities.mockReset();
     mockUpdatePersonality.mockReset();
     mockUpdateMoodState.mockReset();
+    mockGetUserMood.mockReset();
+    mockUpsertUserMood.mockReset();
+    mockGetUserMood.mockReturnValue(null);
 
     mockGetCognitionLoopConfig.mockReset();
 
@@ -460,5 +470,96 @@ describe("cognitionLoopService", () => {
     const writeTypes = mockUpsertMemoryFactWithEmbedding.mock.calls.map((c) => c[2]);
     expect(writeTypes).toContain("reach_out_candidate");
     expect(summary.deliveredReachOut).toBe(0);
+  });
+
+  it("ticks a signed-in user's mood row and leaves the personality row alone", async () => {
+    const history = [{ valence: 0.2, arousal: 0.1, dominance: 0, at: "earlier" }];
+    const drift = { residue: 0.1 };
+    mockGetAllPersonalities.mockReturnValue([{
+      ...buildPersonality(),
+      ownerId: 3,
+      moodState: {
+        valence: -0.4,
+        arousal: 0.1,
+        dominance: 0,
+        grudges: [{ id: "row", thought: "row grudge", charge: 0.5, presentation: "held", addressed: false }],
+      },
+    }]);
+    mockGetRecentChatMessages.mockReturnValue([
+      { role: "user", content: "I am stuck at work", userId: 7, createdAt: hoursAgo(30) },
+      { role: "assistant", content: "Want to unpack it?", userId: 7, createdAt: hoursAgo(29.9) },
+    ]);
+    mockGetUserMood.mockReturnValue({
+      moodState: {
+        valence: 0.55,
+        arousal: 0.2,
+        dominance: 0.1,
+        grudges: [{ id: "user", thought: "left hanging", charge: 0.3, presentation: "held", addressed: false }],
+      },
+      moodHistory: history,
+      emotionDrift: drift,
+    });
+
+    const mod = await import("../services/cognitionLoopService.js");
+    await mod.runCognitionLoopOnce({ reason: "manual" });
+
+    expect(mockUpdateMoodState).not.toHaveBeenCalled();
+    expect(mockUpsertUserMood).toHaveBeenCalledTimes(1);
+    const [personalityId, userId, saved] = mockUpsertUserMood.mock.calls[0];
+    expect(personalityId).toBe(42);
+    expect(userId).toBe(7);
+    expect(saved.moodState.valence).toBe(0.55);
+    expect(saved.moodState.grudges[0].id).toBe("user");
+    expect(saved.moodState.grudges[0].charge).toBeGreaterThan(0.3);
+    expect(saved.moodHistory).toBe(history);
+    expect(saved.emotionDrift).toBe(drift);
+  });
+
+  it("uses the persona owner when the latest message has no user id", async () => {
+    mockGetAllPersonalities.mockReturnValue([{
+      ...buildPersonality(),
+      ownerId: 9,
+      moodState: { valence: 0.1, arousal: 0.2, dominance: 0.3 },
+    }]);
+    mockGetUserMood.mockReturnValue({
+      moodState: {
+        valence: 0.2,
+        arousal: 0,
+        dominance: 0,
+        grudges: [{ id: "owner", thought: "still waiting", charge: 0.4, presentation: "held", addressed: false }],
+      },
+      moodHistory: [],
+      emotionDrift: {},
+    });
+
+    const mod = await import("../services/cognitionLoopService.js");
+    await mod.runCognitionLoopOnce({ reason: "manual" });
+
+    expect(mockUpdateMoodState).not.toHaveBeenCalled();
+    expect(mockUpsertUserMood.mock.calls[0][1]).toBe(9);
+    expect(mockUpsertUserMood.mock.calls[0][2].moodState.valence).toBe(0.2);
+  });
+
+  it("writes the personality row when no signed-in user is available", async () => {
+    mockGetAllPersonalities.mockReturnValue([{
+      ...buildPersonality(),
+      moodState: {
+        valence: 0.15,
+        arousal: -0.1,
+        dominance: 0.2,
+        grudges: [{ id: "anon", thought: "unanswered", charge: 0.3, presentation: "held", addressed: false }],
+      },
+    }]);
+
+    const mod = await import("../services/cognitionLoopService.js");
+    await mod.runCognitionLoopOnce({ reason: "manual" });
+
+    expect(mockUpsertUserMood).not.toHaveBeenCalled();
+    expect(mockGetUserMood).not.toHaveBeenCalled();
+    expect(mockUpdateMoodState).toHaveBeenCalledTimes(1);
+    const saved = mockUpdateMoodState.mock.calls[0][1];
+    expect(saved.valence).toBe(0.15);
+    expect(saved.grudges[0].id).toBe("anon");
+    expect(saved.grudges[0].charge).toBeGreaterThan(0.3);
   });
 });

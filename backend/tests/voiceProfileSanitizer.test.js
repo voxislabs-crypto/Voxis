@@ -38,6 +38,15 @@ describe("sanitizeVoiceProfile engine allow list", () => {
     });
   });
 
+  it("keeps a blank Piper speaker blank", () => {
+    withEnv({ TTS_DEBUG_PROVIDER_LOCK: "false", TTS_DISABLE_KOKORO: "true" }, () => {
+      expect(sanitizeVoiceProfile({ piperSpeaker: null }).piperSpeaker).toBeNull();
+      expect(sanitizeVoiceProfile({ piperSpeaker: "" }).piperSpeaker).toBeNull();
+      expect(sanitizeVoiceProfile({ piperSpeaker: 0 }).piperSpeaker).toBe(0);
+      expect(sanitizeVoiceProfile({ piperSpeaker: 1 }).piperSpeaker).toBe(1);
+    });
+  });
+
   it("rewrites kokoro to auto while kokoro is disabled", () => {
     withEnv({ TTS_DEBUG_PROVIDER_LOCK: "false", TTS_DISABLE_KOKORO: "true" }, () => {
       expect(sanitizeVoiceProfile({ engine: "kokoro" }).engine).toBe("auto");

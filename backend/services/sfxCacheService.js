@@ -177,6 +177,7 @@ const SFX_ALIASES = Object.freeze({
   belch: "burp",
   burps: "burp",
   burping: "burp",
+  longburp: "long_burp",
   giggles: "giggle",
   laugh: "chuckle",
   laughter: "chuckle",

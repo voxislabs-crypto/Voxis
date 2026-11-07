@@ -62,25 +62,26 @@ export function splitCompleteSentences(text) {
 
   const sentences = [];
   const matcher = /[^.!?\n]+[.!?]+["')\]]*\s*/g;
+  const restoreDots = (value) => String(value || "").replace(new RegExp(DOT_PLACEHOLDER, "g"), ".");
   let match = null;
-  let consumedEnd = 0;
+  let cursor = 0;
 
   while ((match = matcher.exec(protectedSource)) !== null) {
-    const sentence = String(match[0] || "")
-      .replace(new RegExp(DOT_PLACEHOLDER, "g"), ".")
-      .trim();
+    // A colon line or a sound cue can sit between two finished sentences.
+    // The matcher skips that span. Keep it with the next sentence so playback
+    // does not drop it.
+    const gap = restoreDots(protectedSource.slice(cursor, match.index)).trim();
+    const spoken = restoreDots(match[0]).trim();
+    const sentence = [gap, spoken].filter(Boolean).join(" ");
     if (sentence) {
       sentences.push(sentence);
     }
-    consumedEnd = matcher.lastIndex;
+    cursor = matcher.lastIndex;
   }
 
   return {
     sentences,
-    remainder: protectedSource
-      .slice(consumedEnd)
-      .replace(new RegExp(DOT_PLACEHOLDER, "g"), ".")
-      .trim(),
+    remainder: restoreDots(protectedSource.slice(cursor)).trim(),
   };
 }
 

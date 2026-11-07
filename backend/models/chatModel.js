@@ -149,7 +149,7 @@ export function createChatMessage({ personalityId, role, content, userId = null,
 
 export function getRecentChatMessages(personalityId, limit = 10) {
   const statement = db.prepare(`
-    SELECT id, personalityId, role, content, createdAt
+    SELECT id, personalityId, role, content, userId, createdAt
     FROM chat_messages
     WHERE personalityId = ?
     ORDER BY id DESC

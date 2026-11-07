@@ -52,6 +52,15 @@ describe("speech playback queue", () => {
       "Dr. Smith is here.",
       "Next",
     ]);
+    expect(collectSpeechChunks(
+      "You want a joke? Either way, here's one:\n\nWhy did the photon check into a hotel?\n\nBecause it had no mass.\n\n*BRAAAP*\n\nDid you get it? tail",
+    )).toEqual([
+      "You want a joke?",
+      "Either way, here's one: Why did the photon check into a hotel?",
+      "Because it had no mass.",
+      "*BRAAAP* Did you get it?",
+      "tail",
+    ]);
   });
 
   it("does not treat a submitted sentence as spoken", () => {

@@ -26,6 +26,30 @@ function createTestWav(sampleCount = 8, sampleRate = 16000) {
   return Buffer.concat([header, pcm]);
 }
 
+describe("selectPiperSpeakerId", () => {
+  it("drops speaker ids for a single-speaker voice", async () => {
+    const { selectPiperSpeakerId } = await import("../services/ttsService.js");
+    const kristin = { espeak: { voice: "en" }, language: { code: "en_US" } };
+
+    expect(selectPiperSpeakerId(kristin, 0)).toBeNull();
+    expect(selectPiperSpeakerId(kristin, "1")).toBeNull();
+    expect(selectPiperSpeakerId(kristin, null)).toBeNull();
+  });
+
+  it("keeps a listed speaker and drops an unknown one", async () => {
+    const { selectPiperSpeakerId } = await import("../services/ttsService.js");
+    const multi = {
+      num_speakers: 2,
+      speaker_id_map: { female: 0, male: 1 },
+    };
+
+    expect(selectPiperSpeakerId(multi, 1)).toBe(1);
+    expect(selectPiperSpeakerId(multi, "0")).toBe(0);
+    expect(selectPiperSpeakerId(multi, 4)).toBeNull();
+    expect(selectPiperSpeakerId(multi, "")).toBeNull();
+  });
+});
+
 describe("ttsService Piper voice discovery", () => {
   let tempDir = "";
 
@@ -717,6 +741,95 @@ describe("tts credit-safe engine selection", () => {
       global.fetch = originalFetch;
       restoreEnv(previous);
     }
+  });
+
+  it("reuses an EmotionFrame on a cache hit and rebuilds one when the cached frame is missing", async () => {
+    const previous = {
+      CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
+      TTS_ENGINE: process.env.TTS_ENGINE,
+      TTS_DEBUG_PROVIDER_LOCK: process.env.TTS_DEBUG_PROVIDER_LOCK,
+    };
+    const originalFetch = global.fetch;
+    const text = "Emotion frame cache check 7719.";
+    const personality = {
+      id: 88041,
+      name: "Frame Persona",
+      moodState: { valence: 0.4, arousal: 0.2, dominance: 0.1 },
+    };
+    const voiceProfile = {
+      engine: "cartesia",
+      cartesiaVoiceId: voiceId,
+      cartesiaModel: "sonic-3",
+      rate: 1,
+      pitch: 1,
+    };
+
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
+    process.env.TTS_ENGINE = "cartesia";
+    process.env.TTS_DEBUG_PROVIDER_LOCK = "false";
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "audio/mpeg" }),
+      arrayBuffer: async () => new Uint8Array([7, 7, 1, 9]).buffer,
+    });
+
+    try {
+      const { generateSpeechAudio } = await import("../services/ttsService.js");
+      const { interpretEmotionSpectrum } = await import("../services/emotionSpectrum.js");
+      const expected = interpretEmotionSpectrum(personality.moodState);
+
+      const first = await generateSpeechAudio({ personality, text, voiceProfile });
+      expect(first.cached).toBe(false);
+      expect(first.telemetry.emotionFrame).toEqual(expected);
+
+      const replay = await generateSpeechAudio({ personality, text, voiceProfile });
+      expect(replay.cached).toBe(true);
+      expect(replay.telemetry.emotionFrame).toEqual(expected);
+
+      delete first.telemetry.emotionFrame;
+      const rebuilt = await generateSpeechAudio({ personality, text, voiceProfile });
+      expect(rebuilt.cached).toBe(true);
+      expect(rebuilt.telemetry.emotionFrame).toEqual(expected);
+    } finally {
+      global.fetch = originalFetch;
+      restoreEnv(previous);
+    }
+  });
+});
+
+describe("buildCartesiaExperimentalControls", () => {
+  it("does not send speed levels Cartesia rejects", async () => {
+    const { buildCartesiaExperimentalControls } = await import("../services/ttsService.js");
+    const slightlyFast = buildCartesiaExperimentalControls({
+      rateDelta: 0.08,
+      style: "neutral",
+      energyBoost: 0,
+    });
+    const slightlySlow = buildCartesiaExperimentalControls({
+      rateDelta: -0.07,
+      style: "cheerful",
+      energyBoost: 0,
+    });
+    const excited = buildCartesiaExperimentalControls({
+      rateDelta: 0.2,
+      style: "excited",
+      energyBoost: 0.2,
+    });
+
+    for (const controls of [slightlyFast, slightlySlow, excited]) {
+      const speed = controls?.speed;
+      const numeric = typeof speed === "number" && speed >= -1 && speed <= 1;
+      const named = typeof speed === "string" && ["slowest", "slow", "normal", "fast", "fastest"].includes(speed);
+      expect(numeric || named).toBe(true);
+      expect(speed).not.toBe("slightly_fast");
+      expect(speed).not.toBe("slightly_slow");
+    }
+
+    expect(slightlyFast.speed).toBe(0.08);
+    expect(slightlySlow.speed).toBe(-0.07);
+    expect(excited.emotion).toEqual(["positivity:high"]);
+    expect(buildCartesiaExperimentalControls({ rateDelta: 0.02, energyBoost: 0 })).toBeNull();
   });
 });
 

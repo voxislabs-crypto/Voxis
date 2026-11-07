@@ -6,6 +6,7 @@ import {
   updateMemoryFact,
   upsertMemoryFactWithEmbedding,
 } from "../models/memoryModel.js";
+import { getUserMood, upsertUserMood } from "../models/moodModel.js";
 import { getAllPersonalities, updateMoodState, updatePersonality } from "../models/personalityModel.js";
 import { getCognitionLoopConfig } from "../models/settingsModel.js";
 import { generateChatCompletion, isLlmConfigured } from "./llmService.js";
@@ -446,14 +447,35 @@ function formatHeldGrudges(personality) {
   return lines.length ? lines.join("\n") : "none";
 }
 
-function settleIdleGrudges(personality, thoughts) {
-  const nextMood = tickIdleGrudges(personality.moodState || {}, {
-    personality,
-    thoughts,
-  });
-  const before = JSON.stringify(personality.moodState?.grudges || []);
+function positiveId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function resolveIdleMoodUserId(personality, messages) {
+  const latestUser = [...(messages || [])].reverse().find((message) => message?.role === "user");
+  return positiveId(latestUser?.userId) || positiveId(personality?.ownerId);
+}
+
+function settleIdleGrudges(personality, thoughts, userId = null) {
+  const scopedUserId = positiveId(userId);
+  const stored = scopedUserId ? getUserMood(personality.id, scopedUserId) : null;
+  const sourceMood = stored?.moodState && typeof stored.moodState === "object"
+    ? stored.moodState
+    : (personality.moodState || {});
+  const nextMood = tickIdleGrudges(sourceMood, { personality, thoughts });
+  const before = JSON.stringify(sourceMood?.grudges || []);
   const after = JSON.stringify(nextMood.grudges || []);
-  if (before !== after) {
+  if (before === after) {
+    return nextMood.grudges?.length || 0;
+  }
+  if (scopedUserId) {
+    upsertUserMood(personality.id, scopedUserId, {
+      moodState: nextMood,
+      moodHistory: Array.isArray(stored?.moodHistory) ? stored.moodHistory : [],
+      emotionDrift: stored?.emotionDrift && typeof stored.emotionDrift === "object" ? stored.emotionDrift : {},
+    });
+  } else {
     updateMoodState(personality.id, nextMood);
   }
   return nextMood.grudges?.length || 0;
@@ -805,7 +827,11 @@ async function runForPersonality(personality, config) {
     config,
     inactivityHours,
   });
-  const heldGrudges = settleIdleGrudges(personality, reflection.privateThoughts);
+  const heldGrudges = settleIdleGrudges(
+    personality,
+    reflection.privateThoughts,
+    resolveIdleMoodUserId(personality, messages),
+  );
 
   const delivery = await evaluateDeliveryPolicy({
     personalityId: personality.id,
@@ -835,6 +861,7 @@ async function runForPersonality(personality, config) {
 
 function getTargetPersonalities(all, config) {
   const sorted = [...all]
+    .filter((item) => item?.sourceQuery !== "voxis-guide-store")
     .sort((left, right) => {
       const leftId = Number(left.id) || 0;
       const rightId = Number(right.id) || 0;

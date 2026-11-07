@@ -1,4 +1,10 @@
-import { getAllPersonalities, getPersonalityById, updateMoodState, updateStateFlaws } from "../models/personalityModel.js";
+import {
+  ensureVoxisGuideStore,
+  getAllPersonalities,
+  getPersonalityById,
+  updateStateFlaws,
+  VOXIS_GUIDE_STORE_SOURCE,
+} from "../models/personalityModel.js";
 import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import {
   createChatMessage,
@@ -28,13 +34,13 @@ import {
   isEmbeddingConfigured,
 } from "../services/llmService.js";
 import {
-  stepMoodDetailed,
   moodFromLabel,
   moodToPromptFragment,
   moodToLabel,
   shouldRegenerateEmotionalResponse,
   buildEmotionalRepairPrompt,
 } from "../services/moodEngine.js";
+import { advanceTurnMood, stepAndPersistTurnMood } from "../services/turnMood.js";
 import {
   buildScientistEvidencePrompt,
   buildModePolicyPrompt,
@@ -73,7 +79,6 @@ import {
   decayPersonaPreferences,
 } from "../models/preferencesModel.js";
 import {
-  getMoodRuntimeConfig,
   getExpressionSamplingConfig,
   getStateRuntimeConfig,
   getProfaneFilterConfig,
@@ -98,14 +103,15 @@ import { buildUtterancePlan } from "../services/utterancePlanService.js";
 import { extractRefinementSuggestions } from "../services/refinementSuggestionService.js";
 import { buildVoxisPrompt } from "../prompts/voxisSystemPrompt.js";
 import { runUserContextTurn } from "../services/userContextTurn.js";
-import { classifyResponseStrategy, isResponseStrategyEnabled } from "../services/responseStrategy.js";
+import { buildUserContextPromptSection } from "../services/userContextPrompt.js";
+import {
+  buildResponseStrategyPromptSection,
+  classifyResponseStrategy,
+  isResponseStrategyEnabled,
+} from "../services/responseStrategy.js";
 import { runPerceptionEmotionHook, runResponseLayer } from "../services/neuralHandshakeService.js";
 import {
-  normalizeDriftState,
-  applyEmotionDrift,
-  applyDecay,
   computeSingingLeakage,
-  applyEmotionResidue,
   describeDriftState,
   checkSingingTrigger,
 } from "../services/emotionMemoryDrift.js";
@@ -125,12 +131,8 @@ import {
   mapEmotionToVoiceAdjustments,
 } from "../services/singingEngine.js";
 import { stepStateFlaws } from "../services/stateFlawService.js";
-import { updateEmotionDrift } from "../models/personalityModel.js";
 import {
-  appendMoodHistory,
   getOrCreateUserMood,
-  getUserMood,
-  upsertUserMood,
 } from "../models/moodModel.js";
 import { assessResidualContinuity, resolveResidualNote } from "../services/residualContinuity.js";
 
@@ -145,6 +147,13 @@ const RECONDITION_CADENCE = {
 
 function getReconditionEvery(creativeContext) {
   return RECONDITION_CADENCE[creativeContext] ?? RECONDITION_CADENCE.default;
+}
+
+function listGuideContextPersonas(limit = 15) {
+  const rows = typeof getAllPersonalities === "function" ? getAllPersonalities() : [];
+  return rows
+    .filter((item) => item?.sourceQuery !== VOXIS_GUIDE_STORE_SOURCE)
+    .slice(0, limit);
 }
 
 function inferOpenerArchetype(personality) {
@@ -313,22 +322,71 @@ export async function personaOpenerHandler(req, res, next) {
       ? await getRelevantUserMemory(policy.userId, "user profile introduction", 4)
       : [];
     const personaPreferences = getPersonaPreferences(personalityId);
+    const guideMode = Boolean(
+      req.body?.guideMode ||
+      req.body?.useVoxisGuide ||
+      req.body?.personalityId === "voxis-guide"
+    );
+    const userScopedId = Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : null;
+    const history = getRecentChatMessages(personalityId, 10).map((item) => ({
+      role: item.role,
+      content: item.content,
+    }));
+    let userContext = null;
+    let responseStrategy = null;
+    let moodLabel = moodToLabel(
+      personality?.moodState && "valence" in personality.moodState
+        ? personality.moodState
+        : moodFromLabel(personality?.mood || "neutral"),
+    );
+
+    if (!guideMode) {
+      const stepped = await advanceTurnMood({
+        personality,
+        userId: userScopedId,
+        message: seed,
+        recentMessages: history,
+      });
+      moodLabel = stepped.moodLabel;
+      try {
+        userContext = runUserContextTurn({
+          message: seed,
+          history,
+          userId: userScopedId,
+          personalityId,
+          sessionKey: `${personalityId}:${userScopedId ?? "anon"}`,
+        });
+      } catch (error) {
+        console.error("[VOXIS] opener user context failed:", error?.message || error);
+      }
+      responseStrategy = classifyResponseStrategy({
+        message: seed,
+        history,
+        affect: userContext?.affect || null,
+        mood: stepped.newMood,
+        energy: personality?.expressionStyle?.energy || "",
+        goals: personality?.goals,
+        memoryFacts,
+        enabled: isResponseStrategyEnabled(),
+      });
+      console.log("[VOXIS] opener pipeline", {
+        personalityId,
+        moodLabel,
+        affect: userContext?.affect?.intent || null,
+        length: responseStrategy?.length || null,
+      });
+    }
 
     let promptPackage;
-    const guideMode = Boolean(
-      req.body?.guideMode || 
-      req.body?.useVoxisGuide || 
-      req.body?.personalityId === 'voxis-guide'
-    );
 
     if (guideMode) {
       // Special Voxis guide mode - use the meta architect prompt + neural handshake
       const currentForContext = personality || null;
       // Prefer passed list for better context, fallback to DB
       const passedPersonas = Array.isArray(req.body?.allPersonas) ? req.body.allPersonas : [];
-      const available = passedPersonas.length > 0 
-        ? passedPersonas 
-        : (getAllPersonalities ? getAllPersonalities().slice(0, 15) : []);
+      const available = passedPersonas.length > 0
+        ? passedPersonas
+        : listGuideContextPersonas();
       const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
       let contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
       if (req.body?.createMode) {
@@ -354,16 +412,13 @@ export async function personaOpenerHandler(req, res, next) {
         responseLayer, // SFX cues and tone from the "down" direction of the handshake
       };
     } else {
-      const openerUserId = Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : null;
-      const storedUserMood = openerUserId ? getUserMood(personality.id, openerUserId) : null;
-      const openerMood = storedUserMood?.moodState && "valence" in storedUserMood.moodState
-        ? storedUserMood.moodState
-        : (personality?.moodState || moodFromLabel(personality?.mood || "neutral"));
       promptPackage = buildPersonaPromptPackage(personality, memoryFacts, seed, {
-        currentMoodLabel: moodToLabel(openerMood),
-        conversationKey: `${personalityId}:${Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : "anon"}`,
+        currentMoodLabel: moodLabel,
+        conversationKey: `${personalityId}:${userScopedId ?? "anon"}`,
         userName: req.voxisUser?.displayName || "",
         companionAliases: resolveCompanionAliasesForPrompt(),
+        userContext,
+        responseStrategy,
       });
     }
 
@@ -421,7 +476,6 @@ export async function personaOpenerHandler(req, res, next) {
       fallbackReply,
     });
 
-    const userScopedId = Number.isInteger(Number(policy.userId)) ? Number(policy.userId) : null;
     const storedAssistantMsg = createChatMessage({
       personalityId,
       role: "assistant",
@@ -438,6 +492,11 @@ export async function personaOpenerHandler(req, res, next) {
       reply,
       isAI: true,
       policy,
+      debug: {
+        moodLabel,
+        userContext,
+        responseStrategy,
+      },
     });
   } catch (error) {
     return next(error);
@@ -829,8 +888,19 @@ export async function chatHandler(req, res, next) {
     };
 
     let personality = null;
+    let moodPersonalityId = personalityId;
     if (isVoxisGuide) {
-      personality = { id: 'voxis-guide', name: 'Voxis' };
+      // The guide is not a chat persona. Mood and the user model use a system
+      // store so a guide turn does not step the persona being edited.
+      const guideStore = ensureVoxisGuideStore();
+      moodPersonalityId = Number(guideStore?.id) || null;
+      personality = { id: "voxis-guide", name: "Voxis" };
+      if (guideStore) {
+        personality.mood = guideStore.mood;
+        personality.moodBaseline = guideStore.moodBaseline;
+        personality.moodState = guideStore.moodState;
+        personality.emotionDrift = guideStore.emotionDrift;
+      }
     } else {
       personality = resolveOwnedPersona(req, res, personalityId);
       if (!personality) return;
@@ -850,9 +920,11 @@ export async function chatHandler(req, res, next) {
       runtimeConfig: stateFlawRuntime,
     });
     personality.stateFlaws = stateFlawStep.stateFlaws;
-    setImmediate(() => {
-      updateStateFlaws(personalityId, stateFlawStep.stateFlaws);
-    });
+    if (Number.isInteger(personalityId) && personalityId > 0) {
+      setImmediate(() => {
+        updateStateFlaws(personalityId, stateFlawStep.stateFlaws);
+      });
+    }
     streamedDebugData.stateFlaws = stateFlawStep.diagnostics;
     streamedDebugData.stateRuntime = {
       snapshot: stateFlawStep.snapshot,
@@ -897,8 +969,8 @@ export async function chatHandler(req, res, next) {
         ? personality.moodState
         : { ...moodBaseline };
 
-    const perUserMood = !isVoxisGuide && userScopedId
-      ? getOrCreateUserMood(personalityId, userScopedId, fallbackMood)
+    const perUserMood = userScopedId && moodPersonalityId
+      ? getOrCreateUserMood(moodPersonalityId, userScopedId, fallbackMood)
       : null;
 
     const currentMood =
@@ -912,6 +984,43 @@ export async function chatHandler(req, res, next) {
       const blocked = detectKidsUnsafeInput(message);
       if (blocked?.blocked) {
         const safeReply = buildKidsSafetyRedirect();
+        // No model reply is generated. Still step mood and the user model so
+        // the next allowed turn does not start from the pre-block state.
+        // A failed step must not replace the safety redirect.
+        let safetyMoodState = currentMood;
+        let safetyMoodLabel = moodToLabel(currentMood);
+        try {
+          const safetyHistory = getRecentChatMessages(moodPersonalityId, 10).map((item) => ({
+            role: item.role,
+            content: item.content,
+          }));
+          const safetyMood = await stepAndPersistTurnMood({
+            personality,
+            personalityId: moodPersonalityId,
+            userId: userScopedId,
+            message,
+            recentMessages: safetyHistory,
+            currentMood,
+            moodBaseline,
+            perUserMood,
+            preferenceDelta: null,
+          });
+          safetyMoodState = safetyMood.newMood;
+          safetyMoodLabel = safetyMood.moodLabel;
+          try {
+            runUserContextTurn({
+              message,
+              history: safetyHistory,
+              userId: userScopedId,
+              personalityId: moodPersonalityId,
+              sessionKey: `${moodPersonalityId}:${userScopedId ?? "anon"}`,
+            });
+          } catch (error) {
+            console.error("[VOXIS] user context layers failed:", error?.message || error);
+          }
+        } catch (error) {
+          console.error("[VOXIS] kids-block mood step failed:", error?.message || error);
+        }
         createChatMessage({
           personalityId,
           role: "user",
@@ -930,8 +1039,8 @@ export async function chatHandler(req, res, next) {
         return res.json({
           reply: safeReply,
           isAI: true,
-          moodState: currentMood,
-          moodLabel: moodToLabel(currentMood),
+          moodState: safetyMoodState,
+          moodLabel: safetyMoodLabel,
           policy,
           debug: {
             policy,
@@ -970,63 +1079,28 @@ export async function chatHandler(req, res, next) {
       reinforcePersonaPreferences(matchedPreferenceIds, 1);
     }
 
-    const moodStep = await stepMoodDetailed({
-      currentMood,
-      baseline: moodBaseline,
-      message,
+    // Persist before the LLM call. Signed-in users write personality_user_mood.
+    // Anonymous sessions keep the personality row.
+    const steppedMood = await stepAndPersistTurnMood({
       personality,
+      personalityId: moodPersonalityId,
+      userId: userScopedId,
+      message,
       recentMessages: history,
+      currentMood,
+      moodBaseline,
+      perUserMood,
       preferenceDelta,
-      runtimeConfig: getMoodRuntimeConfig(),
     });
-    const newMood = moodStep.mood;
-    const moodLabel = moodToLabel(newMood);
+    const moodStep = steppedMood.moodStep;
+    const newMood = steppedMood.newMood;
+    const moodLabel = steppedMood.moodLabel;
+    const driftState = steppedMood.driftState;
+    const loadedMoodHistory = steppedMood.loadedMoodHistory;
 
     console.log("[VOXIS DEBUG] Mood after update - newMood:", newMood, "moodLabel:", moodLabel);
 
     observeMoodTransition(sessionId, { before: currentMood, after: newMood, label: moodLabel, stepDiagnostics: moodStep.diagnostics });
-
-    // Persist synchronously before the LLM call so mood influences this response.
-    // Signed-in users write personality_user_mood. Anonymous sessions keep the
-    // personality row, which is the shared fallback.
-    personality.mood = moodLabel;
-
-    // Emotion Memory Drift — update drift state based on this turn's emotion.
-    // Drift accumulates emotional habits over time and influences singing emergence.
-    const previousMoodLabel = moodToLabel(currentMood);
-    const moodIntensity = Math.min(
-      1,
-      Math.sqrt(
-        Math.pow(newMood.valence || 0, 2) +
-        Math.pow(newMood.arousal || 0, 2) +
-        Math.pow(newMood.dominance || 0, 2),
-      ) / Math.sqrt(3),
-    );
-    const driftSource = perUserMood ? perUserMood.emotionDrift : personality.emotionDrift;
-    let driftState = normalizeDriftState(driftSource || {});
-    driftState = applyDecay(driftState, 120, personality.singingProfile?.archetype || "none");
-    driftState = applyEmotionResidue(driftState, previousMoodLabel);
-    driftState = applyEmotionDrift(driftState, moodLabel.toLowerCase(), moodIntensity);
-
-    const loadedMoodHistory = perUserMood && Array.isArray(perUserMood.moodHistory)
-      ? perUserMood.moodHistory
-      : [];
-    if (perUserMood) {
-      const moodHistory = appendMoodHistory(loadedMoodHistory, newMood);
-      upsertUserMood(personalityId, userScopedId, {
-        moodState: newMood,
-        moodHistory,
-        emotionDrift: driftState,
-      });
-    } else {
-      updateMoodState(personalityId, newMood);
-      // Persist drift asynchronously — non-critical, should not block LLM call.
-      setImmediate(() => {
-        updateEmotionDrift(personalityId, driftState);
-      });
-    }
-    personality.moodState = newMood;
-    personality.emotionDrift = driftState;
 
     // Singing emergence — pressure-based decision (not random).
     // checkSingingTrigger replaces probabilistic shouldSingThisTurn:
@@ -1127,34 +1201,29 @@ export async function chatHandler(req, res, next) {
       ? await searchRawChatHistory(personalityId, message, 3).catch(() => [])
       : [];
     let userContext = null;
-    if (!isVoxisGuide) {
-      try {
-        userContext = runUserContextTurn({
-          message,
-          history,
-          userId: userScopedId,
-          personalityId,
-          sessionKey: `${personalityId}:${userScopedId ?? "anon"}`,
-        });
-      } catch (error) {
-        console.error("[VOXIS] user context layers failed:", error?.message || error);
-      }
+    try {
+      userContext = runUserContextTurn({
+        message,
+        history,
+        userId: userScopedId,
+        personalityId: moodPersonalityId,
+        sessionKey: `${moodPersonalityId}:${userScopedId ?? "anon"}`,
+      });
+    } catch (error) {
+      console.error("[VOXIS] user context layers failed:", error?.message || error);
     }
     streamedDebugData.userContext = userContext;
 
-    let responseStrategy = null;
-    if (!isVoxisGuide) {
-      responseStrategy = classifyResponseStrategy({
-        message,
-        history,
-        affect: userContext?.affect || null,
-        mood: newMood,
-        energy: personality?.expressionStyle?.energy || "",
-        goals: personality?.goals,
-        memoryFacts,
-        enabled: isResponseStrategyEnabled(),
-      });
-    }
+    const responseStrategy = classifyResponseStrategy({
+      message,
+      history,
+      affect: userContext?.affect || null,
+      mood: newMood,
+      energy: personality?.expressionStyle?.energy || "",
+      goals: personality?.goals,
+      memoryFacts,
+      enabled: isResponseStrategyEnabled(),
+    });
     streamedDebugData.responseStrategy = responseStrategy;
 
     let promptPackage;
@@ -1166,7 +1235,7 @@ export async function chatHandler(req, res, next) {
 
     if (guideMode) {
       const currentForContext = personality || null;
-      const available = getAllPersonalities ? getAllPersonalities().slice(0, 15) : [];
+      const available = listGuideContextPersonas();
       const recentContext = req.body?.recentGuideActions || req.body?.recentActions || [];
       let contextStr = recentContext.length ? `Recent modifications: ${JSON.stringify(recentContext.slice(-4))}` : "";
       if (req.body?.createMode) {
@@ -1182,7 +1251,11 @@ export async function chatHandler(req, res, next) {
 
       const emotionContext = `Current emotional lens from handshake: valence=${handshake.emotion.valence}, arousal=${handshake.emotion.arousal}, dominant=${handshake.emotion.dominant.join(", ")}. Suggested cues: ${JSON.stringify(handshake.emotion.suggestedCues)}.`;
 
-      const voxisSys = buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`);
+      const voxisSys = [
+        buildVoxisPrompt(currentForContext, available, `${contextStr}\n${emotionContext}`),
+        buildUserContextPromptSection(userContext),
+        buildResponseStrategyPromptSection(responseStrategy),
+      ].filter(Boolean).join("\n\n");
       promptPackage = { prompt: voxisSys, directedText: "", handshake, responseLayer };
     } else {
       promptPackage = buildPersonaPromptPackage(personality, memoryFacts, message, {
@@ -1365,7 +1438,7 @@ export async function chatHandler(req, res, next) {
 
     // Residual note uses the history loaded before this turn was appended, so
     // it describes an edge already carried, and only for signed-in per-user mood.
-    const residualNote = perUserMood
+    const residualNote = perUserMood && !isVoxisGuide
       ? resolveResidualNote({
           personalityId,
           userId: userScopedId,
@@ -1380,8 +1453,8 @@ export async function chatHandler(req, res, next) {
     }
 
     // Micro-variation reads the residual flag, including turns where the note
-    // itself is on cooldown. Anonymous and guide sessions have no per-user mood.
-    const residualActive = perUserMood
+    // itself is on cooldown. Anonymous and guide sessions stay off this cue.
+    const residualActive = perUserMood && !isVoxisGuide
       ? assessResidualContinuity({
           history: loadedMoodHistory,
           baseline: moodBaseline,
@@ -1392,7 +1465,7 @@ export async function chatHandler(req, res, next) {
       mood: newMood,
       residualActive,
       turnIndex: Math.floor(Number(totalMessages) / 2),
-      sessionKind: perUserMood ? "signed-in" : (isVoxisGuide ? "guide" : "anonymous"),
+      sessionKind: isVoxisGuide ? "guide" : (perUserMood ? "signed-in" : "anonymous"),
     });
     if (microVariation.note) {
       messages.push({ role: "system", content: microVariation.note });

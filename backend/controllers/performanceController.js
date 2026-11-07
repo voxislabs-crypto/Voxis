@@ -1,4 +1,4 @@
-import { resolveOwnedPersona } from "../gatekeeper/authorization.js";
+import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import { generateSpeechAudio, isTtsConfigured } from "../services/ttsService.js";
 import { parseEPF, isPerformanceOutput, extractPlainText } from "../services/epfParser.js";
 import { sanitizeVoiceProfile } from "../services/voiceProfileSanitizer.js";
@@ -35,6 +35,7 @@ export async function performanceHandler(req, res, next) {
 
   const personality = resolveOwnedPersona(req, res, personalityId);
   if (!personality) return;
+  const speechUserId = getAuthenticatedActor(req)?.localUserId ?? null;
 
   const voiceProfile = sanitizeVoiceProfile(req.body.voiceProfile, personality.voiceProfile);
 
@@ -66,7 +67,7 @@ export async function performanceHandler(req, res, next) {
       send({ type: "segment", segmentId: "A0", startTime: 0, moodLoop: "ambient", segmentType: "intro", lineIndex: 0, totalLines: 1 });
 
       try {
-        const audio = await generateSpeechAudio({ personality, text: rawText, voiceProfile });
+        const audio = await generateSpeechAudio({ personality, text: rawText, voiceProfile, userId: speechUserId });
         send({
           type: "audio",
           segmentId: "A0",
@@ -116,6 +117,7 @@ export async function performanceHandler(req, res, next) {
             text: line,
             voiceProfile,
             speechHint: segment.audioDirection || null,
+            userId: speechUserId,
           });
           // Emit SFX events before the audio so the frontend can fire them
           // in queue order (e.g. burp plays just before the spoken line).

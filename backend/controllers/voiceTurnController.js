@@ -33,9 +33,8 @@ function messagesForTurn(body, transcript) {
 }
 
 // The phone voice layer's only door into the brain.
-// Reads persona, memory, and mood the same way internal chat does, then
-// speaks the reply with the existing synthesizer. Does not write chat history
-// or step mood. Does not accept a voice-profile override from the caller.
+// Steps the same per-user VAD as text chat, runs the same user-context layers and reply-length strategy, then speaks with that mood.
+// The live turn stores its user line and reply in chat_messages. It does not accept a voice-profile override.
 export async function voiceTurnHandler(req, res, next) {
   try {
     const normalized = normalizeTranscript(req.body?.transcript);
@@ -68,7 +67,11 @@ export async function voiceTurnHandler(req, res, next) {
       },
     };
 
-    await internalChatHandler({ body: chatBody }, chatRes, (error) => {
+    await internalChatHandler({
+      body: chatBody,
+      advanceMood: true,
+      moodUserId: req.voiceAudioOwnerId ?? null,
+    }, chatRes, (error) => {
       forwarded = error;
     });
     if (forwarded) {
@@ -83,10 +86,13 @@ export async function voiceTurnHandler(req, res, next) {
       return res.status(502).json({ error: "The model returned an empty reply." });
     }
 
-    const personality = req.authorizedVoicePersonality || getPersonalityById(Number(chatPayload.personalityId));
-    if (!personality) {
+    const storedPersonality = req.authorizedVoicePersonality || getPersonalityById(Number(chatPayload.personalityId));
+    if (!storedPersonality) {
       return res.status(404).json({ error: "Personality not found." });
     }
+    const personality = chatPayload.moodState
+      ? { ...storedPersonality, moodState: chatPayload.moodState, mood: chatPayload.moodLabel || storedPersonality.mood }
+      : storedPersonality;
 
     const voiceProfile = sanitizeVoiceProfile(personality.voiceProfile, personality.voiceProfile);
     let audio;
@@ -95,6 +101,7 @@ export async function voiceTurnHandler(req, res, next) {
         personality,
         text,
         voiceProfile,
+        userId: req.voiceAudioOwnerId ?? null,
       });
     } catch (error) {
       const status = Number(error?.statusCode || error?.status);
@@ -123,15 +130,17 @@ export async function voiceTurnHandler(req, res, next) {
       personalityId: chatPayload.personalityId,
       personalityName: chatPayload.personalityName,
       model: chatPayload.model || null,
+      moodState: chatPayload.moodState || null,
+      moodLabel: chatPayload.moodLabel || null,
+      emotionFrame: audio?.telemetry?.emotionFrame || null,
     });
   } catch (error) {
     return next(error);
   }
 }
 
-// User-facing adapter for browser and first-party clients. It intentionally
-// retains the lightweight voice turn behavior; durable continuity is a later
-// relationship-scoped phase.
+// User-facing adapter for browser and first-party clients.
+// The owner id selects personality_user_mood for the step and the spoken reply.
 export async function authenticatedVoiceTurnHandler(req, res, next) {
   const actor = getAuthenticatedActor(req);
   const personality = resolveOwnedPersona(req, res, req.body?.personalityId);

@@ -1,30 +1,15 @@
-import express from 'express';
-import { chatWithVoxis } from '../services/voxisService.js';
+import express from "express";
 
 const router = express.Router();
 
-router.post('/chat', async (req, res) => {
-  try {
-    const { messages, isFinalStep, currentPersona } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({
-        success: false,
-        reply: "I need the conversation history to respond properly."
-      });
-    }
-
-    const result = await chatWithVoxis(messages, isFinalStep, currentPersona);
-
-    return res.json(result);
-
-  } catch (error) {
-    console.error("Voxis chat route error:", error);
-    return res.status(500).json({
-      success: false,
-      reply: "Something broke on my end. Give me a second and try again."
-    });
-  }
+// Unused by the current UI. The only caller was frontend/src/components/VoxisTab.old.jsx.
+// chatWithVoxis skipped the mood step, user context, and response strategy.
+// Persona turns go to POST /chat. This response keeps an old client from using the bypass.
+router.post("/chat", (_req, res) => {
+  return res.status(410).json({
+    success: false,
+    error: "POST /api/voxis/chat is unused. Send persona turns to POST /chat.",
+  });
 });
 
 export default router;

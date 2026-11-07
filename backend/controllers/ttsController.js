@@ -1,4 +1,4 @@
-import { resolveOwnedPersona } from "../gatekeeper/authorization.js";
+import { getAuthenticatedActor, resolveOwnedPersona } from "../gatekeeper/authorization.js";
 import {
   generateSpeechAudio,
   personaHasOpenVoiceReference,
@@ -29,6 +29,42 @@ function setEncodedJsonHeader(res, name, payload, options) {
     setEncodedHeader(res, name, encodeURIComponent(JSON.stringify(payload ?? {})), options);
   } catch {
     // Optional debug headers should never fail the audio response.
+  }
+}
+
+const TTS_TELEMETRY_HEADER_MAX_BYTES = 1400;
+
+export function encodeTtsTelemetryHeader(payload, maxBytes = TTS_TELEMETRY_HEADER_MAX_BYTES) {
+  try {
+    const full = encodeURIComponent(JSON.stringify(payload ?? {}));
+    if (Buffer.byteLength(full, "utf8") <= maxBytes) {
+      return full;
+    }
+    const compact = {
+      requested: payload?.requested,
+      chosenEngine: payload?.chosenEngine,
+      chosenVoiceId: payload?.chosenVoiceId,
+      fallbackUsed: payload?.fallbackUsed,
+      fallbackFrom: payload?.fallbackFrom,
+      emotionFrame: payload?.emotionFrame,
+    };
+    const compactEncoded = encodeURIComponent(JSON.stringify(compact));
+    if (Buffer.byteLength(compactEncoded, "utf8") <= maxBytes) {
+      return compactEncoded;
+    }
+    if (payload?.emotionFrame && typeof payload.emotionFrame === "object") {
+      return encodeURIComponent(JSON.stringify({ emotionFrame: payload.emotionFrame }));
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+function setTtsTelemetryHeader(res, payload) {
+  const encoded = encodeTtsTelemetryHeader(payload);
+  if (encoded) {
+    res.setHeader("X-Voxis-Tts-Telemetry", encoded);
   }
 }
 
@@ -191,11 +227,13 @@ export async function generateSpeechHandler(req, res, next) {
       });
     }
 
+    const actor = getAuthenticatedActor(req);
     const audio = await generateSpeechAudioWithTimeout({
       personality,
       text,
       voiceProfile,
       speechHint,
+      userId: actor?.localUserId ?? null,
     }, getTtsRequestTimeoutMs(voiceProfile, personality));
 
     res.setHeader("Content-Type", audio.contentType);
@@ -205,7 +243,7 @@ export async function generateSpeechHandler(req, res, next) {
     res.setHeader("X-Voxis-Tts-Engine", audio.engine || "unknown");
     setEncodedJsonHeader(res, "X-Voxis-Adjusted-Voice", audio.adjustedVoiceProfile || voiceProfile, { maxBytes: 1400 });
     setEncodedJsonHeader(res, "X-Voxis-Prosody", audio.prosodyEnvelope || {}, { maxBytes: 1400 });
-    setEncodedJsonHeader(res, "X-Voxis-Tts-Telemetry", audio.telemetry || {}, { maxBytes: 1400 });
+    setTtsTelemetryHeader(res, audio.telemetry || {});
     setEncodedHeader(res, "X-Voxis-Tts-Realism-Chain", encodeURIComponent(String(audio?.realism?.chain || "disabled")), { maxBytes: 1200 });
     setEncodedJsonHeader(res, "X-Voxis-Tts-Realism", audio.realism || {}, { maxBytes: 1400 });
     // New SFX timeline header with timing data

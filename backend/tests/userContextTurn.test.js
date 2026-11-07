@@ -140,12 +140,51 @@ describe("user context turn", () => {
 
   it("wires the turn into chat without taking over mood", () => {
     const source = readFileSync(new URL("../controllers/chatController.js", import.meta.url), "utf8");
-    const turn = source.indexOf("userContext = runUserContextTurn");
-    const mood = source.indexOf("stepMoodDetailed");
-    const prompt = source.indexOf("userContext,");
+    const chatStart = source.indexOf("export async function chatHandler");
+    const chatBody = source.slice(chatStart);
+    const turn = chatBody.indexOf("userContext = runUserContextTurn");
+    const mood = chatBody.indexOf("stepAndPersistTurnMood({");
+    const prompt = chatBody.indexOf("userContext,");
 
     expect(turn).toBeGreaterThan(mood);
     expect(prompt).toBeGreaterThan(turn);
-    expect(source).toContain("currentMoodLabel: moodLabel");
+    expect(chatBody).toContain("currentMoodLabel: moodLabel");
+    expect(chatBody).toContain("ensureVoxisGuideStore");
+    const kidsStart = chatBody.indexOf("detectKidsUnsafeInput");
+    const kidsReturn = chatBody.indexOf("blockedBySafetyPolicy");
+    expect(chatBody.indexOf("stepAndPersistTurnMood({", kidsStart)).toBeGreaterThan(kidsStart);
+    expect(chatBody.indexOf("stepAndPersistTurnMood({", kidsStart)).toBeLessThan(kidsReturn);
+    expect(chatBody.indexOf("runUserContextTurn({", kidsStart)).toBeLessThan(kidsReturn);
+
+    const openerBody = source.slice(source.indexOf("export async function personaOpenerHandler"), chatStart);
+    expect(openerBody.indexOf("userContext = runUserContextTurn")).toBeGreaterThan(openerBody.indexOf("advanceTurnMood"));
+    expect(openerBody.indexOf("userContext,")).toBeGreaterThan(openerBody.indexOf("userContext = runUserContextTurn"));
+    expect(openerBody).toContain("createChatMessage");
+
+    const unusedRoute = readFileSync(new URL("../routes/voxisRoutes.js", import.meta.url), "utf8");
+    expect(unusedRoute).toContain("POST /api/voxis/chat is unused");
+    expect(unusedRoute).not.toMatch(/chatWithVoxis\(/);
+  });
+
+  it("wires the same turn into a live call after mood and before the prompt", () => {
+    const source = readFileSync(new URL("../controllers/internalChatController.js", import.meta.url), "utf8");
+    const turn = source.indexOf("userContext = runUserContextTurn");
+    const mood = source.indexOf("await advanceTurnMood");
+    const strategy = source.indexOf("responseStrategy = classifyResponseStrategy");
+    const prompt = source.indexOf("promptOptions.userContext = userContext");
+
+    expect(turn).toBeGreaterThan(mood);
+    expect(strategy).toBeGreaterThan(turn);
+    expect(prompt).toBeGreaterThan(strategy);
+    expect(source).toContain("req.advanceMood === true");
+    const liveOnly = source.indexOf("req.advanceMood === true");
+    expect(mood).toBeLessThan(liveOnly);
+    expect(source.indexOf("createChatMessage({")).toBeGreaterThan(liveOnly);
+    const stored = source.indexOf("createChatMessage({");
+    const reply = source.indexOf("generateChatCompletionWithMeta(llmMessages, generationOptions)");
+    expect(source).toContain("generationOptions.maxTokens = responseStrategy?.maxTokensHint ?? null");
+    expect(source).not.toMatch(/if \(req\.advanceMood === true\) \{\s*const recentMessages/s);
+    expect(stored).toBeGreaterThan(reply);
+    expect(source).not.toMatch(/residualContinuity|expressionSampler|extractMemoryFacts/);
   });
 });

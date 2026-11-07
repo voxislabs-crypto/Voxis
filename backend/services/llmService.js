@@ -23,6 +23,7 @@ import { buildEPFAudioConstraintNote, normalizeSingingProfile, resolveEmotionNod
 import { deriveDefaultResponseFocusProfile } from "./hybridPersonalityService.js";
 import { buildStateFlawPromptSection } from "./stateFlawService.js";
 import { dominanceSpeechPercent } from "./spokenShift.js";
+import { extractIdentityStatement } from "./personaFromVoxis.js";
 import { buildUserContextPromptSection } from "./userContextPrompt.js";
 import { applyMaxTokensHint, buildResponseStrategyPromptSection } from "./responseStrategy.js";
 
@@ -2005,7 +2006,10 @@ export function buildPersonaPromptPackage(personality, memoryFacts = [], queryTe
   const activeGoal = selectActiveGoal(personality, queryText, memoryFacts);
   const activeResponseLens = selectActiveResponseLens(personality, queryText, memoryFacts, activeGoal, options);
 
-  const personalizedDescription = personalizePersonaText(description, textPersonalizationOptions);
+  const personalizedDescription = personalizePersonaText(
+    extractIdentityStatement(description, name),
+    textPersonalizationOptions,
+  );
   const personalizedSpeechStyle = personalizePersonaText(speechStyle, textPersonalizationOptions);
   const personalizedResearchSummary = personalizePersonaText(researchSummary, textPersonalizationOptions);
   const personalizedMood = personalizePersonaText(mood, textPersonalizationOptions);
@@ -2361,9 +2365,10 @@ export function buildCompactPersonaSystemPrompt(personality, memoryFacts = []) {
   const topTraits = (traits || []).slice(0, 4);
   const topRules = (behaviorRules || []).slice(0, 3);
   const anchorFacts = memoryFacts.filter((f) => f.importance >= 9);
+  const identity = extractIdentityStatement(description, name);
 
   return [
-    `You are ${name}. ${description}`,
+    `You are ${name}. ${identity}`,
     "",
     `Traits: ${topTraits.join(", ") || "none specified"}.`,
     topRules.length ? `Rules: ${topRules.join(" | ")}.` : "",

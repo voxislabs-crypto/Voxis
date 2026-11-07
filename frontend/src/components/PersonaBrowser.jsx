@@ -8,7 +8,10 @@ import './PersonaBrowser.css';
 
 const PersonaBrowser = ({ personas, onSelectPersona }) => {
   const [selectedPersona, setSelectedPersona] = useState(null);
-  const [detailPersona, setDetailPersona] = useState(null);
+  const [detailPersonaId, setDetailPersonaId] = useState(null);
+  const detailPersona = detailPersonaId == null
+    ? null
+    : (personas || []).find((persona) => persona.id === detailPersonaId) || null;
   const [error, setError] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
 
@@ -29,12 +32,12 @@ const PersonaBrowser = ({ personas, onSelectPersona }) => {
   };
 
   const handleViewDetails = () => {
-    setDetailPersona(selectedPersona);
+    setDetailPersonaId(selectedPersona?.id ?? null);
     setSelectedPersona(null);
   };
 
   const handleCloseDetail = () => {
-    setDetailPersona(null);
+    setDetailPersonaId(null);
   };
 
   if (error) {

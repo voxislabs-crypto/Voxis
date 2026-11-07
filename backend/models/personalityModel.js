@@ -241,6 +241,41 @@ export function createPersonality(personality) {
   return getPersonalityById(result.lastInsertRowid);
 }
 
+// System row for the Voxis guide. ownerId -1 stays out of owner lists and
+// is not claimed by claimLegacyPersonalities, which only updates NULL owners.
+export const VOXIS_GUIDE_STORE_SOURCE = "voxis-guide-store";
+export const VOXIS_GUIDE_STORE_OWNER_ID = -1;
+
+export function ensureVoxisGuideStore() {
+  const existing = db.prepare(`
+    SELECT id
+    FROM personalities
+    WHERE sourceQuery = ? AND ownerId = ?
+    ORDER BY id ASC
+    LIMIT 1
+  `).get(VOXIS_GUIDE_STORE_SOURCE, VOXIS_GUIDE_STORE_OWNER_ID);
+  if (existing?.id) {
+    return getPersonalityById(existing.id);
+  }
+
+  const calm = { valence: 0.1, arousal: -0.1, dominance: 0.15 };
+  return createPersonality({
+    name: "Voxis Guide",
+    description: "System mood and user-model store for the Voxis guide. Not a chat persona.",
+    traits: ["system"],
+    quirks: [],
+    mood: "calm",
+    systemPrompt: "",
+    sourceQuery: VOXIS_GUIDE_STORE_SOURCE,
+    researchSummary: "",
+    speechStyle: "",
+    creativeContext: "system",
+    moodBaseline: calm,
+    moodState: { ...calm },
+    ownerId: VOXIS_GUIDE_STORE_OWNER_ID,
+  });
+}
+
 export function getAllPersonalities(ownerId = null) {
   const statement = ownerId
     ? db.prepare(`

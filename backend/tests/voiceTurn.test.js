@@ -13,6 +13,10 @@ const mockUpdateMoodState = vi.fn();
 const mockGenerateSpeechAudio = vi.fn();
 const mockGetAuthenticatedActor = vi.fn();
 const mockResolveOwnedPersona = vi.fn();
+const mockAdvanceTurnMood = vi.fn();
+const mockRunUserContextTurn = vi.fn();
+const mockCreateChatMessage = vi.fn();
+const mockEmbedChatMessageAsync = vi.fn();
 
 vi.mock("../gatekeeper/authorization.js", () => ({
   getAuthenticatedActor: mockGetAuthenticatedActor,
@@ -26,6 +30,11 @@ vi.mock("../models/personalityModel.js", () => ({
 vi.mock("../models/memoryModel.js", () => ({
   getRelevantPersonalityMemory: mockGetRelevantPersonalityMemory,
   upsertMemoryFact: mockUpsertMemoryFact,
+}));
+
+vi.mock("../models/chatModel.js", () => ({
+  createChatMessage: (...args) => mockCreateChatMessage(...args),
+  embedChatMessageAsync: (...args) => mockEmbedChatMessageAsync(...args),
 }));
 
 vi.mock("../services/llmService.js", () => ({
@@ -42,6 +51,15 @@ vi.mock("../services/moodEngine.js", () => ({
 
 vi.mock("../services/ttsService.js", () => ({
   generateSpeechAudio: mockGenerateSpeechAudio,
+}));
+
+vi.mock("../services/turnMood.js", () => ({
+  advanceTurnMood: (...args) => mockAdvanceTurnMood(...args),
+  withSpeechMood: (personality) => personality,
+}));
+
+vi.mock("../services/userContextTurn.js", () => ({
+  runUserContextTurn: (...args) => mockRunUserContextTurn(...args),
 }));
 
 const { resetVoiceAudioStore } = await import("../services/voiceAudioStore.js");
@@ -106,10 +124,32 @@ describe("voice turn route", () => {
       buffer: Buffer.from("audio-bytes"),
       contentType: "audio/mpeg",
       engine: "cartesia",
+      telemetry: {
+        emotionFrame: {
+          displayLabel: "Pleased - Warm",
+          intensity: 0.42,
+          zone: { key: "green", label: "Green Zone", accent: "#44dd88" },
+          normalized: { valence: 0.4, arousal: 0.2, dominance: 0.1 },
+        },
+      },
+    });
+    mockAdvanceTurnMood.mockResolvedValue({
+      newMood: { valence: 0.4, arousal: 0.2, dominance: 0.1 },
+      moodLabel: "upbeat",
+      moodBaseline: { valence: 0.1, arousal: -0.2, dominance: 0.2 },
+    });
+    mockCreateChatMessage.mockImplementation(({ role }) => ({ id: role === "user" ? 21 : 22 }));
+    mockEmbedChatMessageAsync.mockResolvedValue(undefined);
+    mockRunUserContextTurn.mockReturnValue({
+      affect: { valence: 0.1, arousal: 0.2, intent: "unclear", confidence: 0.4 },
+      userModel: { scopeKey: "session:7:anon" },
+      theoryOfMind: null,
+      adaptation: null,
+      flags: { affect: true, model: true, theory: true, adaptation: true },
     });
   });
 
-  it("returns reply text and an internal audio URL without writing mood or memory", async () => {
+  it("returns reply text and an internal audio URL after stepping mood", async () => {
     const res = mockRes();
     await voiceTurnHandler({
       body: {
@@ -125,10 +165,56 @@ describe("voice turn route", () => {
     expect(res.body.audioUrl).toMatch(/^\/api\/internal\/voice-audio\/[a-f0-9]{32}$/);
     expect(res.body.contentType).toBe("audio/mpeg");
     expect(res.body.personalityId).toBe(7);
+    expect(res.body.moodState).toEqual({ valence: 0.4, arousal: 0.2, dominance: 0.1 });
+    expect(res.body.moodLabel).toBe("upbeat");
+    expect(res.body.emotionFrame).toEqual({
+      displayLabel: "Pleased - Warm",
+      intensity: 0.42,
+      zone: { key: "green", label: "Green Zone", accent: "#44dd88" },
+      normalized: { valence: 0.4, arousal: 0.2, dominance: 0.1 },
+    });
 
+    expect(mockAdvanceTurnMood).toHaveBeenCalledWith(expect.objectContaining({
+      userId: null,
+      message: "what is the harbor plan",
+    }));
+    expect(mockRunUserContextTurn).toHaveBeenCalledWith({
+      message: "what is the harbor plan",
+      history: [{ role: "assistant", content: "Earlier note." }],
+      userId: null,
+      personalityId: 7,
+      sessionKey: "7:anon",
+    });
+    expect(mockBuildPersonaPromptPackage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(Array),
+      "what is the harbor plan",
+      expect.objectContaining({
+        userContext: expect.objectContaining({
+          userModel: expect.objectContaining({ scopeKey: "session:7:anon" }),
+        }),
+      }),
+    );
+    expect(res.body).not.toHaveProperty("userContext");
     expect(mockUpdateMoodState).not.toHaveBeenCalled();
     expect(mockUpsertMemoryFact).not.toHaveBeenCalled();
+    expect(mockCreateChatMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      personalityId: 7,
+      role: "user",
+      content: "what is the harbor plan",
+      userId: null,
+    }));
+    expect(mockCreateChatMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      personalityId: 7,
+      role: "assistant",
+      content: "The harbor can wait.",
+      userId: null,
+    }));
     expect(mockGenerateChatCompletionWithMeta).toHaveBeenCalledTimes(1);
+    expect(mockGenerateChatCompletionWithMeta.mock.calls[0][1]).toEqual({
+      temperature: 0.85,
+      maxTokens: null,
+    });
     const [llmMessages] = mockGenerateChatCompletionWithMeta.mock.calls[0];
     expect(llmMessages.at(-1)).toEqual({ role: "user", content: "what is the harbor plan" });
     expect(llmMessages.some((message) => message.content === "Earlier note.")).toBe(true);
@@ -138,6 +224,8 @@ describe("voice turn route", () => {
     expect(speechArgs.text).toBe("The harbor can wait.");
     expect(speechArgs.voiceProfile.engine).toBe("cartesia");
     expect(speechArgs.voiceProfile.cartesiaVoiceId).toBe("voice-from-persona");
+    expect(speechArgs.userId).toBeNull();
+    expect(speechArgs.personality.moodState).toEqual({ valence: 0.4, arousal: 0.2, dominance: 0.1 });
 
     const audioRes = mockRes();
     const id = res.body.audioUrl.split("/").pop();
@@ -175,6 +263,8 @@ describe("voice turn route", () => {
     expect(res.statusCode).toBe(400);
     expect(mockGenerateChatCompletionWithMeta).not.toHaveBeenCalled();
     expect(mockGenerateSpeechAudio).not.toHaveBeenCalled();
+    expect(mockRunUserContextTurn).not.toHaveBeenCalled();
+    expect(mockCreateChatMessage).not.toHaveBeenCalled();
   });
 
   it("keeps the voice route behind internal auth and off the session module", () => {
@@ -204,6 +294,21 @@ describe("voice turn route", () => {
     }, res, vi.fn());
 
     expect(res.body.audioUrl).toMatch(/^\/voice-audio\/[a-f0-9]{32}$/);
+    expect(mockGenerateSpeechAudio.mock.calls.at(-1)[0].userId).toBe(7);
+    expect(mockRunUserContextTurn).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 7,
+      personalityId: 7,
+      message: "hello",
+      sessionKey: "7:7",
+    }));
+    expect(mockGenerateChatCompletionWithMeta.mock.calls.at(-1)[1].maxTokens).toBe(120);
+    expect(mockCreateChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+      personalityId: 7,
+      role: "user",
+      content: "hello",
+      userId: 7,
+    }));
+    expect(res.body).not.toHaveProperty("userContext");
     const id = res.body.audioUrl.split("/").pop();
     const ownerAudioRes = mockRes();
     authenticatedVoiceAudioHandler({ voxisUser: { id: 7 }, params: { id } }, ownerAudioRes);

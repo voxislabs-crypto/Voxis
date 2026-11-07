@@ -1,3 +1,4 @@
+import { createChatMessage, embedChatMessageAsync } from "../models/chatModel.js";
 import { getPersonalityById } from "../models/personalityModel.js";
 import { getRelevantPersonalityMemory } from "../models/memoryModel.js";
 import {
@@ -5,6 +6,9 @@ import {
   generateChatCompletionWithMeta,
 } from "../services/llmService.js";
 import { moodFromLabel, moodToLabel, moodToPromptFragment } from "../services/moodEngine.js";
+import { classifyResponseStrategy, isResponseStrategyEnabled } from "../services/responseStrategy.js";
+import { advanceTurnMood } from "../services/turnMood.js";
+import { runUserContextTurn } from "../services/userContextTurn.js";
 
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 16000;
@@ -107,8 +111,10 @@ export function buildInternalChatMessages({
 
 // Non-streaming personality turn for a local orchestrator.
 // Reads the current persona, memory, and mood into the prompt.
-// Does not write chat history or step mood, so a council fanout
-// does not land in the user's conversation log.
+// Does not add residual or micro-variation.
+// Council and the live call both step mood, run the user-context layers, and classify reply length.
+// Chat history and the mood fields on the JSON stay on the live call (req.advanceMood).
+// A council fanout still does not write the user transcript.
 export async function internalChatHandler(req, res, next) {
   try {
     const personalityId = Number(req.body?.personalityId);
@@ -154,12 +160,66 @@ export async function internalChatHandler(req, res, next) {
       });
     }
 
-    const { moodState, moodBaseline, moodLabel } = resolveMood(personality);
-    const promptPackage = buildPersonaPromptPackage(personality, memoryFacts, queryText, {
+    let { moodState, moodBaseline, moodLabel } = resolveMood(personality);
+    const recentMessages = messages.slice(0, -1);
+    const stepped = await advanceTurnMood({
+      personality,
+      userId: req.moodUserId ?? null,
+      message: queryText,
+      recentMessages,
+    });
+    moodState = stepped.newMood;
+    moodBaseline = stepped.moodBaseline;
+    moodLabel = stepped.moodLabel;
+
+    let userContext = null;
+    let responseStrategy = null;
+    const userId = req.moodUserId ?? null;
+    let lastUserIndex = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    const history = lastUserIndex >= 0
+      ? messages.slice(0, lastUserIndex)
+      : messages.slice(0, -1);
+    try {
+      userContext = runUserContextTurn({
+        message: queryText,
+        history,
+        userId,
+        personalityId,
+        sessionKey: `${personalityId}:${userId ?? "anon"}`,
+      });
+    } catch (error) {
+      console.error("[VOXIS] user context layers failed:", error?.message || error);
+    }
+    responseStrategy = classifyResponseStrategy({
+      message: queryText,
+      history,
+      affect: userContext?.affect || null,
+      mood: moodState,
+      energy: personality?.expressionStyle?.energy || "",
+      goals: personality?.goals,
+      memoryFacts,
+      enabled: isResponseStrategyEnabled(),
+    });
+
+    const promptOptions = {
       currentMoodLabel: moodLabel,
       conversationKey: `internal:${personalityId}`,
       userName: "",
-    });
+    };
+    promptOptions.userContext = userContext;
+    promptOptions.responseStrategy = responseStrategy;
+    const promptPackage = buildPersonaPromptPackage(
+      personality,
+      memoryFacts,
+      queryText,
+      promptOptions,
+    );
 
     const llmMessages = buildInternalChatMessages({
       prompt: promptPackage.prompt,
@@ -168,21 +228,51 @@ export async function internalChatHandler(req, res, next) {
       messages,
     });
 
-    const generation = await generateChatCompletionWithMeta(llmMessages, {
+    const generationOptions = {
       temperature: normalizedTemperature.temperature,
-    });
+    };
+    generationOptions.maxTokens = responseStrategy?.maxTokensHint ?? null;
+    const generation = await generateChatCompletionWithMeta(llmMessages, generationOptions);
     const text = String(generation?.reply || "").trim();
     if (!text) {
       return res.status(502).json({ error: "The model returned an empty reply." });
     }
 
-    return res.json({
+    if (req.advanceMood === true) {
+      const rawUserId = Number(req.moodUserId);
+      const userId = Number.isInteger(rawUserId) && rawUserId > 0 ? rawUserId : null;
+      const storedUser = createChatMessage({
+        personalityId,
+        role: "user",
+        content: queryText,
+        userId,
+        mode: "",
+      });
+      const storedAssistant = createChatMessage({
+        personalityId,
+        role: "assistant",
+        content: text,
+        userId,
+        mode: "",
+      });
+      setImmediate(() => {
+        embedChatMessageAsync(storedUser?.id, queryText).catch(() => {});
+        embedChatMessageAsync(storedAssistant?.id, text).catch(() => {});
+      });
+    }
+
+    const payload = {
       text,
       personalityId: personality.id,
       personalityName: personality.name,
       model: generation.model || null,
       usage: generation.usage || null,
-    });
+    };
+    if (req.advanceMood === true) {
+      payload.moodState = moodState;
+      payload.moodLabel = moodLabel;
+    }
+    return res.json(payload);
   } catch (error) {
     const status = Number(error?.statusCode || error?.status);
     if (Number.isInteger(status) && status >= 400 && status < 600) {
