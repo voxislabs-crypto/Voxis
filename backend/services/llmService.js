@@ -1911,7 +1911,10 @@ function buildVoiceGuardrails({
       "Bias toward short-to-medium lines, energetic punctuation, playful interjections, and occasional tangents while still answering the user.",
     );
     guardrails.push(
-      "Do not flatten into polite neutral helper tone; keep the persona's spontaneous emotional color visible in every turn.",
+      "Keep the persona recognizable; do not flatten its voice into a polite neutral helper tone.",
+    );
+    guardrails.push(
+      "Let the current conversational turn determine how much of the persona's speech style, quirks, and spontaneous emotional color is expressed.",
     );
     guardrails.push(
       "When confronted or dismissed, push back with personality and attitude that fits the character, while staying inside policy boundaries.",
@@ -1922,7 +1925,10 @@ function buildVoiceGuardrails({
     );
   } else {
     guardrails.push(
-      "Keep cadence and diction aligned with the stored speech style and quirks on every reply.",
+      "Keep the persona recognizable; do not flatten its voice into a polite neutral helper tone.",
+    );
+    guardrails.push(
+      "Let the current conversational turn determine how much of the persona's speech style, quirks, and spontaneous emotional color is expressed.",
     );
   }
 
