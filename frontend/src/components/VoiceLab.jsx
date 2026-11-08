@@ -1189,8 +1189,26 @@ export default function VoiceLab({
   const [isPrefetchingSfx, setIsPrefetchingSfx] = useState(false);
   const [vlabTab, setVlabTab] = useState("config"); // "config" | "clone"
 
+  const VOICE_SECTION_ANCHOR = {
+    "engine-main": "engine",
+    "provider-voices": "engine",
+    models: "engine",
+    "provider-auth": "engine",
+    "pitch-rate": "synthesis",
+    "sfx-volume": "synthesis",
+    realism: "synthesis",
+    "voice-toggle": "flags",
+    "autoplay-flag": "flags",
+    "signal-tester": "signal",
+    waveform: "waveform",
+    "sample-preview": "signal",
+    "voice-maps": "controls",
+    "save-apply": "controls",
+  };
+
   // New tree navigation state for the requested split UI
   const [selectedVoiceSection, setSelectedVoiceSection] = useState("engine-main");
+  const [voicePaneScrollToken, setVoicePaneScrollToken] = useState(0);
   const [expandedVoiceSections, setExpandedVoiceSections] = useState(() => new Set(["engine", "synthesis", "flags"]));
 
   // File-system style tree definition for Voice Lab
@@ -1255,220 +1273,34 @@ export default function VoiceLab({
 
   function selectVoiceSection(sectionId, parentId) {
     setSelectedVoiceSection(sectionId);
+    setVoicePaneScrollToken((token) => token + 1);
     if (parentId && !expandedVoiceSections.has(parentId)) {
       setExpandedVoiceSections((prev) => new Set(prev).add(parentId));
     }
   }
 
-  // Render the right-hand content based on selected tree leaf
-  function renderVoiceContent(sectionId) {
-    const sectionTitleMap = {
-      "engine-main": "ENGINE CONFIG — Engine Selection",
-      "provider-voices": "ENGINE CONFIG — Provider Voices",
-      "models": "ENGINE CONFIG — Models",
-      "provider-auth": "ENGINE CONFIG — Provider Credentials",
-      "pitch-rate": "SYNTHESIS PARAMETERS — Pitch & Rate",
-      "sfx-volume": "SYNTHESIS PARAMETERS — SFX Volume",
-      "realism": "SYNTHESIS PARAMETERS — Realism",
-      "voice-toggle": "VOICE FLAGS — Enable",
-      "autoplay-flag": "VOICE FLAGS — Autoplay",
-      "signal-tester": "TESTING & PROSODY — Signal Tester",
-      "waveform": "TESTING & PROSODY — Waveform",
-      "sample-preview": "TESTING & PROSODY — Sample Preview",
-      "voice-maps": "SAVED PROFILES — Voice Maps",
-      "save-apply": "SAVED PROFILES — Save & Apply",
-    };
+  useEffect(() => {
+    if (vlabTab !== "config") return;
+    const pane = voicePaneRef.current;
+    if (!pane) return;
+    const anchor = VOICE_SECTION_ANCHOR[selectedVoiceSection] || "engine";
+    const target = pane.querySelector(`[data-voice-anchor="${selectedVoiceSection}"]`)
+      || pane.querySelector(`[data-voice-section="${anchor}"]`);
+    if (!target) return;
+    const paneTop = pane.getBoundingClientRect().top;
+    const targetTop = target.getBoundingClientRect().top;
+    pane.scrollTo({
+      top: Math.max(0, pane.scrollTop + (targetTop - paneTop) - 12),
+      behavior: "auto",
+    });
+    const shell = pane.closest(".vlab-shell");
+    if (!shell || typeof window === "undefined") return;
+    const top = shell.getBoundingClientRect().top;
+    if (top < 0 || top > 80) {
+      shell.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  }, [selectedVoiceSection, vlabTab, voicePaneScrollToken]);
 
-    const title = sectionTitleMap[sectionId] || "CONFIGURATION";
-
-    return (
-      <div>
-        <div className="house-content-header">{title}</div>
-
-        {/* ENGINE SELECTION */}
-        {(sectionId === "engine-main" || sectionId === "provider-voices" || sectionId === "models") && (
-          <>
-            <div className="vlab-field" style={{ marginBottom: 16 }}>
-              <label htmlFor="vlab-engine">TTS Engine</label>
-              <select
-                id="vlab-engine"
-                className="vlab-select"
-                value={voiceProfile.engine}
-                onChange={(e) => updateVoiceField("engine", normalizeVoiceEngineForDebug(e.target.value))}
-                style={{ width: "100%", padding: "8px 10px" }}
-              >
-                {TTS_DEBUG_PROVIDER_LOCK ? (
-                  <>
-                    <option value="auto">auto (cartesia → kokoro)</option>
-                    {TTS_DISABLE_KOKORO ? null : <option value="kokoro">kokoro (free local)</option>}
-                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
-                    <option value="kokoro-rvc">kokoro + rvc</option>
-                    <option value="cartesia">cartesia (saved key)</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="auto">auto</option>
-                    <option value="cloud">cloud</option>
-                    <option value="elevenlabs">elevenlabs</option>
-                    <option value="cartesia">cartesia</option>
-                    {TTS_DISABLE_KOKORO ? null : <option value="kokoro">kokoro</option>}
-                    <option value="openvoice">OpenVoice v2 (cloned voice)</option>
-                    <option value="piper">piper</option>
-                  </>
-                )}
-              </select>
-              {voiceProfile.engine === "openvoice" ? (
-                <small className="vlab-small">
-                  Speaks with the reference clip from Clone Voice. Save this engine, then play from Character Chat.
-                </small>
-              ) : null}
-            </div>
-
-            {/* Provider voice selection simplified for tree view */}
-            {sectionId === "provider-voices" && (
-              <div style={{ marginTop: 12 }}>
-                <label style={{ fontSize: "0.72rem", textTransform: "uppercase", color: "#8fa4b8" }}>Voice (provider)</label>
-                <div style={{ marginTop: 6, fontSize: "0.8rem", color: "#a8b9c9" }}>
-                  (Full voice selector available in legacy mode or advanced panels)
-                </div>
-              </div>
-            )}
-
-            {sectionId === "models" && (
-              <div style={{ marginTop: 12 }}>
-                <label style={{ fontSize: "0.72rem", textTransform: "uppercase", color: "#8fa4b8" }}>Model</label>
-                <div style={{ marginTop: 6, fontSize: "0.8rem", color: "#a8b9c9" }}>
-                  Choose model in the expanded form if needed.
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* SYNTHESIS */}
-        {sectionId === "pitch-rate" && (
-          <div className="vlab-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <div className="vlab-field">
-              <label>Pitch Modifier</label>
-              <input
-                type="range"
-                min="0.5"
-                max="2"
-                step="0.01"
-                value={voiceProfile.pitch}
-                onChange={(e) => updateVoiceField("pitch", parseFloat(e.target.value))}
-              />
-              <div style={{ fontSize: "0.7rem", color: "#7a95af" }}>{Number(voiceProfile.pitch).toFixed(2)}</div>
-            </div>
-            <div className="vlab-field">
-              <label>Rate Modifier</label>
-              <input
-                type="range"
-                min="0.6"
-                max="1.8"
-                step="0.01"
-                value={voiceProfile.rate}
-                onChange={(e) => updateVoiceField("rate", parseFloat(e.target.value))}
-              />
-              <div style={{ fontSize: "0.7rem", color: "#7a95af" }}>{Number(voiceProfile.rate).toFixed(2)}</div>
-            </div>
-          </div>
-        )}
-
-        {sectionId === "sfx-volume" && (
-          <div className="vlab-field">
-            <label>SFX Volume</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={voiceProfile.sfxVolume}
-              onChange={(e) => updateVoiceField("sfxVolume", parseFloat(e.target.value))}
-            />
-            <div style={{ fontSize: "0.7rem" }}>{Number(voiceProfile.sfxVolume).toFixed(2)}</div>
-          </div>
-        )}
-
-        {sectionId === "realism" && (
-          <>
-            <label className="vlab-toggle" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={!!voiceProfile.realismEnabled}
-                onChange={(e) => updateVoiceField("realismEnabled", e.target.checked)}
-              />
-              Enable Realism Post-Processing
-            </label>
-            <div style={{ marginTop: 10 }}>
-              <label style={{ fontSize: "0.72rem" }}>Realism Preset</label>
-              <select
-                value={voiceProfile.realismPreset}
-                onChange={(e) => updateVoiceField("realismPreset", e.target.value)}
-                style={{ marginTop: 4, width: "100%" }}
-              >
-                {["conversational", "dramatic", "intimate", "energetic", "whisper"].map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
-
-        {/* VOICE FLAGS */}
-        {(sectionId === "voice-toggle" || sectionId === "autoplay-flag") && (
-          <div>
-            <label className="vlab-toggle" style={{ marginBottom: 12, display: "block" }}>
-              <input
-                type="checkbox"
-                checked={voiceProfile.enabled}
-                onChange={(e) => updateVoiceField("enabled", e.target.checked)}
-              />
-              Voice Enabled
-            </label>
-
-            <label className="vlab-toggle" style={{ display: "block" }}>
-              <input
-                type="checkbox"
-                checked={!!voiceProfile.autoplay}
-                onChange={(e) => updateVoiceField("autoplay", e.target.checked)}
-              />
-              Autoplay responses
-            </label>
-          </div>
-        )}
-
-        {/* TESTING */}
-        {["signal-tester", "waveform", "sample-preview"].includes(sectionId) && (
-          <div style={{ fontSize: "0.85rem", color: "#9fb4c8", lineHeight: 1.5 }}>
-            {sectionId === "signal-tester" && "Prosody URL + extraction controls live here."}
-            {sectionId === "waveform" && "Live frequency monitor and generated audio preview."}
-            {sectionId === "sample-preview" && "Send test text and audition current settings."}
-            <div style={{ marginTop: 12, fontSize: "0.7rem", opacity: 0.7 }}>
-              (Detailed controls still available in the full config view if needed)
-            </div>
-          </div>
-        )}
-
-        {/* PROFILES */}
-        {["voice-maps", "save-apply"].includes(sectionId) && (
-          <div>
-            <div style={{ marginBottom: 12 }}>Voice Maps &amp; Saved Profiles</div>
-            <button className="vlab-btn" style={{ padding: "8px 14px" }} onClick={() => void saveVoiceMap()}>
-              Save Current Voice Profile
-            </button>
-            <div style={{ marginTop: 10, fontSize: "0.7rem", color: "#7a95af" }}>
-              Load from saved maps in the full editor.
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 24, fontSize: "0.65rem", color: "#5f7285", borderTop: "1px solid #2a3747", paddingTop: 10 }}>
-          Select different leaves on the left to focus this panel. Full legacy controls remain available under the hood.
-        </div>
-      </div>
-    );
-  }
   const [sampleText, setSampleText] = useState("");
   const [prosodyUrl, setProsodyUrl] = useState("");
   const [prosodyFile, setProsodyFile] = useState(null);
@@ -1530,6 +1362,7 @@ export default function VoiceLab({
   const [syncMapOnProfileSave, setSyncMapOnProfileSave] = useState(true);
 
   // Refs
+  const voicePaneRef = useRef(null);
   const audioRef = useRef(null);
   const voiceSampleAudioRef = useRef(null);
   const canvasRef = useRef(null);
@@ -2730,7 +2563,7 @@ export default function VoiceLab({
 
         {/* ── NEW TREE + SPLIT for CONFIG (house colors + requested layout) ── */}
         {vlabTab === "config" && (
-          <div className="house-split">
+          <div className="house-split section-dock">
             {/* LEFT: Tree navigation */}
             <div className="house-tree">
               <div className="house-tree-root">VOICE LAB</div>
@@ -2774,22 +2607,15 @@ export default function VoiceLab({
               })}
             </div>
 
-            {/* RIGHT: Content for selected section */}
-            <div className="house-content">
-              {renderVoiceContent(selectedVoiceSection)}
-            </div>
-          </div>
-        )}
-
-        {/* ── Voice Config Body (existing linear content hidden in favor of tree for now) ── */}
-        <div className="vlab-body" style={{ display: "none" }}>
+            <div className="house-content" ref={voicePaneRef}>
+        <div className="vlab-body">
 
           {/* ── Engine Config ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="engine">
             <div className="vlab-section-label">◈ ENGINE CONFIG</div>
             <div className="vlab-grid">
 
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="engine-main">
                 <label htmlFor="vlab-engine">TTS Engine</label>
                 <select
                   id="vlab-engine"
@@ -2884,7 +2710,7 @@ export default function VoiceLab({
                 </div>
               ) : null}
 
-              <div className="vlab-callout">
+              <div className="vlab-callout" data-voice-anchor="provider-auth">
                 <div className="vlab-callout-head">
                   <div>
                     <p className="vlab-callout-title">Runtime Voice Options Moved</p>
@@ -2900,7 +2726,7 @@ export default function VoiceLab({
                 </div>
               </div>
 
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="provider-voices">
                 <div className="vlab-label-row">
                   <label htmlFor={activeVoiceFieldId}>
                     {voiceFieldLabel}
@@ -3254,7 +3080,7 @@ export default function VoiceLab({
                 )}
               </div>
 
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="models">
                 <div className="vlab-label-row">
                   <label htmlFor={activeModelFieldId}>{modelFieldLabel}</label>
                   {(selectedProviderId || supportsCloudModelCatalog) ? (
@@ -3516,10 +3342,10 @@ export default function VoiceLab({
           </div>
 
           {/* ── Synthesis Parameters ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="synthesis">
             <div className="vlab-section-label">◈ SYNTHESIS PARAMETERS</div>
             <div className="vlab-grid">
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="pitch-rate">
                 <label htmlFor="vlab-pitch">Pitch Modifier</label>
                 <div className="vlab-slider-row">
                   <input
@@ -3556,7 +3382,7 @@ export default function VoiceLab({
                   <span className="vlab-slider-readout">{Number(voiceProfile.rate).toFixed(2)}×</span>
                 </div>
               </div>
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="sfx-volume">
                 <label htmlFor="vlab-sfx-volume">SFX Volume</label>
                 <div className="vlab-slider-row">
                   <input
@@ -3575,7 +3401,7 @@ export default function VoiceLab({
                   Controls non-verbal persona effects (burp / braap / urrrp variants, giggle, evil chuckle, fart, etc.) for this persona.
                 </small>
               </div>
-              <div className="vlab-field">
+              <div className="vlab-field" data-voice-anchor="realism">
                 <label htmlFor="vlab-realism-enabled">Realism Post-Processing</label>
                 <label className="vlab-toggle" htmlFor="vlab-realism-enabled" style={{ marginTop: 4 }}>
                   <input
@@ -3614,7 +3440,7 @@ export default function VoiceLab({
           </div>
 
           {/* ── Voice Flags ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="flags" data-voice-anchor="voice-toggle">
             <div className="vlab-section-label">◈ VOICE FLAGS</div>
             <div className="vlab-toggle-row">
               <label className="vlab-toggle">
@@ -3627,7 +3453,7 @@ export default function VoiceLab({
                 <span className="vlab-toggle-track" />
                 <span className="vlab-toggle-label">Enable voice playback</span>
               </label>
-              <label className="vlab-toggle">
+              <label className="vlab-toggle" data-voice-anchor="autoplay-flag">
                 <input
                   name="vlabVoiceAutoplay"
                   type="checkbox"
@@ -3641,7 +3467,7 @@ export default function VoiceLab({
           </div>
 
           {/* ── Signal Tester ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="signal" data-voice-anchor="signal-tester">
             <div className="vlab-section-label">◈ SIGNAL TESTER</div>
             <div className="vlab-field">
               <label htmlFor="vlab-prosody-url">Prosody Source URL</label>
@@ -3703,7 +3529,7 @@ export default function VoiceLab({
                 </div>
               ) : null}
             </div>
-            <div className="vlab-field">
+            <div className="vlab-field" data-voice-anchor="sample-preview">
               <label htmlFor="vlab-sample">Sample Transmission Text</label>
               <textarea
                 id="vlab-sample"
@@ -3845,7 +3671,7 @@ export default function VoiceLab({
           ) : null}
 
           {/* ── Waveform Monitor ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="waveform" data-voice-anchor="waveform">
             <div className="vlab-section-label">◈ WAVEFORM MONITOR</div>
             <div className="vlab-waveform-wrap">
               <div className="vlab-waveform-tag">FREQUENCY SPECTRUM</div>
@@ -3868,7 +3694,7 @@ export default function VoiceLab({
           </div>
 
           {/* ── Controls ── */}
-          <div className="vlab-section">
+          <div className="vlab-section" data-voice-section="controls" data-voice-anchor="voice-maps">
             <div className="vlab-section-label">◈ CONTROLS</div>
             <div className="vlab-grid" style={{ marginBottom: 8 }}>
               <div className="vlab-field">
@@ -3924,7 +3750,7 @@ export default function VoiceLab({
                 <span className="vlab-toggle-label">When saving profile, also update selected voice map</span>
               </label>
             </div>
-            <div className="vlab-actions">
+            <div className="vlab-actions" data-voice-anchor="save-apply">
               <button
                 type="button"
                 className="vlab-btn sec"
@@ -3988,6 +3814,9 @@ export default function VoiceLab({
           </div>
 
         </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -846,7 +846,7 @@ const appStyles = `
     background: #0a1323;
   }
 
-  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn) {
+  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn):not(.house-tree-child):not(.house-tree-parent):not(.vlab-tab-btn) {
     border-radius: 12px;
     border: 1px solid rgba(0, 245, 255, 0.3);
     background:
@@ -863,7 +863,7 @@ const appStyles = `
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
   }
 
-  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn):hover {
+  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn):not(.house-tree-child):not(.house-tree-parent):not(.vlab-tab-btn):hover {
     transform: translateY(-2px);
     border-color: rgba(170, 245, 255, 0.68);
     box-shadow:
@@ -872,7 +872,7 @@ const appStyles = `
       0 0 20px rgba(0, 245, 255, 0.24);
   }
 
-  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn):active {
+  .main-content button:not(.tab):not(.sidebar-toggle):not(.debug-toggle):not(.context-meter-info):not(.popup-close-btn):not(.house-tree-child):not(.house-tree-parent):not(.vlab-tab-btn):active {
     transform: translateY(1px) scale(0.992);
   }
 
@@ -1022,6 +1022,8 @@ export default function App() {
   );
   const [activeView, setActiveView] = useState("chat");
   const [settingsTreeSelection, setSettingsTreeSelection] = useState("visual");
+  const [settingsScrollToken, setSettingsScrollToken] = useState(0);
+  const settingsPaneRef = useRef(null);
   const [personaEditorTarget, setPersonaEditorTarget] = useState(null);
   const [builderMode, setBuilderMode] = useState("create");
   const [chatLogs, setChatLogs] = useState({});
@@ -1258,6 +1260,18 @@ export default function App() {
     }
     window.localStorage.setItem("voxis:sidebar-open", isSidebarOpen ? "1" : "0");
   }, [isSidebarOpen]);
+
+  useEffect(() => {
+    const pane = settingsPaneRef.current;
+    if (!pane) return;
+    pane.scrollTo({ top: 0 });
+    const panel = pane.closest(".house-control-panel");
+    if (!panel || typeof window === "undefined") return;
+    const top = panel.getBoundingClientRect().top;
+    if (top < 0 || top > 80) {
+      panel.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  }, [settingsTreeSelection, settingsScrollToken]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.localStorage) {
@@ -3088,30 +3102,38 @@ export default function App() {
                     Manage platform options, runtime providers, global voice routing, and voice provider credentials in one place.
                   </p>
 
-                  {/* Simple house palette tree for navigation */}
-                  <div className="house-tree" style={{ width: "100%", maxWidth: "100%", borderRight: "none", borderBottom: "1px solid var(--panel-border)", marginBottom: "12px", display: "flex", flexWrap: "wrap", padding: "8px" }}>
-                    {[
-                      { id: "visual", label: "Visual Effects" },
-                      { id: "policy", label: "User Policy" },
-                      { id: "llm", label: "LLM / Providers" },
-                      { id: "emotion", label: "Emotion Engine" },
-                      { id: "expression", label: "Expression Sampling" },
-                      { id: "cognition", label: "Cognition Loop" },
-                      { id: "filter", label: "Profane Filter" },
-                      { id: "aliases", label: "Companion Aliases" },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`house-tree-child ${settingsTreeSelection === item.id ? "selected" : ""}`}
-                        style={{ display: "inline-block", width: "auto", margin: "2px 4px" }}
-                        onClick={() => setSettingsTreeSelection(item.id)}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-
+                  <div className="house-split section-dock">
+                    <div className="house-tree" role="tablist" aria-label="Runtime settings" aria-orientation="vertical">
+                      <div className="house-tree-root">Sections</div>
+                      {[
+                        { id: "visual", label: "Visual Effects" },
+                        { id: "policy", label: "User Policy" },
+                        { id: "llm", label: "LLM / Providers" },
+                        { id: "emotion", label: "Emotion Engine" },
+                        { id: "expression", label: "Expression Sampling" },
+                        { id: "cognition", label: "Cognition Loop" },
+                        { id: "filter", label: "Profane Filter" },
+                        { id: "aliases", label: "Companion Aliases" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          id={`settings-tab-${item.id}`}
+                          type="button"
+                          role="tab"
+                          aria-selected={settingsTreeSelection === item.id}
+                          aria-controls={`settings-panel-${item.id}`}
+                          className={`house-tree-child settings-nav-item ${settingsTreeSelection === item.id ? "selected" : ""}`}
+                          onClick={() => {
+                            setSettingsTreeSelection(item.id);
+                            setSettingsScrollToken((token) => token + 1);
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="house-content" ref={settingsPaneRef}>
+                  <div id="settings-panel-visual" role="tabpanel" aria-labelledby="settings-tab-visual" hidden={settingsTreeSelection !== "visual"}>
                   <div className="panel glass-panel holographic-border" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0 }}>Visual Effects</h3>
                     <p className="section-copy" style={{ marginBottom: 12 }}>
@@ -3144,6 +3166,8 @@ export default function App() {
                       Keeps Brain tab and in-chat Brain button available, while forcing layout/list mode and hiding 3D rendering.
                     </p>
                   </div>
+                  </div>
+                  <div id="settings-panel-policy" role="tabpanel" aria-labelledby="settings-tab-policy" hidden={settingsTreeSelection !== "policy"}>
                   <div className="panel glass-panel holographic-border" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0 }}>User Policy Profile</h3>
                     <p className="section-copy" style={{ marginBottom: 12 }}>
@@ -3264,46 +3288,61 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  </div>
+                  <div id="settings-panel-llm" role="tabpanel" aria-labelledby="settings-tab-llm" hidden={settingsTreeSelection !== "llm"}>
                   <ApiDiagnosticsPanel onStatus={setStatus} autoRunToken={diagnosticsRunToken} />
                   <div style={{ marginTop: 24 }}>
                     <h3 className="section-heading">Chat Provider Configuration</h3>
                   </div>
                   <LlmSettingsPanel onStatus={setStatus} />
-                  <div style={{ marginTop: 24 }}>
+                  </div>
+                  <div id="settings-panel-emotion" role="tabpanel" aria-labelledby="settings-tab-emotion" hidden={settingsTreeSelection !== "emotion"}>
+                  <div style={{ marginTop: 0 }}>
                     <h3 className="section-heading">Emotional Engine Tuning</h3>
                     <p className="section-copy">
                       Adjust how your characters experience and recover from emotional states across turns.
                     </p>
                   </div>
                   <MoodRuntimeSettings onStatus={setStatus} />
-                  <div style={{ marginTop: 24 }}>
+                  </div>
+                  <div id="settings-panel-expression" role="tabpanel" aria-labelledby="settings-tab-expression" hidden={settingsTreeSelection !== "expression"}>
+                  <div style={{ marginTop: 0 }}>
                     <h3 className="section-heading">Expression Sampling</h3>
                     <p className="section-copy">
                       Control phrase variation and realism by adjusting mood-aware sampling per chat mode.
                     </p>
                   </div>
                   <ExpressionSamplingSettings onStatus={setStatus} />
-                  <div style={{ marginTop: 24 }}>
+                  </div>
+                  <div id="settings-panel-cognition" role="tabpanel" aria-labelledby="settings-tab-cognition" hidden={settingsTreeSelection !== "cognition"}>
+                  <div style={{ marginTop: 0 }}>
                     <h3 className="section-heading">Cognition Loop</h3>
                     <p className="section-copy">
                       Configure background personality reflection, autonomous decision-making, and reach-out delivery settings.
                     </p>
                   </div>
                   <CognitionLoopSettings onStatus={setStatus} />
-                  <div style={{ marginTop: 24 }}>
+                  </div>
+                  <div id="settings-panel-filter" role="tabpanel" aria-labelledby="settings-tab-filter" hidden={settingsTreeSelection !== "filter"}>
+                  <div style={{ marginTop: 0 }}>
                     <h3 className="section-heading">Profane Filter</h3>
                     <p className="section-copy">
                       Toggle content safety restrictions and customize the disclaimer shown when the filter is disabled.
                     </p>
                   </div>
                   <ProfaneFilterSettings onStatus={setStatus} />
-                  <div style={{ marginTop: 24 }}>
+                  </div>
+                  <div id="settings-panel-aliases" role="tabpanel" aria-labelledby="settings-tab-aliases" hidden={settingsTreeSelection !== "aliases"}>
+                  <div style={{ marginTop: 0 }}>
                     <h3 className="section-heading">Companion Alias Mapping</h3>
                     <p className="section-copy">
                       Configure which legacy companion names are treated as placeholders and swapped to the active user name at runtime.
                     </p>
                   </div>
                   <CompanionAliasSettings onStatus={setStatus} />
+                  </div>
+                    </div>
+                  </div>
                 </div>
           ) : (
                 <>

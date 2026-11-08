@@ -1147,6 +1147,15 @@
   padding-left: 5px;
 }
 
+.house-tree-child.settings-nav-item {
+  padding: 9px 14px;
+  font-size: 0.78rem;
+}
+
+.house-tree-child.settings-nav-item.selected {
+  padding-left: 11px;
+}
+
 /* Split layout */
 .house-split {
   display: flex;
@@ -1163,6 +1172,54 @@
   padding: 16px 20px;
   overflow-y: auto;
   background: #0b121b;
+}
+
+.house-split.section-dock {
+  height: clamp(420px, calc(100vh - 250px), 820px);
+  min-height: 420px;
+  align-items: stretch;
+}
+
+.house-split.section-dock > .house-tree,
+.house-split.section-dock > .house-content {
+  min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
+}
+
+.house-split.section-dock > .house-content {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.house-split.section-dock > .house-content > [hidden] {
+  display: none !important;
+}
+
+.vlab-shell .house-split.section-dock {
+  height: clamp(380px, calc(100vh - 340px), 760px);
+}
+
+@media (max-width: 800px) {
+  .house-split.section-dock,
+  .vlab-shell .house-split.section-dock {
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+
+  .house-split.section-dock > .house-tree {
+    width: 100%;
+    max-width: none;
+    max-height: 220px;
+    border-right: none;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .house-split.section-dock > .house-content {
+    height: min(68vh, 640px);
+    max-height: 68vh;
+  }
 }
 
 .house-content-header {
